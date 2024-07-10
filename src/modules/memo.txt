@@ -1,0 +1,433 @@
+// VM State ----------------------------------------------------------------------------------------
+
+// Enum to represent VMType
+#[derive(Debug, Clone, Copy)]
+struct Symbolic;
+
+#[derive(Debug, Clone, Copy)]
+struct Concrete;
+
+// Trait for Gas with associated types
+pub trait GasType {
+    type Gas;
+}
+
+impl GasType for Symbolic {
+    type Gas = ();
+}
+
+impl GasType for Concrete {
+    type Gas = u64;
+}
+// Define the necessary types and traits
+trait QueryTrait: Debug {}
+trait ChooseTrait: Debug {}
+
+// Mock types for illustration
+#[derive(Debug)]
+struct Query<T, S> {
+    // Fields for Query
+}
+
+impl<T, S> QueryTrait for Query<T, S> {}
+
+#[derive(Debug)]
+struct Choose<S> {
+    // Fields for Choose
+}
+
+impl<S> ChooseTrait for Choose<S> {}
+
+#[derive(Debug)]
+struct Symbolic;
+
+// Define the Effect enum
+#[derive(Debug)]
+enum Effect<T, S> {
+    Query(Box<dyn QueryTrait>),
+    Choose(Box<dyn ChooseTrait>),
+}
+
+// Implementations to create instances of Effect
+impl<T, S> Effect<T, S> {
+    fn new_query(query: Query<T, S>) -> Self {
+        Effect::Query(Box::new(query))
+    }
+}
+
+impl<S> Effect<Symbolic, S> {
+    fn new_choose(choose: Choose<S>) -> Self {
+        Effect::Choose(Box::new(choose))
+    }
+}
+
+enum VMResult<T, S> {
+    /// Execution could not continue further.
+    Unfinished(PartialExec),
+  
+    /// An operation failed.
+    VMFailure(EvmError),
+  
+    /// Reached STOP, RETURN, or end-of-code.
+    VMSuccess(Box<dyn ExprTrait<Buf>>),
+  
+    /// An effect must be handled for execution to continue.
+    HandleEffect(Effect<T, S>),
+}
+  
+impl<T, S> std::fmt::Display for VMResult<T, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+        VMResult::Unfinished(partial_exec) => write!(f, "Unfinished: {:?}", partial_exec),
+        VMResult::VMFailure(err) => write!(f, "VMFailure: {:?}", err),
+        VMResult::VMSuccess(buf) => write!(f, "VMSuccess: {:?}", buf),
+        VMResult::HandleEffect(effect) => write!(f, "HandleEffect: {:?}", effect),
+      }
+    }
+  }
+
+
+// The state of a stepwise EVM execution
+#[derive(Debug, Clone)]
+pub struct VM<T: GasType, S> {
+    result: Option<VMResult<T, S>>,
+    state: FrameState<T, S>,
+    frames: Vec<Frame<T, S>>,
+    env: Env,
+    block: Block,
+    tx: TxState,
+    logs: Vec<Box<dyn ExprTrait<Log>>>,
+    traces: TreePos<Empty, Trace>,
+    cache: Cache,
+    burned: T::Gas,
+    iterations: HashMap<CodeLocation, (i32, Vec<Box<dyn ExprTrait<EWord>>>)>,
+    constraints: Vec<Prop>,
+    config: RuntimeConfig,
+    forks: Vec<ForkState>,
+    current_fork: i32,
+    labels: HashMap<Addr, String>,
+}
+
+// ForkState struct
+#[derive(Debug, Clone)]
+pub struct ForkState {
+    env: Env,
+    block: Block,
+    cache: Cache,
+    url_or_alias: String,
+}
+
+// Alias for the type of e.g. @exec1@
+type EVM<T, S, A> = StateT<VM<T, S>, ST<S>, A>;
+
+// The VM base state (i.e. should new contracts be created with abstract balance / storage?)
+#[derive(Debug, Clone)]
+enum BaseState {
+    EmptyBase,
+    AbstractBase,
+}
+
+// Configuration options that need to be consulted at runtime
+#[derive(Debug, Clone)]
+struct RuntimeConfig {
+    allow_ffi: bool,
+    override_caller: Option<Box<dyn ExprTrait<EAddr>>>,
+    reset_caller: bool,
+    base_state: BaseState,
+}
+
+// An entry in the VM's "call/create stack"
+#[derive(Debug, Clone)]
+struct Frame<T: GasType, S> {
+    context: FrameContext,
+    state: FrameState<T, S>,
+}
+
+// Call/create info
+#[derive(Debug, Clone)]
+enum FrameContext {
+    CreationContext {
+        address: Box<dyn ExprTrait<EAddr>,
+        codehash: Box<dyn ExprTrait<EWord>,
+        createreversion: HashMap<Box<dyn ExprTrait<EAddr>>, Contract>,
+        substate: SubState,
+    },
+    CallContext {
+        target: Box<dyn ExprTrait<EAddr>,
+        context: Box<dyn ExprTrait<EAddr>,
+        offset: Box<dyn ExprTrait<EWord>,
+        size: Box<dyn ExprTrait<EWord>,
+        codehash: Box<dyn ExprTrait<EWord>,
+        abi: Option<W256>,
+        calldata: Box<dyn ExprTrait<Buf>,
+        callreversion: HashMap<Box<dyn ExprTrait<EAddr>, Contract>,
+        substate: SubState,
+    },
+}
+
+// The "accrued substate" across a transaction
+#[derive(Debug, Clone)]
+struct SubState {
+    selfdestructs: Vec<Box<dyn ExprTrait<EAddr>>,
+    touched_accounts: Vec<Box<dyn ExprTrait<EAddr>>,
+    accessed_addresses: HashSet<Box<dyn ExprTrait<EAddr>>,
+    accessed_storage_keys: HashSet<(Box<dyn ExprTrait<EAddr>>, W256)>,
+    refunds: Vec<(Box<dyn ExprTrait<EAddr>>, u64)>
+}
+
+// The "registers" of the VM along with memory and data stack
+#[derive(Debug, Clone)]
+pub struct FrameState<T: GasType, S> {
+    contract: Box<dyn ExprTrait<EAddr>,
+    code_contract: Box<dyn ExprTrait<EAddr>,
+    code: ContractCode,
+    pc: i32,
+    stack: Vec<Box<dyn ExprTrait<EWord>>,
+    memory: Memory<S>,
+    memory_size: u64,
+    calldata: Box<dyn ExprTrait<Buf>,
+    callvalue: Box<dyn ExprTrait<EWord>,
+    caller: Box<dyn ExprTrait<EAddr>,
+    gas: T::Gas,
+    returndata: Box<dyn ExprTrait<Buf>,
+    static_flag: bool,
+}
+
+#[derive(Debug, Clone)]
+enum Memory<S> {
+    ConcreteMemory(MutableMemory<S>),
+    SymbolicMemory(Box<dyn ExprTrait<Buf>),
+}
+
+impl<S> fmt::Display for Memory<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Memory::ConcreteMemory(_) => write!(f, "<can't show mutable memory>"),
+            Memory::SymbolicMemory(m) => write!(f, "{:?}", m),
+        }
+    }
+}
+
+type MutableMemory<S> = Vec<u8>; // Replace with appropriate mutable memory type if needed
+
+// The state that spans a whole transaction
+#[derive(Debug, Clone)]
+struct TxState {
+    gasprice: W256,
+    gaslimit: u64,
+    priority_fee: W256,
+    origin: Box<dyn ExprTrait<EAddr>,
+    to_addr: Box<dyn ExprTrait<EAddr>,
+    value: Box<dyn ExprTrait<EWord>,
+    substate: SubState,
+    is_create: bool,
+    tx_reversion: HashMap<Box<dyn ExprTrait<EAddr>, Contract>,
+}
+
+// Various environmental data
+#[derive(Debug, Clone)]
+struct Env {
+    contracts: HashMap<Box<dyn ExprTrait<EAddr>, Contract>,
+    chain_id: W256,
+    fresh_addresses: i32,
+    fresh_gas_vals: i32,
+}
+
+// Data about the block
+#[derive(Debug, Clone)]
+struct Block {
+    coinbase: Box<dyn ExprTrait<EAddr>,
+    timestamp: Box<dyn ExprTrait<EWord>,
+    number: W256,
+    prev_randao: W256,
+    gaslimit: u64,
+    base_fee: W256,
+    max_code_size: W256,
+    schedule: FeeSchedule<u64>,
+}
+
+// Full contract state
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+struct Contract {
+    code: ContractCode,
+    storage: Box<dyn ExprTrait<Storage>,
+    orig_storage: Box<dyn ExprTrait<Storage>,
+    balance: Box<dyn ExprTrait<EWord>,
+    nonce: Option<W64>,
+    codehash: Box<dyn ExprTrait<EWord>,
+    op_ix_map: Vec<i32>,
+    code_ops: Vec<(i32, Op)>,
+    external: bool,
+}
+
+// Cache data structure
+pub struct Cache {
+    fetched: HashMap<Addr, Contract>,
+    path: HashMap<(Box<dyn ExprTrait<EAddr>, usize), bool>,
+}
+
+impl Cache {
+    fn unify_cached_contract(&mut self, a: &Contract, b: &Contract) {
+        match (&a.storage, &b.storage) {
+            (Storage::ConcreteStore(sa), Storage::ConcreteStore(sb)) => {
+                self.fetched.insert(a.address.clone(), Contract {
+                    storage: Storage::ConcreteStore(sa.add(sb)),
+                    ..a.clone()
+                });
+            },
+            _ => {}
+        }
+    }
+}
+
+impl Default for Cache {
+    fn default() -> Self {
+        Cache {
+            fetched: HashMap::new(),
+            path: HashMap::new(),
+        }
+    }
+}
+
+impl Add for Cache {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self::Output {
+        let mut merged_cache = Cache {
+            fetched: self.fetched,
+            path: self.path,
+        };
+
+        for (location, flag) in other.path {
+            merged_cache.path.insert(location, flag);
+        }
+
+        for (addr, contract) in other.fetched {
+            if let Some(existing_contract) = merged_cache.fetched.get_mut(&addr) {
+                merged_cache.unify_cached_contract(existing_contract, &contract);
+            } else {
+                merged_cache.fetched.insert(addr, contract);
+            }
+        }
+
+        merged_cache
+    }
+}
+
+// ContractCode and RuntimeCode structures
+pub enum ContractCode {
+    UnknownCode(Box<dyn ExprTrait<EAddr>),
+    InitCode(Vec<u8>, Box<dyn ExprTrait<Buf>),
+    RuntimeCode(RuntimeCode),
+}
+
+pub enum RuntimeCode {
+    ConcreteRuntimeCode(Vec<u8>),
+    SymbolicRuntimeCode(Vec<Box<dyn ExprTrait<Byte>>),
+}
+
+// Trace and TraceData structures
+pub struct Trace {
+    op_ix: usize,
+    contract: Contract,
+    tracedata: TraceData,
+}
+
+pub enum TraceData {
+    EventTrace(Box<dyn ExprTrait<EWord>, Box<dyn ExprTrait<Buf>, Vec<Box<dyn ExprTrait<EWord>>),
+    FrameTrace(FrameContext),
+    ErrorTrace(EvmError),
+    EntryTrace(String),
+    ReturnTrace(Box<dyn ExprTrait<Buf>, FrameContext),
+}
+
+// VMOpts structure
+pub struct VMOpts<T> {
+    contract: Contract,
+    other_contracts: Vec<(Box<dyn ExprTrait<EAddr>>, Contract)>,
+    calldata: (Box<dyn ExprTrait<Buf>, Vec<Prop>),
+    base_state: BaseState,
+    value: Box<dyn ExprTrait<EWord>,
+    priority_fee: W256,
+    address: Box<dyn ExprTrait<EAddr>,
+    caller: Box<dyn ExprTrait<EAddr>,
+    origin: Box<dyn ExprTrait<EAddr>,
+    gas: Gas<T>,
+    gas_limit: u64,
+    number: W256,
+    timestamp: Box<dyn ExprTrait<EWord>,
+    coinbase: Box<dyn ExprTrait<EAddr>,
+    prev_randao: W256,
+    max_code_size: W256,
+    block_gas_limit: u64,
+    gas_price: W256,
+    base_fee: W256,
+    schedule: FeeSchedule<u64>,
+    chain_id: W256,
+    create: bool,
+    tx_access_list: HashMap<Box<dyn ExprTrait<EAddr>, Vec<W256>>,
+    allow_ffi: bool,
+}
+
+impl<T> VMOpts<T> {
+    pub fn new() -> Self {
+        VMOpts {
+            contract: Contract::default(),
+            other_contracts: Vec::new(),
+            calldata: (Expr(Vec::new()), Vec::new()),
+            base_state: BaseState::default(),
+            value: Expr(W256),
+            priority_fee: W256,
+            address: Expr(EAddr),
+            caller: Expr(EAddr),
+            origin: Expr(EAddr),
+            gas: Gas::default(),
+            gas_limit: 0,
+            number: W256,
+            timestamp: Expr(EWord),
+            coinbase: Expr(EAddr),
+            prev_randao: W256,
+            max_code_size: W256,
+            block_gas_limit: 0,
+            gas_price: W256,
+            base_fee: W256,
+            schedule: FeeSchedule::default(),
+            chain_id: W256,
+            create: false,
+            tx_access_list: HashMap::new(),
+            allow_ffi: false,
+        }
+    }
+}
+
+impl VMOpts<Symbolic> {
+    pub fn into_concrete(self) -> VMOpts<Concrete> {
+        VMOpts {
+            contract: self.contract,
+            other_contracts: self.other_contracts,
+            calldata: self.calldata,
+            base_state: self.base_state,
+            value: self.value,
+            priority_fee: self.priority_fee,
+            address: self.address,
+            caller: self.caller,
+            origin: self.origin,
+            gas: self.gas,
+            gas_limit: self.gas_limit,
+            number: self.number,
+            timestamp: self.timestamp,
+            coinbase: self.coinbase,
+            prev_randao: self.prev_randao,
+            max_code_size: self.max_code_size,
+            block_gas_limit: self.block_gas_limit,
+            gas_price: self.gas_price,
+            base_fee: self.base_fee,
+            schedule: self.schedule,
+            chain_id: self.chain_id,
+            create: self.create,
+            tx_access_list: self.tx_access_list,
+            allow_ffi: self.allow_ffi,
+        }
+    }
+}
+
