@@ -1,3 +1,4 @@
+use std::clone;
 use std::collections::{hash_set, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::hash::Hash;
@@ -6,9 +7,8 @@ use std::sync::Arc;
 #[path = "./types.rs"]
 mod types;
 use types::{
-  Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, ExprBinOp, ExprConcreteBuf, ExprLit, ExprLitAddr,
-  ExprMempty, ExprTrait, ForkState, FrameState, Gas, Memory, RuntimeCodeStruct, RuntimeConfig, SubState, Trace,
-  TreePos, TxState, VMOpts, VM,
+  Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, Expr, ForkState, FrameState, Gas, Memory,
+  RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TreePos, TxState, VMOpts, VM,
 };
 
 fn initial_gas() -> u64 {
@@ -17,28 +17,26 @@ fn initial_gas() -> u64 {
 
 fn blank_state() -> FrameState {
   FrameState {
-    contract: Box::new(ExprLitAddr { addr: 0 }),
-    code_contract: Box::new(ExprLitAddr { addr: 0 }),
+    contract: Expr::LitAddr(0),
+    code_contract: Expr::LitAddr(0),
     code: ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Vec::new())),
     pc: 0,
     stack: Vec::new(),
     memory: Memory::ConcreteMemory(Vec::new()),
     memory_size: 0,
-    calldata: Box::new(ExprMempty),
-    callvalue: Box::new(ExprLit { value: 0 }),
-    caller: Box::new(ExprLitAddr { addr: 0 }),
+    calldata: Expr::Mempty,
+    callvalue: Expr::Lit(0),
+    caller: Box::new(Expr::LitAddr(0)),
     gas: Gas::Concerete(initial_gas()),
-    returndata: Box::new(ExprMempty),
+    returndata: Expr::Mempty,
     static_flag: false,
   }
 }
 
-fn bytecode(contract: &Contract) -> Option<Box<dyn ExprTrait<Buf>>> {
+fn bytecode(contract: &Contract) -> Option<Expr> {
   match &contract.code {
-    ContractCode::InitCode(_, _) => Some(Box::new(ExprMempty)),
-    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(buf)) => {
-      Some(Box::new(ExprConcreteBuf { buf: buf.to_vec() }))
-    }
+    ContractCode::InitCode(_, _) => Some(Expr::Mempty),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(buf)) => Some(Expr::ConcreteBuf(buf.to_vec())),
     _ => None,
   }
 }
@@ -51,8 +49,8 @@ fn make_vm(opts: VMOpts) -> VM {
   let txaccess_list = &opts.tx_access_list;
   let txorigin = opts.origin.clone();
   let txto_addr = opts.address.clone();
-  let initial_accessed_addrs = HashSet([txorigin.clone(), txto_addr.clone(), opts.coinbase.clone()]);
-  let initial_accessed_storage_keys: Vec<_> =
+  let initial_accessed_addrs = HashSet::from([txorigin.clone(), txto_addr.clone(), opts.coinbase.clone()]);
+  let initial_accessed_storage_keys: HashSet<_> =
     txaccess_list.iter().flat_map(|(k, v)| v.iter().map(move |v| (k.clone(), v.clone()))).collect();
   let touched = if opts.create {
     vec![txorigin.clone()]
@@ -76,7 +74,7 @@ fn make_vm(opts: VMOpts) -> VM {
         selfdestructs: Vec::new(),
         touched_accounts: touched,
         accessed_addresses: initial_accessed_addrs,
-        accessed_storage_keys: initial_accessed_storage_keys.into_iter().map(|(k, v)| k.clone()).collect(),
+        accessed_storage_keys: initial_accessed_storage_keys,
         refunds: Vec::new(),
       },
       is_create: opts.create,
@@ -106,7 +104,7 @@ fn make_vm(opts: VMOpts) -> VM {
       callvalue: opts.value.clone(),
       caller: opts.caller.clone(),
       gas: opts.gas,
-      returndata: Box::new(ExprMempty),
+      returndata: Expr::Mempty,
       static_flag: false,
     },
     env: Env {
@@ -119,7 +117,7 @@ fn make_vm(opts: VMOpts) -> VM {
       fetched: HashMap::new(),
       path: HashMap::new(),
     },
-    burned: initial_gas(),
+    burned: Gas::Concerete(initial_gas()),
     constraints: opts.calldata.1.clone(),
     iterations: HashMap::new(),
     config: RuntimeConfig {
@@ -137,7 +135,7 @@ fn make_vm(opts: VMOpts) -> VM {
       },
       block: Block {
         coinbase: opts.coinbase.clone(),
-        timestamp: opts.timestamp,
+        timestamp: opts.timestamp.clone(),
         number: opts.number,
         prev_randao: opts.prev_randao.clone(),
         max_code_size: opts.max_code_size,
@@ -191,12 +189,12 @@ fn empty_contract() -> Contract {
 fn initial_contract(code: ContractCode) -> Contract {
   Contract {
     code: code.clone(),
-    storage: Storage(HashMap::new()),
-    orig_storage: Storage(HashMap::new()),
+    storage: Expr::Storage(HashMap::new()),
+    orig_storage: Expr::Storage(HashMap::new()),
     balance: Expr("0".to_string()),
     nonce: if is_creation(&code) { Some(1) } else { Some(0) },
     codehash: CodeHash(hashcode(&code)),
-    op_ix_map: OpIxMap(HashMap::new()),
+    op_idx_map: OpIxMap(HashMap::new()),
     code_ops: CodeOps(Vec::new()),
     external: false,
   }
@@ -216,25 +214,15 @@ fn next(op: u8) {
   // state.pc += op_size(op);
 }
 
-fn exec1(vm: &mut VM) {
-  let stk = &vm.state.stack;
-  let self_contract = &vm.state.contract;
-  let this_contract = vm.env.contracts.get(self_contract).unwrap();
-  let fees = &vm.block.schedule;
+/*
 
-  if let Some(lit_self) = maybe_lit_addr(self_contract) {
-    if lit_self > 0x0 && lit_self <= 0x9 {
-      let calldatasize = vm.state.calldata.len();
-      copy_bytes_to_memory(&vm.state.calldata, calldatasize, 0, 0);
-      execute_precompile(lit_self, vm.state.gas, 0, calldatasize, 0, 0, vec![]);
-      match vm.state.stack.first() {
         Some(Box::new(ExprLit { value: 0 })) => {
           fetch_account(self_contract, |c| {
             touch_account(self_contract);
             vm_error("PrecompileFailure");
           });
         }
-        Some(Expr::Lit(_)) => {
+        Some(Box::new(ExprLit(_))) => {
           fetch_account(self_contract, |c| {
             touch_account(self_contract);
             let out = vm.state.returndata.clone();
@@ -247,6 +235,21 @@ fn exec1(vm: &mut VM) {
           "precompile returned a symbolic value",
           vec![e.clone()],
         ),
+*/
+
+fn exec1(vm: &mut VM) {
+  let stk = &vm.state.stack;
+  let self_contract = &vm.state.contract;
+  let this_contract = vm.env.contracts.get(self_contract).unwrap();
+  let fees = &vm.block.schedule;
+
+  if let Some(lit_self) = maybe_lit_addr(self_contract) {
+    if lit_self > 0x0 && lit_self <= 0x9 {
+      let calldatasize = vm.state.calldata.len();
+      copy_bytes_to_memory(&vm.state.calldata, calldatasize, 0, 0);
+      execute_precompile(lit_self, vm.state.gas, 0, calldatasize, 0, 0, vec![]);
+      match vm.state.stack.first() {
+        Some(boxed_expr) => if let Some(expr_lit) = Expr::Lit(0) {},
         None => underrun(),
       }
     }
@@ -256,7 +259,7 @@ fn exec1(vm: &mut VM) {
     let op = match &vm.state.code {
       ContractCode::UnknownCode(_) => internal_error("Cannot execute unknown code"),
       ContractCode::InitCode(conc, _) => conc[vm.state.pc],
-      ContractCode::RuntimeCode(RuntimeCode { data }) => data[vm.state.pc],
+      ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(data)) => data[vm.state.pc],
     };
 
     match get_op(op) {
@@ -273,7 +276,7 @@ fn exec1(vm: &mut VM) {
         let xs = match &vm.state.code {
           ContractCode::UnknownCode(_) => internal_error("Cannot execute unknown code"),
           ContractCode::InitCode(conc, _) => Expr::Word(conc[vm.state.pc + 1..vm.state.pc + 1 + n].to_vec()),
-          ContractCode::RuntimeCode(RuntimeCode { data }) => {
+          ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(data)) => {
             Expr::Word(data[vm.state.pc + 1..vm.state.pc + 1 + n].to_vec())
           }
         };
@@ -393,7 +396,7 @@ fn exec1(vm: &mut VM) {
         if let Some(x) = stk.first() {
           force_addr(x, "BALANCE", |a| {
             access_and_burn(a, || {
-              fetch_account(a, |c| {
+              fetch_account(*a, |c| {
                 next(vm);
                 vm.state.stack = stk[1..].to_vec();
                 push_sym(vm, c.balance);
@@ -652,11 +655,9 @@ fn stack_op2<F>(vm: &mut VM, gas: u64, op: &str) {
   if let Some((a, b)) = vm.state.stack.split_first().and_then(|(a, rest)| rest.split_first().map(|(b, rest)| (a, b))) {
     burn(gas, || {
       next(vm);
-      let res = Box::new(ExprBinOp {
-        op: op.to_string(),
-        left: a.clone(),
-        right: b.clone(),
-      });
+      let res = match op {
+        "add" => Expr::Add(a.clone(), b.clone()),
+      };
       vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(2).cloned()).collect();
     });
   } else {
