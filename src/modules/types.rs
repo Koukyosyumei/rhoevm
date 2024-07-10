@@ -152,7 +152,7 @@ pub enum Expr {
   CodeHash(Box<Expr>),
 
   // Logs
-  LogEntry(Box<Expr>, Box<Expr>, Vec<Expr>),
+  LogEntry(Box<Expr>, Box<Expr>, Vec<Box<Expr>>),
 
   // Contract
   C {

@@ -244,7 +244,7 @@ fn exec1(vm: &mut VM) {
         limit_stack(1, || {
           burn(fees.g_base, || {
             next(vm);
-            push_sym(vm, Expr::Lit(0));
+            push_sym(vm, Box::new(Expr::Lit(0)));
           });
         });
       }
@@ -301,11 +301,11 @@ fn exec1(vm: &mut VM) {
             } else {
               let bytes = read_memory(x_offset, x_size);
               let (topics, xs) = xs.split_at(usize::try_from(op).unwrap());
-              let logs = vec![LogEntry {
-                addr: vm.state.contract.clone(),
-                data: bytes,
-                topics: topics.to_vec(),
-              }];
+              let logs = vec![Expr::LogEntry(
+                Box::new(vm.state.contract.clone()),
+                Box::new(bytes),
+                topics.to_vec(),
+              )];
               burn_log(x_size, op, || {
                 access_memory_range(x_offset, x_size, || {
                   trace_top_log(logs.clone());
