@@ -3,11 +3,12 @@ use std::collections::{hash_set, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::hash::Hash;
 use std::sync::Arc;
+use tiny_keccak::{Hasher, Keccak};
 
 #[path = "./types.rs"]
 mod types;
 use types::{
-  Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, Expr, ForkState, FrameState, Gas, Memory,
+  Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, Expr, ForkState, FrameState, Gas, Memory, MutableMemory,
   RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TreePos, TxState, VMOpts, VM,
 };
 
@@ -26,7 +27,7 @@ fn blank_state() -> FrameState {
     memory_size: 0,
     calldata: Expr::Mempty,
     callvalue: Expr::Lit(0),
-    caller: Box::new(Expr::LitAddr(0)),
+    caller: Expr::LitAddr(0),
     gas: Gas::Concerete(initial_gas()),
     returndata: Expr::Mempty,
     static_flag: false,
@@ -84,7 +85,7 @@ fn make_vm(opts: VMOpts) -> VM {
     // traces: TreePos::<Trace>::new(),
     block: Block {
       coinbase: opts.coinbase.clone(),
-      timestamp: opts.timestamp,
+      time_stamp: opts.time_stamp.clone(),
       number: opts.number,
       prev_randao: opts.prev_randao.clone(),
       max_code_size: opts.max_code_size,
@@ -135,7 +136,7 @@ fn make_vm(opts: VMOpts) -> VM {
       },
       block: Block {
         coinbase: opts.coinbase.clone(),
-        timestamp: opts.timestamp.clone(),
+        time_stamp: opts.time_stamp.clone(),
         number: opts.number,
         prev_randao: opts.prev_randao.clone(),
         max_code_size: opts.max_code_size,
@@ -154,16 +155,16 @@ fn make_vm(opts: VMOpts) -> VM {
   }
 }
 
-fn unknown_contract(addr: Box<dyn ExprTrait<EAddr>>) -> Contract {
+fn unknown_contract(addr: Expr) -> Contract {
   Contract {
-    code: ContractCode::UnKnownCode(addr.clone()),
-    storage: Storage(HashMap::new()),
-    orig_storage: Storage(HashMap::new()),
-    balance: Expr(addr.0.clone()),
+    code: ContractCode::UnKnownCode(Box::new(addr.clone())),
+    storage: Expr::AbstractStore(Box::new(addr), None),
+    orig_storage: Expr::AbstractStore(Box::new(addr.clone()), None),
+    balance: Expr::Balance(Box::new(addr.clone())),
     nonce: None,
-    codehash: CodeHash(hashcode(&ContractCode::UnknownCode(addr.clone()))),
-    op_ix_map: OpIxMap(HashMap::new()),
-    code_ops: CodeOps(Vec::new()),
+    codehash: Expr::CodeHash(hashcode(&ContractCode::UnknownCode(addr.clone()))),
+    op_idx_map: Vec::new(),
+    code_ops: Vec::new(),
     external: false,
   }
 }
@@ -171,31 +172,33 @@ fn unknown_contract(addr: Box<dyn ExprTrait<EAddr>>) -> Contract {
 fn abstract_contract(code: ContractCode, addr: Expr) -> Contract {
   Contract {
     code: code.clone(),
-    storage: Storage(HashMap::new()),
-    orig_storage: Storage(HashMap::new()),
-    balance: Expr(addr.0.clone()),
+    storage: Expr::AbstractStore(Box::new(addr.clone()), None),
+    orig_storage: Expr::AbstractStore(Box::new(addr.clone()), None),
+    balance: Expr::Balance(Box::new(addr.clone())),
     nonce: if is_creation(&code) { Some(1) } else { Some(0) },
-    codehash: CodeHash(hashcode(&code)),
-    op_ix_map: OpIxMap(HashMap::new()),
-    code_ops: CodeOps(Vec::new()),
+    codehash: Expr::CodeHash(hashcode(&code)),
+    op_idx_map: Vec::new(),
+    code_ops: Vec::new(),
     external: false,
   }
 }
 
 fn empty_contract() -> Contract {
-  initial_contract(ContractCode::RuntimeCode(RuntimeCode { data: Vec::new() }))
+  initial_contract(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(
+    Vec::new(),
+  )))
 }
 
 fn initial_contract(code: ContractCode) -> Contract {
   Contract {
     code: code.clone(),
-    storage: Expr::Storage(HashMap::new()),
-    orig_storage: Expr::Storage(HashMap::new()),
-    balance: Expr("0".to_string()),
+    storage: Expr::ConcreteStore(HashMap::new()),
+    orig_storage: Expr::ConcreteStore(HashMap::new()),
+    balance: Expr::Lit(0),
     nonce: if is_creation(&code) { Some(1) } else { Some(0) },
-    codehash: CodeHash(hashcode(&code)),
-    op_idx_map: OpIxMap(HashMap::new()),
-    code_ops: CodeOps(Vec::new()),
+    codehash: Expr::CodeHash(hashcode(&code)),
+    op_idx_map: Vec::new(),
+    code_ops: Vec::new(),
     external: false,
   }
 }
@@ -207,35 +210,9 @@ fn is_creation(code: &ContractCode) -> bool {
   }
 }
 
-fn next(op: u8) {
-  // Update the program counter with the size of the opcode
-  // Example:
-  // let pc = state.pc;
-  // state.pc += op_size(op);
+fn unbox<T>(value: Box<T>) -> T {
+  *value
 }
-
-/*
-
-        Some(Box::new(ExprLit { value: 0 })) => {
-          fetch_account(self_contract, |c| {
-            touch_account(self_contract);
-            vm_error("PrecompileFailure");
-          });
-        }
-        Some(Box::new(ExprLit(_))) => {
-          fetch_account(self_contract, |c| {
-            touch_account(self_contract);
-            let out = vm.state.returndata.clone();
-            finish_frame("FrameReturned", out);
-          });
-        }
-        Some(e) => partial(
-          "UnexpectedSymbolicArg",
-          vm.state.pc,
-          "precompile returned a symbolic value",
-          vec![e.clone()],
-        ),
-*/
 
 fn exec1(vm: &mut VM) {
   let stk = &vm.state.stack;
@@ -246,7 +223,7 @@ fn exec1(vm: &mut VM) {
   if let Some(lit_self) = maybe_lit_addr(self_contract) {
     if lit_self > 0x0 && lit_self <= 0x9 {
       let calldatasize = vm.state.calldata.len();
-      copy_bytes_to_memory(&vm.state.calldata, calldatasize, 0, 0);
+      copy_bytes_to_memory(vm.state.calldata, calldatasize, Expr::Lit(0), Expr::Lit(0), vm);
       execute_precompile(lit_self, vm.state.gas, 0, calldatasize, 0, 0, vec![]);
       match vm.state.stack.first() {
         Some(boxed_expr) => if let Some(expr_lit) = Expr::Lit(0) {},
@@ -353,8 +330,8 @@ fn exec1(vm: &mut VM) {
       "OpSdiv" => stack_op2(vm, fees.g_low, "sdiv"),
       "OpMod" => stack_op2(vm, fees.g_low, "nmod"),
       "OpSmod" => stack_op2(vm, fees.g_low, "smod"),
-      "OpAddmod" => stack_op3(vm, fees.g_mid, Expr::addmod),
-      "OpMulmod" => stack_op3(vm, fees.g_mid, Expr::mulmod),
+      "OpAddmod" => stack_op3(vm, fees.g_mid, "addmod"),
+      "OpMulmod" => stack_op3(vm, fees.g_mid, "mulmod"),
       "OpLt" => stack_op2(vm, fees.g_verylow, "lt"),
       "OpGt" => stack_op2(vm, fees.g_verylow, "gt"),
       "OpSlt" => stack_op2(vm, fees.g_verylow, "slt"),
@@ -399,7 +376,7 @@ fn exec1(vm: &mut VM) {
               fetch_account(*a, |c| {
                 next(vm);
                 vm.state.stack = stk[1..].to_vec();
-                push_sym(vm, c.balance);
+                push_sym(vm, Box::new(c.balance));
               });
             });
           });
@@ -427,7 +404,7 @@ fn exec1(vm: &mut VM) {
         limit_stack(1, || {
           burn(fees.g_base, || {
             next(vm);
-            push_sym(vm, vm.state.callvalue.clone());
+            push_sym(vm, Box::new(vm.state.callvalue.clone()));
           });
         });
       }
@@ -448,7 +425,7 @@ fn exec1(vm: &mut VM) {
                 access_memory_range(x_to, x_size, || {
                   next(vm);
                   vm.state.stack = xs.to_vec();
-                  copy_bytes_to_memory(&vm.state.calldata, *x_size, *x_from, *x_to);
+                  copy_bytes_to_memory(vm.state.calldata, unbox(*x_size), unbox(*x_from), unbox(*x_to), vm);
                 });
               });
             } else {
@@ -506,13 +483,13 @@ fn exec1(vm: &mut VM) {
         if let Some(x) = stk.first() {
           force_addr(x, "EXTCODESIZE", |a| {
             access_and_burn(a, || {
-              fetch_account(a, |c| {
+              fetch_account(&a, |c| {
                 next(vm);
                 vm.state.stack = stk[1..].to_vec();
                 if let Some(b) = &c.bytecode {
                   push_sym(vm, b.len());
                 } else {
-                  push_sym(vm, CodeSize::new(a));
+                  push_sym(vm, Box::new(Expr::CodeSize(Box::new(a))));
                 }
               });
             });
@@ -586,9 +563,88 @@ fn maybe_lit_addr(addr: &Expr) -> Option<u64> {
   }
 }
 
-fn copy_bytes_to_memory(src: &[u8], size: usize, from: usize, to: usize) {
-  // Implement memory copy logic
+fn write_memory(memory: &mut MutableMemory, offset: usize, buf: &Vec<u8>) {
+  expand_memory(memory, offset + buf.len());
+  // Write buf into memory starting from offset
+  for (i, &byte) in buf.iter().enumerate() {
+    memory[offset + i] = byte;
+  }
 }
+
+fn expand_memory(memory: &mut MutableMemory, target_size: usize) {
+  let current_size = memory.len();
+  if target_size > current_size {
+    memory.resize(target_size, 0);
+  }
+}
+
+fn freeze_memory(memory: &MutableMemory) -> MutableMemory {
+  memory.clone() // Clone the memory vector to freeze it
+}
+
+fn copy_bytes_to_memory(bs: Expr, size: Expr, src_offset: Expr, mem_offset: Expr, vm: &mut VM) {
+  if size == Expr::Lit(0) {
+    return;
+  }
+
+  match &vm.state.memory {
+    Memory::ConcreteMemory(mem) => {
+      match (&bs, &size, &src_offset, &mem_offset) {
+        (Expr::ConcreteBuf(b), Expr::Lit(size_val), Expr::Lit(src_offset_val), Expr::Lit(mem_offset_val)) => {
+          let src = if *src_offset_val >= (b.len() as u32) {
+            vec![0; *size_val as usize]
+          } else {
+            let mut src_tmp = b[(*src_offset_val as usize)..].to_vec();
+            src_tmp.resize((*size_val as usize), 0);
+            src_tmp
+          };
+          if let Some(concrete_mem) = vm.state.memory.as_mut_concrete_memory() {
+            write_memory(concrete_mem, *mem_offset_val as usize, &src);
+          }
+        }
+        _ => {
+          // Copy out and move to symbolic memory
+          let buf = freeze_memory(&mem);
+          // assign(/* Define your assignment here */);
+        }
+      }
+    }
+    Memory::SymbolicMemory(mem) => {
+      // Implement the logic for symbolic memory
+      // assign(/* Define your assignment here */);
+    }
+  }
+}
+
+/*
+copyBytesToMemory
+  :: Expr Buf -> Expr EWord -> Expr EWord -> Expr EWord -> EVM t s ()
+copyBytesToMemory bs size srcOffset memOffset =
+  if size == Lit 0 then noop
+  else do
+    gets (.state.memory) >>= \case
+      ConcreteMemory mem ->
+        case (bs, size, srcOffset, memOffset) of
+          (ConcreteBuf b, Lit size', Lit srcOffset', Lit memOffset') -> do
+            let src =
+                  if srcOffset' >= unsafeInto (BS.length b) then
+                    BS.replicate (unsafeInto size') 0
+                  else
+                    BS.take (unsafeInto size') $
+                    padRight (unsafeInto size') $
+                    BS.drop (unsafeInto srcOffset') b
+
+            writeMemory mem (unsafeInto memOffset') src
+          _ -> do
+            -- copy out and move to symbolic memory
+            buf <- freezeMemory mem
+            assign (#state % #memory) $
+              SymbolicMemory $ copySlice srcOffset memOffset size bs buf
+      SymbolicMemory mem ->
+        assign (#state % #memory) $
+          SymbolicMemory $ copySlice srcOffset memOffset size bs mem
+
+*/
 
 fn execute_precompile(lit_self: u64, gas: u64, a: u64, calldatasize: usize, b: u64, c: u64, d: Vec<u8>) {
   // Implement precompile logic
@@ -613,7 +669,7 @@ fn finish_frame(result: &str, out: Vec<u8>) {
 fn opslen(code: &ContractCode) -> usize {
   match code {
     ContractCode::InitCode(conc, _) => conc.len(),
-    ContractCode::RuntimeCode(RuntimeCode { data }) => data.len(),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(data)) => data.len(),
     _ => 0,
   }
 }
@@ -630,7 +686,7 @@ fn next(vm: &mut VM) {
   vm.state.pc += 1;
 }
 
-fn push_sym(vm: &mut VM, expr: Expr) {
+fn push_sym(vm: &mut VM, expr: Box<Expr>) {
   vm.state.stack.push(expr);
 }
 
@@ -647,16 +703,17 @@ fn access_memory_range(offset: &Expr, size: &Expr, f: impl FnOnce()) {
   // Implement memory range access logic
 }
 
-fn trace_top_log(logs: Vec<Log>) {
+fn trace_top_log(logs: Vec<Expr>) {
   // Implement log tracing logic
 }
 
-fn stack_op2<F>(vm: &mut VM, gas: u64, op: &str) {
+fn stack_op2(vm: &mut VM, gas: u64, op: &str) {
   if let Some((a, b)) = vm.state.stack.split_first().and_then(|(a, rest)| rest.split_first().map(|(b, rest)| (a, b))) {
     burn(gas, || {
       next(vm);
       let res = match op {
-        "add" => Expr::Add(a.clone(), b.clone()),
+        "add" => Box::new(Expr::Add(a.clone(), b.clone())),
+        _ => Box::new(Expr::Mempty),
       };
       vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(2).cloned()).collect();
     });
@@ -665,16 +722,17 @@ fn stack_op2<F>(vm: &mut VM, gas: u64, op: &str) {
   }
 }
 
-fn stack_op3<F>(vm: &mut VM, gas: u64, op: F)
-where
-  F: FnOnce(Expr, Expr, Expr) -> Expr,
-{
+fn stack_op3(vm: &mut VM, gas: u64, op: &str) {
   if let Some((a, rest)) = vm.state.stack.split_first() {
     if let Some((b, rest)) = rest.split_first() {
       if let Some((c, rest)) = rest.split_first() {
         burn(gas, || {
           next(vm);
-          let res = op(a.clone(), b.clone(), c.clone());
+          let res = match op {
+            "addmod" => Box::new(Expr::AddMod(a.clone(), b.clone(), c.clone())),
+            "mulmod" => Box::new(Expr::MulMod(a.clone(), b.clone(), c.clone())),
+            _ => Box::new(Expr::Mempty),
+          };
           vm.state.stack = std::iter::once(res).chain(rest.iter().cloned()).collect();
         });
       } else {
@@ -695,7 +753,7 @@ where
   if let Some(a) = vm.state.stack.first() {
     burn(gas, || {
       next(vm);
-      let res = op(a.clone());
+      let res = op(*a.clone());
       vm.state.stack[0] = res;
     });
   } else {
@@ -723,10 +781,6 @@ fn push_sym(vm: &mut VM, sym: impl Into<Expr>) {
   vm.state.stack.push(sym.into());
 }
 
-fn copy_bytes_to_memory(src: &[u8], size: usize, from: usize, to: usize) {
-  // Implement memory copy logic
-}
-
 fn internal_error(msg: &str) {
   // Implement internal error handling
 }
@@ -740,3 +794,39 @@ fn to_buf(code: &ContractCode) -> Option<&[u8]> {
 }
 
 // Define other necessary structs, enums, and functions here...
+
+fn keccak_bytes(input: &[u8]) -> Vec<u8> {
+  let mut keccak = Keccak::v256();
+  keccak.update(input);
+  let mut result = vec![0u8; 32]; // Keccak-256 produces a 256-bit (32-byte) hash
+  keccak.finalize(&mut result);
+  result
+}
+
+fn word32(xs: &[u8]) -> u32 {
+  xs.iter().enumerate().fold(0, |acc, (n, &x)| acc | (u32::from(x) << (8 * n)))
+}
+
+fn keccak(buf: Expr) -> Expr {
+  match buf {
+    Expr::ConcreteBuf(bs) => {
+      let hash_result = keccak_bytes(&bs);
+      Expr::Lit(hash_result)
+    }
+    _ => Expr::Keccak(Box::new(buf)), // Assuming Expr has a variant for Keccak
+  }
+}
+
+fn keccak_prime(input: &[u8]) -> Vec<u8> {
+  let hash_result = keccak_bytes(input);
+  hash_result[..32].to_vec()
+}
+
+struct FunctionSelector(u32); // Define FunctionSelector appropriately
+
+fn abi_keccak(input: &[u8]) -> FunctionSelector {
+  let hash_result = keccak_bytes(input);
+  let selector_bytes = &hash_result[..4];
+  let selector = word32(selector_bytes);
+  FunctionSelector(selector)
+}

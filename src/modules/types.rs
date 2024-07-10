@@ -155,7 +155,7 @@ pub enum Expr {
   LogEntry(Box<Expr>, Box<Expr>, Vec<Expr>),
 
   // Contract
-  Contract {
+  C {
     code: ContractCode,
     storage: Box<Expr>,
     balance: Box<Expr>,
@@ -249,7 +249,7 @@ impl fmt::Display for Expr {
       Expr::CodeSize(expr) => write!(f, "CodeSize({})", expr),
       Expr::CodeHash(expr) => write!(f, "CodeHash({})", expr),
       Expr::LogEntry(addr, buf, topics) => write!(f, "LogEntry({}, {}, {:?})", addr, buf, topics),
-      Expr::Contract {
+      Expr::C {
         code,
         storage,
         balance,
@@ -284,8 +284,478 @@ impl fmt::Display for Expr {
   }
 }
 
+impl Eq for Expr {}
+
+impl PartialEq for Expr {
+  fn eq(&self, other: &Self) -> bool {
+    use Expr::*;
+
+    match (self, other) {
+      (Mempty, Mempty) => true,
+      (Lit(val1), Lit(val2)) => val1 == val2,
+      (Var(name1), Var(name2)) => name1 == name2,
+      (GVar(gvar1), GVar(gvar2)) => gvar1 == gvar2,
+      (LitByte(byte1), LitByte(byte2)) => byte1 == byte2,
+      (IndexWord(expr1a, expr1b), IndexWord(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (EqByte(expr1a, expr1b), EqByte(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (JoinBytes(vec1), JoinBytes(vec2)) => vec1 == vec2,
+      (Partial(props1, tc1, exec1), Partial(props2, tc2, exec2)) => props1 == props2 && tc1 == tc2 && exec1 == exec2,
+      (Failure(props1, tc1, err1), Failure(props2, tc2, err2)) => props1 == props2 && tc1 == tc2 && err1 == err2,
+      (Success(props1, tc1, expr1, map1), Success(props2, tc2, expr2, map2)) => {
+        props1 == props2 && tc1 == tc2 && expr1 == expr2 && map1 == map2
+      }
+      (ITE(cond1, then1, else1), ITE(cond2, then2, else2)) => cond1 == cond2 && then1 == then2 && else1 == else2,
+      (Add(expr1a, expr1b), Add(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Sub(expr1a, expr1b), Sub(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Mul(expr1a, expr1b), Mul(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Div(expr1a, expr1b), Div(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (SDiv(expr1a, expr1b), SDiv(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Mod(expr1a, expr1b), Mod(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (SMod(expr1a, expr1b), SMod(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (AddMod(expr1a, expr1b, expr1c), AddMod(expr2a, expr2b, expr2c)) => {
+        expr1a == expr2a && expr1b == expr2b && expr1c == expr2c
+      }
+      (MulMod(expr1a, expr1b, expr1c), MulMod(expr2a, expr2b, expr2c)) => {
+        expr1a == expr2a && expr1b == expr2b && expr1c == expr2c
+      }
+      (Exp(expr1a, expr1b), Exp(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (SEx(expr1a, expr1b), SEx(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Min(expr1a, expr1b), Min(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Max(expr1a, expr1b), Max(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (LT(expr1a, expr1b), LT(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (GT(expr1a, expr1b), GT(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (LEq(expr1a, expr1b), LEq(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (GEq(expr1a, expr1b), GEq(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (SLT(expr1a, expr1b), SLT(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (SGT(expr1a, expr1b), SGT(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Eq(expr1a, expr1b), Eq(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (IsZero(expr1), IsZero(expr2)) => expr1 == expr2,
+      (And(expr1a, expr1b), And(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Or(expr1a, expr1b), Or(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Xor(expr1a, expr1b), Xor(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Not(expr1), Not(expr2)) => expr1 == expr2,
+      (SHL(expr1a, expr1b), SHL(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (SHR(expr1a, expr1b), SHR(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (SAR(expr1a, expr1b), SAR(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (Keccak(expr1), Keccak(expr2)) => expr1 == expr2,
+      (SHA256(expr1), SHA256(expr2)) => expr1 == expr2,
+      (Origin, Origin) => true,
+      (BlockHash(expr1), BlockHash(expr2)) => expr1 == expr2,
+      (Coinbase, Coinbase) => true,
+      (Timestamp, Timestamp) => true,
+      (BlockNumber, BlockNumber) => true,
+      (PrevRandao, PrevRandao) => true,
+      (GasLimit, GasLimit) => true,
+      (ChainId, ChainId) => true,
+      (BaseFee, BaseFee) => true,
+      (TxValue, TxValue) => true,
+      (Balance(expr1), Balance(expr2)) => expr1 == expr2,
+      (Gas(val1, expr1), Gas(val2, expr2)) => val1 == val2 && expr1 == expr2,
+      (CodeSize(expr1), CodeSize(expr2)) => expr1 == expr2,
+      (CodeHash(expr1), CodeHash(expr2)) => expr1 == expr2,
+      (LogEntry(expr1a, expr1b, vec1), LogEntry(expr2a, expr2b, vec2)) => {
+        expr1a == expr2a && expr1b == expr2b && vec1 == vec2
+      }
+      (
+        C {
+          code: code1,
+          storage: storage1,
+          balance: balance1,
+          nonce: nonce1,
+        },
+        C {
+          code: code2,
+          storage: storage2,
+          balance: balance2,
+          nonce: nonce2,
+        },
+      ) => code1 == code2 && storage1 == storage2 && balance1 == balance2 && nonce1 == nonce2,
+      (SymAddr(name1), SymAddr(name2)) => name1 == name2,
+      (LitAddr(addr1), LitAddr(addr2)) => addr1 == addr2,
+      (WAddr(expr1), WAddr(expr2)) => expr1 == expr2,
+      (ConcreteStore(map1), ConcreteStore(map2)) => map1 == map2,
+      (AbstractStore(expr1, opt1), AbstractStore(expr2, opt2)) => expr1 == expr2 && opt1 == opt2,
+      (SLoad(expr1a, expr1b), SLoad(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (SStore(expr1a, expr1b, expr1c, expr1d), SStore(expr2a, expr2b, expr2c, expr2d)) => {
+        expr1a == expr2a && expr1b == expr2b && expr1c == expr2c && expr1d == expr2d
+      }
+      (ConcreteBuf(buf1), ConcreteBuf(buf2)) => buf1 == buf2,
+      (AbstractBuf(str1), AbstractBuf(str2)) => str1 == str2,
+      (ReadWord(expr1a, expr1b), ReadWord(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (ReadByte(expr1a, expr1b), ReadByte(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
+      (WriteWord(expr1a, expr1b, expr1c), WriteWord(expr2a, expr2b, expr2c)) => {
+        expr1a == expr2a && expr1b == expr2b && expr1c == expr2c
+      }
+      (WriteByte(expr1a, expr1b, expr1c), WriteByte(expr2a, expr2b, expr2c)) => {
+        expr1a == expr2a && expr1b == expr2b && expr1c == expr2c
+      }
+      (CopySlice(expr1a, expr1b, expr1c, expr1d, expr1e), CopySlice(expr2a, expr2b, expr2c, expr2d, expr2e)) => {
+        expr1a == expr2a && expr1b == expr2b && expr1c == expr2c && expr1d == expr2d && expr1e == expr2e
+      }
+      (BufLength(expr1), BufLength(expr2)) => expr1 == expr2,
+      _ => false,
+    }
+  }
+}
+
+impl Hash for Expr {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    use Expr::*;
+
+    match self {
+      Mempty => {
+        "Mempty".hash(state);
+      }
+      Lit(val) => {
+        "Lit".hash(state);
+        val.hash(state);
+      }
+      Var(name) => {
+        "Var".hash(state);
+        name.hash(state);
+      }
+      GVar(gvar) => {
+        "GVar".hash(state);
+        gvar.hash(state);
+      }
+      LitByte(byte) => {
+        "LitByte".hash(state);
+        byte.hash(state);
+      }
+      IndexWord(expr1, expr2) => {
+        "IndexWord".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      EqByte(expr1, expr2) => {
+        "EqByte".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      JoinBytes(vec) => {
+        "JoinBytes".hash(state);
+        vec.hash(state);
+      }
+      Partial(props, tc, exec) => {
+        "Partial".hash(state);
+        props.hash(state);
+        tc.hash(state);
+        exec.hash(state);
+      }
+      Failure(props, tc, err) => {
+        "Failure".hash(state);
+        props.hash(state);
+        tc.hash(state);
+        err.hash(state);
+      }
+      Success(props, tc, expr, map) => {
+        "Success".hash(state);
+        props.hash(state);
+        tc.hash(state);
+        expr.hash(state);
+        map.hash(state);
+      }
+      ITE(cond, then, else_) => {
+        "ITE".hash(state);
+        cond.hash(state);
+        then.hash(state);
+        else_.hash(state);
+      }
+      Add(expr1, expr2) => {
+        "Add".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Sub(expr1, expr2) => {
+        "Sub".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Mul(expr1, expr2) => {
+        "Mul".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Div(expr1, expr2) => {
+        "Div".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      SDiv(expr1, expr2) => {
+        "SDiv".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Mod(expr1, expr2) => {
+        "Mod".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      SMod(expr1, expr2) => {
+        "SMod".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      AddMod(expr1, expr2, expr3) => {
+        "AddMod".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+        expr3.hash(state);
+      }
+      MulMod(expr1, expr2, expr3) => {
+        "MulMod".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+        expr3.hash(state);
+      }
+      Exp(expr1, expr2) => {
+        "Exp".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      SEx(expr1, expr2) => {
+        "SEx".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Min(expr1, expr2) => {
+        "Min".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Max(expr1, expr2) => {
+        "Max".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      LT(expr1, expr2) => {
+        "LT".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      GT(expr1, expr2) => {
+        "GT".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      LEq(expr1, expr2) => {
+        "LEq".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      GEq(expr1, expr2) => {
+        "GEq".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      SLT(expr1, expr2) => {
+        "SLT".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      SGT(expr1, expr2) => {
+        "SGT".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Eq(expr1, expr2) => {
+        "Eq".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      IsZero(expr) => {
+        "IsZero".hash(state);
+        expr.hash(state);
+      }
+      And(expr1, expr2) => {
+        "And".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Or(expr1, expr2) => {
+        "Or".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Xor(expr1, expr2) => {
+        "Xor".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Not(expr) => {
+        "Not".hash(state);
+        expr.hash(state);
+      }
+      SHL(expr1, expr2) => {
+        "SHL".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      SHR(expr1, expr2) => {
+        "SHR".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      SAR(expr1, expr2) => {
+        "SAR".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      Keccak(expr) => {
+        "Keccak".hash(state);
+        expr.hash(state);
+      }
+      SHA256(expr) => {
+        "SHA256".hash(state);
+        expr.hash(state);
+      }
+      Origin => {
+        "Origin".hash(state);
+      }
+      BlockHash(expr) => {
+        "BlockHash".hash(state);
+        expr.hash(state);
+      }
+      Coinbase => {
+        "Coinbase".hash(state);
+      }
+      Timestamp => {
+        "Timestamp".hash(state);
+      }
+      BlockNumber => {
+        "BlockNumber".hash(state);
+      }
+      PrevRandao => {
+        "PrevRandao".hash(state);
+      }
+      GasLimit => {
+        "GasLimit".hash(state);
+      }
+      ChainId => {
+        "ChainId".hash(state);
+      }
+      BaseFee => {
+        "BaseFee".hash(state);
+      }
+      TxValue => {
+        "TxValue".hash(state);
+      }
+      Balance(expr) => {
+        "Balance".hash(state);
+        expr.hash(state);
+      }
+      Gas(val, expr) => {
+        "Gas".hash(state);
+        val.hash(state);
+        expr.hash(state);
+      }
+      CodeSize(expr) => {
+        "CodeSize".hash(state);
+        expr.hash(state);
+      }
+      CodeHash(expr) => {
+        "CodeHash".hash(state);
+        expr.hash(state);
+      }
+      LogEntry(expr1, expr2, vec) => {
+        "LogEntry".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+        vec.hash(state);
+      }
+      C {
+        code,
+        storage,
+        balance,
+        nonce,
+      } => {
+        "Contract".hash(state);
+        code.hash(state);
+        storage.hash(state);
+        balance.hash(state);
+        nonce.hash(state);
+      }
+      SymAddr(name) => {
+        "SymAddr".hash(state);
+        name.hash(state);
+      }
+      LitAddr(addr) => {
+        "LitAddr".hash(state);
+        addr.hash(state);
+      }
+      WAddr(expr) => {
+        "WAddr".hash(state);
+        expr.hash(state);
+      }
+      ConcreteStore(map) => {
+        "ConcreteStore".hash(state);
+        map.hash(state);
+      }
+      AbstractStore(expr, opt) => {
+        "AbstractStore".hash(state);
+        expr.hash(state);
+        opt.hash(state);
+      }
+      SLoad(expr1, expr2) => {
+        "SLoad".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      SStore(expr1, expr2, expr3, expr4) => {
+        "SStore".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+        expr3.hash(state);
+        expr4.hash(state);
+      }
+      ConcreteBuf(buf) => {
+        "ConcreteBuf".hash(state);
+        buf.hash(state);
+      }
+      AbstractBuf(str) => {
+        "AbstractBuf".hash(state);
+        str.hash(state);
+      }
+      ReadWord(expr1, expr2) => {
+        "ReadWord".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      ReadByte(expr1, expr2) => {
+        "ReadByte".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+      }
+      WriteWord(expr1, expr2, expr3) => {
+        "WriteWord".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+        expr3.hash(state);
+      }
+      WriteByte(expr1, expr2, expr3) => {
+        "WriteByte".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+        expr3.hash(state);
+      }
+      CopySlice(expr1, expr2, expr3, expr4, expr5) => {
+        "CopySlice".hash(state);
+        expr1.hash(state);
+        expr2.hash(state);
+        expr3.hash(state);
+        expr4.hash(state);
+        expr5.hash(state);
+      }
+      BufLength(expr) => {
+        "BufLength".hash(state);
+        expr.hash(state);
+      }
+    }
+  }
+}
+
 // Propositions -----------------------------------------------------------------------------------
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum Prop {
   PEq(Expr),
   PLT(Expr, Expr),
@@ -300,6 +770,7 @@ enum Prop {
 }
 
 // Errors -----------------------------------------------------------------------------------------
+#[derive(Debug, Clone)]
 pub enum EvmError {
   BalanceTooLow(Box<Expr>, Box<Expr>),
   UnrecognizedOpcode(u8),
@@ -354,6 +825,90 @@ impl fmt::Display for EvmError {
   }
 }
 
+#[derive(Debug, Clone)]
+enum Op<A> {
+  OpStop,
+  OpAdd,
+  OpMul,
+  OpSub,
+  OpDiv,
+  OpSdiv,
+  OpMod,
+  OpSmod,
+  OpAddmod,
+  OpMulmod,
+  OpExp,
+  OpSignextend,
+  OpLt,
+  OpGt,
+  OpSlt,
+  OpSgt,
+  OpEq,
+  OpIszero,
+  OpAnd,
+  OpOr,
+  OpXor,
+  OpNot,
+  OpByte,
+  OpShl,
+  OpShr,
+  OpSar,
+  OpSha3,
+  OpAddress,
+  OpBalance,
+  OpOrigin,
+  OpCaller,
+  OpCallvalue,
+  OpCalldataload,
+  OpCalldatasize,
+  OpCalldatacopy,
+  OpCodesize,
+  OpCodecopy,
+  OpGasprice,
+  OpExtcodesize,
+  OpExtcodecopy,
+  OpReturndatasize,
+  OpReturndatacopy,
+  OpExtcodehash,
+  OpBlockhash,
+  OpCoinbase,
+  OpTimestamp,
+  OpNumber,
+  OpPrevRandao,
+  OpGaslimit,
+  OpChainid,
+  OpSelfbalance,
+  OpBaseFee,
+  OpPop,
+  OpMload,
+  OpMstore,
+  OpMstore8,
+  OpSload,
+  OpSstore,
+  OpJump,
+  OpJumpi,
+  OpPc,
+  OpMsize,
+  OpGas,
+  OpJumpdest,
+  OpCreate,
+  OpCall,
+  OpStaticcall,
+  OpCallcode,
+  OpReturn,
+  OpDelegatecall,
+  OpCreate2,
+  OpRevert,
+  OpSelfdestruct,
+  OpDup(u8),
+  OpSwap(u8),
+  OpLog(u8),
+  OpPush0,
+  OpPush(A),
+  OpUnknown(u8),
+}
+
+#[derive(Debug, Clone)]
 pub enum TraceData {
   EventTrace(Expr, Expr, Vec<Expr>),
   FrameTrace(FrameContext),
@@ -362,7 +917,7 @@ pub enum TraceData {
   ReturnTrace(Expr, FrameContext),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Contract {
   pub code: ContractCode,
   pub storage: Expr,
@@ -372,22 +927,24 @@ pub struct Contract {
   pub codehash: Expr,
   pub op_idx_map: Vec<i32>,
   pub external: bool,
+  pub code_ops: Vec<(i32, Op<Expr>)>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ContractCode {
   UnKnownCode(Box<Expr>),
   InitCode(Vec<u8>, Box<Expr>),
   RuntimeCode(RuntimeCodeStruct),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum RuntimeCodeStruct {
   ConcreteRuntimeCode(Vec<u8>),
   SymbolicRuntimeCode(Vec<Expr>),
 }
 
 // Define the Trace struct
+#[derive(Debug, Clone)]
 pub struct Trace {
   op_ix: i32,           // Operation index
   contract: Contract,   // Contract associated with the trace
@@ -395,6 +952,7 @@ pub struct Trace {
 }
 
 // Define TraceContext struct
+#[derive(Debug, Clone)]
 struct TraceContext {
   traces: Vec<Trace>,                 // Assuming Trace is a suitable type like struct Trace;
   contracts: HashMap<Expr, Contract>, // Using HashMap for contracts
@@ -417,10 +975,20 @@ pub enum Gas {
   Concerete(Word64),
 }
 
-type MutableMemory = Vec<u8>;
+pub type MutableMemory = Vec<u8>;
 pub enum Memory {
   ConcreteMemory(MutableMemory),
   SymbolicMemory(Expr),
+}
+
+impl Memory {
+  // Method to get a mutable reference to ConcreteMemory
+  pub fn as_mut_concrete_memory(&mut self) -> Option<&mut Vec<u8>> {
+    match self {
+      Memory::ConcreteMemory(mem) => Some(mem),
+      _ => None,
+    }
+  }
 }
 
 // The "registers" of the VM along with memory and data stack
@@ -428,8 +996,8 @@ pub struct FrameState {
   pub contract: Expr,
   pub code_contract: Expr,
   pub code: ContractCode,
-  pub pc: i32,
-  pub stack: Vec<Expr>,
+  pub pc: usize,
+  pub stack: Vec<Box<Expr>>,
   pub memory: Memory,
   pub memory_size: u64,
   pub calldata: Expr,
@@ -480,6 +1048,7 @@ pub struct Cache {
   pub path: HashMap<(CodeLocation, i64), bool>,
 }
 
+#[derive(Debug, Clone)]
 pub enum FrameContext {
   CreationContext {
     address: Expr,
@@ -532,7 +1101,7 @@ pub struct Env {
 #[derive(Clone)]
 pub struct Block {
   pub coinbase: Expr,
-  pub timestamp: Expr,
+  pub time_stamp: Expr,
   pub number: W256,
   pub prev_randao: W256,
   pub gaslimit: Word64,
@@ -607,6 +1176,7 @@ pub struct TxState {
   pub tx_reversion: HashMap<Expr, Contract>,
 }
 
+#[derive(Debug, Clone)]
 pub struct SubState {
   pub selfdestructs: Vec<Expr>,
   pub touched_accounts: Vec<Expr>,
@@ -628,7 +1198,7 @@ pub struct VMOpts {
   pub gas: Gas,
   pub gaslimit: Word64,
   pub number: W256,
-  pub timestamp: Expr,
+  pub time_stamp: Expr,
   pub coinbase: Expr,
   pub prev_randao: W256,
   pub max_code_size: W256,
