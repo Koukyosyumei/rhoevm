@@ -777,10 +777,6 @@ fn push_addr(vm: &mut VM, addr: Expr) {
   vm.state.stack.push(addr);
 }
 
-fn push_sym(vm: &mut VM, sym: impl Into<Expr>) {
-  vm.state.stack.push(sym.into());
-}
-
 fn internal_error(msg: &str) {
   // Implement internal error handling
 }
@@ -788,7 +784,7 @@ fn internal_error(msg: &str) {
 fn to_buf(code: &ContractCode) -> Option<&[u8]> {
   match code {
     ContractCode::InitCode(conc, _) => Some(conc),
-    ContractCode::RuntimeCode(RuntimeCode { data }) => Some(data),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(data)) => Some(data),
     _ => None,
   }
 }
