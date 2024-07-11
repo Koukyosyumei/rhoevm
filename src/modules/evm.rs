@@ -1,17 +1,18 @@
-use std::clone;
 use std::collections::{hash_set, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::hash::Hash;
+use std::iter;
 use std::sync::Arc;
+use std::{clone, ops};
 use tiny_keccak::{Hasher, Keccak};
 
 #[path = "./types.rs"]
 mod types;
 use types::{
-  len_buf, Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, Expr, ExprSet, ExprW256Set, ForkState,
-  FrameState, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TreePos, TxState, VMOpts,
-  W256W256Map, Word8, VM,
+  from_list, len_buf, Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, Expr, ExprSet, ExprW256Set,
+  FeeSchedule, ForkState, FrameState, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, Trace,
+  TreePos, TxState, VMOpts, W256W256Map, Word64, Word8, VM,
 };
 
 fn initial_gas() -> u64 {
@@ -273,19 +274,47 @@ fn exec1(vm: &mut VM) {
       "OpPush" => {
         let n = usize::try_from(op).unwrap();
         let xs = match &vm.state.code {
-          ContractCode::UnKnownCode(_) => internal_error("Cannot execute unknown code"),
-          ContractCode::InitCode(conc, _) => Expr::Word(conc[vm.state.pc + 1..vm.state.pc + 1 + n].to_vec()),
-          ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(data)) => {
-            Expr::Word(data[vm.state.pc + 1..vm.state.pc + 1 + n].to_vec())
+          ContractCode::UnKnownCode(_) => panic!("Cannot execute unknown code"),
+          ContractCode::InitCode(conc, _) => {
+            let bytes = pad_right(n, *conc);
+            Expr::Lit(word32(&bytes))
           }
-          ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {}
+          ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => {
+            let bytes = bs.get((1 + vm.state.pc)..).ok_or("Index out of bounds");
+            Expr::Lit(word32(&bytes.unwrap()))
+          }
+          ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
+            let bytes = ops.get((1 + vm.state.pc)..(1 + vm.state.pc + n)).ok_or("Index out of bounds");
+            let padded_bytes = pad_left_prime(32, bytes.unwrap().to_vec());
+            from_list(padded_bytes)
+          }
         };
         limit_stack(1, || {
           burn(fees.g_verylow, || {
             next(vm);
-            push_sym(vm, xs);
+            push_sym(vm, Box::new(xs));
           });
         });
+        /*
+            let xs = match &vm.code {
+                Code::UnknownCode(_) => return Err("Cannot execute unknown code"),
+                Code::InitCode(conc, _) => {
+                    let bytes = pad_right(n, &conc)?;
+                    Expr::Lit(word(&bytes))
+                }
+                Code::RuntimeCode(runtime_code) => match runtime_code {
+                    RuntimeCode::ConcreteRuntimeCode(bs) => {
+                        let bytes = bs.get((1 + vm.pc)..).ok_or("Index out of bounds")?;
+                        Expr::Lit(word(bytes))
+                    }
+                    RuntimeCode::SymbolicRuntimeCode(ops) => {
+                        let bytes = ops.get((1 + vm.pc)..(1 + vm.pc + n)).ok_or("Index out of bounds")?;
+                        let padded_bytes = pad_left(32, &bytes);
+                        Expr::from_list(&padded_bytes)
+                    }
+                },
+            };
+        */
       }
       "OpDup" => {
         let i = usize::try_from(op).unwrap();
@@ -365,7 +394,7 @@ fn exec1(vm: &mut VM) {
       "OpOr" => stack_op2(vm, fees.g_verylow, "or"),
       "OpXor" => stack_op2(vm, fees.g_verylow, "xor"),
       "OpNot" => stack_op1(vm, fees.g_verylow, "not"),
-      "OpByte" => stack_op2(vm, fees.g_verylow, |i, w| Expr::pad_byte(Expr::index_word(i, w))),
+      "OpByte" => stack_op2(vm, fees.g_verylow, "byte"),
       "OpShl" => stack_op2(vm, fees.g_verylow, "shl"),
       "OpShr" => stack_op2(vm, fees.g_verylow, "shr"),
       "OpSar" => stack_op2(vm, fees.g_verylow, "sar"),
@@ -373,7 +402,7 @@ fn exec1(vm: &mut VM) {
         if let Some((x_offset, x_size, xs)) =
           stk.split_first().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
         {
-          burn_sha3(x_size, || {
+          burn_sha3(unbox(*x_size), vm.block.schedule, || {
             access_memory_range(x_offset, x_size, || {
               let hash = read_memory(x_offset, x_size).map_or_else(|orig| Keccak::new(orig), |buf| Keccak::new(buf));
               next(vm);
@@ -473,7 +502,7 @@ fn exec1(vm: &mut VM) {
         if let Some((mem_offset, rest)) = stk.split_first() {
           if let Some((code_offset, rest)) = rest.split_first() {
             if let Some((n, xs)) = rest.split_first() {
-              burn_codecopy(n, || {
+              burn_codecopy(unbox(*n), vm.block.schedule, || {
                 access_memory_range(mem_offset, n, || {
                   next(vm);
                   vm.state.stack = xs.to_vec();
@@ -515,7 +544,7 @@ fn exec1(vm: &mut VM) {
               fetch_account(&a, |c| {
                 next(vm);
                 vm.state.stack = stk[1..].to_vec();
-                if let Some(b) = &c.bytecode {
+                if let Some(b) = &c.bytecode() {
                   push_sym(vm, b.len());
                 } else {
                   push_sym(vm, Box::new(Expr::CodeSize(Box::new(a))));
@@ -538,7 +567,7 @@ fn exec1(vm: &mut VM) {
                       fetch_account(&a, |c| {
                         next(vm);
                         vm.state.stack = xs.to_vec();
-                        if let Some(b) = &c.bytecode {
+                        if let Some(b) = &c.bytecode() {
                           copy_bytes_to_memory(
                             Expr::ConcreteBuf(b),
                             unbox(code_size.clone()),
@@ -701,6 +730,30 @@ fn limit_stack<F: FnOnce()>(n: usize, f: F) {
 
 fn burn<F: FnOnce()>(gas: u64, f: F) {
   // Implement gas burning logic
+  f()
+}
+
+fn burn_sha3<F: FnOnce()>(x_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
+  let cost = match x_size {
+    Expr::Lit(c) => schedule.g_sha3 + schedule.g_sha3word * (((c as u64) + 31) / 32),
+    _ => 0,
+  };
+  burn(cost, f)
+}
+
+fn burn_codecopy<F: FnOnce()>(n: Expr, schedule: FeeSchedule<Word64>, f: F) {
+  let max_word64 = u64::MAX;
+  let cost = match n {
+    Expr::Lit(c) => {
+      if (c as u64) <= (max_word64 - (schedule.g_verylow as u64)) / ((schedule.g_copy as u64) * 32) {
+        schedule.g_verylow + schedule.g_copy * (((c as u64) + 31) / 32)
+      } else {
+        panic!("overflow")
+      }
+    }
+    _ => panic!("illegal expression"),
+  };
+  burn(cost, f)
 }
 
 fn next(vm: &mut VM) {
@@ -848,10 +901,6 @@ fn abi_keccak(input: &[u8]) -> FunctionSelector {
   FunctionSelector(selector)
 }
 
-fn from_list(v: Vec<Expr>) -> Expr {
-  Expr::Mempty
-}
-
 fn hashcode(cc: &ContractCode) -> Expr {
   match cc {
     ContractCode::UnKnownCode(a) => Expr::CodeHash(a.clone()),
@@ -870,6 +919,33 @@ fn codelen(cc: &ContractCode) -> Expr {
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => Expr::Lit(ops.len() as u32),
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => Expr::Lit(ops.len() as u32),
   }
+}
+
+fn pad_left(n: usize, xs: Vec<u8>) -> Vec<u8> {
+  if xs.len() >= n {
+    return xs; // No padding needed if already of sufficient length
+  }
+  let padding_length = n - xs.len();
+  let padding = iter::repeat(0u8).take(padding_length);
+  padding.chain(xs.into_iter()).collect()
+}
+
+fn pad_left_prime(n: usize, xs: Vec<Expr>) -> Vec<Expr> {
+  if xs.len() >= n {
+    return xs; // No padding needed if already of sufficient length
+  }
+  let padding_length = n - xs.len();
+  let padding = iter::repeat(Expr::LitByte(0)).take(padding_length);
+  padding.chain(xs.into_iter()).collect()
+}
+
+fn pad_right(n: usize, mut xs: Vec<u8>) -> Vec<u8> {
+  if xs.len() >= n {
+    return xs; // No padding needed if already of sufficient length
+  }
+  let padding_length = n - xs.len();
+  xs.extend(iter::repeat(0u8).take(padding_length));
+  xs
 }
 
 /*

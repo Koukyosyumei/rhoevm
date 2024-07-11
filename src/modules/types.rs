@@ -939,6 +939,17 @@ pub struct Contract {
   pub code_ops: Vec<(i32, Op<Expr>)>,
 }
 
+impl Contract {
+  pub fn bytecode(&self) -> Option<Expr> {
+    match &self.code {
+      ContractCode::InitCode(_, _) => Some(Expr::Mempty), // Equivalent to Just mempty
+      ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => Some(Expr::ConcreteBuf(bs.clone())),
+      ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => Some(from_list(ops.to_vec())),
+      ContractCode::UnKnownCode(_) => None,
+    }
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum ContractCode {
   UnKnownCode(Box<Expr>),
@@ -1153,10 +1164,10 @@ pub struct FeeSchedule<T> {
   g_log: T,
   g_logdata: T,
   g_logtopic: T,
-  g_sha3: T,
-  g_sha3word: T,
+  pub g_sha3: T,
+  pub g_sha3word: T,
   g_initcodeword: T,
-  g_copy: T,
+  pub g_copy: T,
   g_blockhash: T,
   g_extcodehash: T,
   g_quaddivisor: T,
@@ -1233,6 +1244,37 @@ pub enum PartialExec {
   UnexpectedSymbolicArg(i32, String, Vec<Expr>),
   MaxIterationsReached(i32, Box<Expr>),
   JumpIntoSymbolicCode(i32, i32),
+}
+
+// Example function translating fromList logic from Haskell
+pub fn from_list(bs: Vec<Expr>) -> Expr {
+  if bs.iter().all(|expr| matches!(expr, Expr::LitByte(_))) {
+    let packed_bytes: Vec<u8> = bs
+      .iter()
+      .filter_map(|expr| match expr {
+        Expr::LitByte(b) => Some(*b),
+        _ => None,
+      })
+      .collect();
+    Expr::ConcreteBuf(packed_bytes)
+  } else {
+    let mut concrete_bytes = Vec::with_capacity(bs.len());
+    for (idx, expr) in bs.iter().enumerate() {
+      match expr {
+        Expr::LitByte(b) => concrete_bytes.push(*b),
+        _ => concrete_bytes.push(0),
+      }
+    }
+    let mut buf_expr = Expr::ConcreteBuf(concrete_bytes);
+
+    for (idx, expr) in bs.into_iter().enumerate() {
+      match expr {
+        Expr::LitByte(_) => continue,
+        _ => buf_expr = Expr::WriteByte(Box::new(Expr::Lit(idx as u32)), Box::new(expr), Box::new(buf_expr)),
+      }
+    }
+    buf_expr
+  }
 }
 
 macro_rules! impl_hashset_traits {
