@@ -296,26 +296,6 @@ fn exec1(vm: &mut VM) {
             push_sym(vm, Box::new(xs));
           });
         });
-        /*
-            let xs = match &vm.code {
-                Code::UnknownCode(_) => return Err("Cannot execute unknown code"),
-                Code::InitCode(conc, _) => {
-                    let bytes = pad_right(n, &conc)?;
-                    Expr::Lit(word(&bytes))
-                }
-                Code::RuntimeCode(runtime_code) => match runtime_code {
-                    RuntimeCode::ConcreteRuntimeCode(bs) => {
-                        let bytes = bs.get((1 + vm.pc)..).ok_or("Index out of bounds")?;
-                        Expr::Lit(word(bytes))
-                    }
-                    RuntimeCode::SymbolicRuntimeCode(ops) => {
-                        let bytes = ops.get((1 + vm.pc)..(1 + vm.pc + n)).ok_or("Index out of bounds")?;
-                        let padded_bytes = pad_left(32, &bytes);
-                        Expr::from_list(&padded_bytes)
-                    }
-                },
-            };
-        */
       }
       "OpDup" => {
         let i = usize::try_from(op).unwrap();
@@ -570,7 +550,7 @@ fn exec1(vm: &mut VM) {
                         vm.state.stack = xs.to_vec();
                         if let Some(b) = &c.bytecode() {
                           copy_bytes_to_memory(
-                            Expr::ConcreteBuf(b),
+                            *b,
                             unbox(code_size.clone()),
                             unbox(code_offset.clone()),
                             unbox(mem_offset.clone()),
