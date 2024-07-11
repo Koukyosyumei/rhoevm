@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::collections::{hash_set, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::convert::TryInto;
@@ -11,8 +12,8 @@ use tiny_keccak::{Hasher, Keccak};
 mod types;
 use types::{
   from_list, len_buf, Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, Expr, ExprSet, ExprW256Set,
-  FeeSchedule, ForkState, FrameState, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, Trace,
-  TreePos, TxState, VMOpts, W256W256Map, Word64, Word8, VM,
+  FeeSchedule, ForkState, FrameState, GVar, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState,
+  Trace, TreePos, TxState, VMOpts, W256W256Map, Word64, Word8, VM,
 };
 
 fn initial_gas() -> u64 {
@@ -545,7 +546,7 @@ fn exec1(vm: &mut VM) {
                 next(vm);
                 vm.state.stack = stk[1..].to_vec();
                 if let Some(b) = &c.bytecode() {
-                  push_sym(vm, b.len());
+                  push_sym(vm, Box::new(buf_length(b.clone())));
                 } else {
                   push_sym(vm, Box::new(Expr::CodeSize(Box::new(a))));
                 }
@@ -948,16 +949,50 @@ fn pad_right(n: usize, mut xs: Vec<u8>) -> Vec<u8> {
   xs
 }
 
-/*
--- | The length of the code including any constructor args.
--- This can return an abstract value
-codelen :: ContractCode -> Expr EWord
-codelen (UnknownCode a) = CodeSize a
-codelen c@(InitCode {}) = case toBuf c of
-  Just b -> bufLength b
-  Nothing -> internalError "impossible"
--- these are never going to be negative so unsafeInto is fine here
-codelen (RuntimeCode (ConcreteRuntimeCode ops)) = Lit . unsafeInto $ BS.length ops
-codelen (RuntimeCode (SymbolicRuntimeCode ops)) = Lit . unsafeInto $ length ops
+fn add(a: Expr, b: Expr) -> Expr {
+  Expr::Add(Box::new(a), Box::new(b))
+}
 
-*/
+fn buf_length(buf: Expr) -> Expr {
+  buf_length_env(HashMap::new(), false, buf)
+}
+
+fn buf_length_env(env: HashMap<i32, Expr>, use_env: bool, buf: Expr) -> Expr {
+  fn go(l: Expr, buf: Expr, env: &HashMap<i32, Expr>, use_env: bool) -> Expr {
+    match buf {
+      Expr::ConcreteBuf(b) => max_expr(l, Expr::Lit(b.len() as u32)),
+      Expr::AbstractBuf(b) => max_expr(l, Expr::BufLength(Box::new(Expr::AbstractBuf(b)))),
+      Expr::WriteWord(idx, _, b) => go(max_expr(l, add(*idx, Expr::Lit(32))), *b, env, use_env),
+      Expr::WriteByte(idx, _, b) => go(max_expr(l, add(*idx, Expr::Lit(1))), *b, env, use_env),
+      Expr::CopySlice(_, dst_offset, size, _, dst) => go(max_expr(l, add(*dst_offset, *size)), *dst, env, use_env),
+      Expr::GVar(GVar::BufVar(a)) => {
+        if use_env {
+          if let Some(b) = env.get(&a) {
+            go(l, b.clone(), env, use_env)
+          } else {
+            panic!("Cannot compute length of open expression")
+          }
+        } else {
+          max_expr(l, Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(a)))))
+        }
+      }
+      _ => panic!("unsupported expression"),
+    }
+  }
+
+  go(Expr::Lit(0), buf, &env, use_env)
+}
+
+fn max_expr(a: Expr, b: Expr) -> Expr {
+  // Implement the logic to compute the maximum of two ExprWord values
+  // This is a placeholder implementation
+  if let Expr::Lit(a_val) = a {
+    if let Expr::Lit(b_val) = b {
+      Expr::Lit(max(a_val, b_val))
+    } else {
+      b
+    }
+  } else {
+    a
+  }
+}
