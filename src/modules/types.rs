@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::fmt::{self, write};
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasher, Hash, Hasher};
+use std::ops::Add;
+use std::ops::{Deref, DerefMut};
 use std::path::Display;
 use std::vec::Vec;
 
@@ -88,7 +90,7 @@ pub enum Expr {
   // Control Flow
   Partial(Vec<Prop>, TraceContext, PartialExec),
   Failure(Vec<Prop>, TraceContext, EvmError),
-  Success(Vec<Prop>, TraceContext, Box<Expr>, HashMap<Expr, Expr>),
+  Success(Vec<Prop>, TraceContext, Box<Expr>, ExprExprMap),
   ITE(Box<Expr>, Box<Expr>, Box<Expr>),
 
   // Integers
@@ -168,7 +170,7 @@ pub enum Expr {
   WAddr(Box<Expr>),
 
   // Storage
-  ConcreteStore(HashMap<W256, W256>),
+  ConcreteStore(W256W256Map),
   AbstractStore(Box<Expr>, Option<W256>),
 
   SLoad(Box<Expr>, Box<Expr>),
@@ -281,6 +283,13 @@ impl fmt::Display for Expr {
       ),
       Expr::BufLength(buf) => write!(f, "BufLength({})", buf),
     }
+  }
+}
+
+pub fn len_buf(e: &Expr) -> usize {
+  match e {
+    Expr::ConcreteBuf(buf) => buf.len(),
+    _ => 0,
   }
 }
 
@@ -755,7 +764,7 @@ impl Hash for Expr {
 }
 
 // Propositions -----------------------------------------------------------------------------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 enum Prop {
   PEq(Expr),
   PLT(Expr, Expr),
@@ -770,7 +779,7 @@ enum Prop {
 }
 
 // Errors -----------------------------------------------------------------------------------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum EvmError {
   BalanceTooLow(Box<Expr>, Box<Expr>),
   UnrecognizedOpcode(u8),
@@ -825,7 +834,7 @@ impl fmt::Display for EvmError {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 enum Op<A> {
   OpStop,
   OpAdd,
@@ -908,7 +917,7 @@ enum Op<A> {
   OpUnknown(u8),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum TraceData {
   EventTrace(Expr, Expr, Vec<Expr>),
   FrameTrace(FrameContext),
@@ -917,7 +926,7 @@ pub enum TraceData {
   ReturnTrace(Expr, FrameContext),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct Contract {
   pub code: ContractCode,
   pub storage: Expr,
@@ -930,21 +939,21 @@ pub struct Contract {
   pub code_ops: Vec<(i32, Op<Expr>)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum ContractCode {
   UnKnownCode(Box<Expr>),
   InitCode(Vec<u8>, Box<Expr>),
   RuntimeCode(RuntimeCodeStruct),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum RuntimeCodeStruct {
   ConcreteRuntimeCode(Vec<u8>),
   SymbolicRuntimeCode(Vec<Expr>),
 }
 
 // Define the Trace struct
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct Trace {
   op_ix: i32,           // Operation index
   contract: Contract,   // Contract associated with the trace
@@ -952,11 +961,11 @@ pub struct Trace {
 }
 
 // Define TraceContext struct
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 struct TraceContext {
-  traces: Vec<Trace>,                 // Assuming Trace is a suitable type like struct Trace;
-  contracts: HashMap<Expr, Contract>, // Using HashMap for contracts
-  labels: HashMap<Addr, String>,      // Using HashMap for labels
+  traces: Vec<Trace>,         // Assuming Trace is a suitable type like struct Trace;
+  contracts: ExprContractMap, // Using HashMap for contracts
+  labels: AddrStringMap,      // Using HashMap for labels
 }
 
 // Implement Monoid trait for TraceContext
@@ -964,8 +973,8 @@ impl Default for TraceContext {
   fn default() -> Self {
     TraceContext {
       traces: Vec::new(),
-      contracts: HashMap::new(),
-      labels: HashMap::new(),
+      contracts: ExprContractMap::new(),
+      labels: AddrStringMap::new(),
     }
   }
 }
@@ -1048,12 +1057,12 @@ pub struct Cache {
   pub path: HashMap<(CodeLocation, i64), bool>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum FrameContext {
   CreationContext {
     address: Expr,
     codehash: Expr,
-    createversion: HashMap<Expr, Contract>,
+    createversion: ExprContractMap,
     substate: SubState,
   },
   CallCOntext {
@@ -1091,7 +1100,7 @@ pub enum VMResult {
 // Various environmental data
 #[derive(Clone)]
 pub struct Env {
-  pub contracts: HashMap<Expr, Contract>,
+  pub contracts: ExprContractMap,
   pub chain_id: W256,
   pub fresh_address: i32,
   pub fresh_gas_vals: i32,
@@ -1173,15 +1182,15 @@ pub struct TxState {
   pub value: Expr,
   pub substate: SubState,
   pub is_create: bool,
-  pub tx_reversion: HashMap<Expr, Contract>,
+  pub tx_reversion: ExprContractMap,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct SubState {
   pub selfdestructs: Vec<Expr>,
   pub touched_accounts: Vec<Expr>,
-  pub accessed_addresses: HashSet<Expr>,
-  pub accessed_storage_keys: HashSet<(Expr, W256)>,
+  pub accessed_addresses: ExprSet,
+  pub accessed_storage_keys: ExprW256Set,
   pub refunds: Vec<(Expr, Word64)>,
 }
 
@@ -1219,17 +1228,117 @@ pub struct ForkState {
   pub urlaor_alias: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum PartialExec {
-  UnexpectedSymbolicArg,
-  MaxIterationsReached,
-  JumpIntoSymbolicCode,
+  UnexpectedSymbolicArg(i32, String, Vec<Expr>),
+  MaxIterationsReached(i32, Box<Expr>),
+  JumpIntoSymbolicCode(i32, i32),
 }
 
-/*
+macro_rules! impl_hashset_traits {
+  ($name:ident, $inner:ty) => {
+    #[derive(Debug, Clone)]
+    pub struct $name(HashSet<$inner>);
 
-data PartialExec
-  = UnexpectedSymbolicArg { pc :: Int, msg  :: String, args  :: [SomeExpr] }
-  | MaxIterationsReached  { pc :: Int, addr :: Expr EAddr }
-  | JumpIntoSymbolicCode  { pc :: Int, jumpDst :: Int }
-  deriving (Show, Eq, Ord)
-*/
+    impl<const N: usize> From<[$inner; N]> for $name {
+      fn from(arr: [$inner; N]) -> Self {
+        $name(arr.into_iter().collect())
+      }
+    }
+
+    impl FromIterator<$inner> for $name {
+      fn from_iter<I: IntoIterator<Item = $inner>>(iter: I) -> Self {
+        $name(iter.into_iter().collect())
+      }
+    }
+
+    impl PartialEq for $name {
+      fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+      }
+    }
+
+    impl Eq for $name {}
+
+    impl Hash for $name {
+      fn hash<H: Hasher>(&self, state: &mut H) {
+        let vec: Vec<_> = self.0.iter().collect();
+        // vec.sort();
+        for elem in vec {
+          elem.hash(state);
+        }
+      }
+    }
+
+    impl Deref for $name {
+      type Target = HashSet<$inner>;
+
+      fn deref(&self) -> &Self::Target {
+        &self.0
+      }
+    }
+
+    impl DerefMut for $name {
+      fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+      }
+    }
+  };
+}
+
+macro_rules! impl_hashmap_traits {
+  ($name:ident, $key:ty, $value:ty) => {
+    #[derive(Debug, Clone)]
+    pub struct $name(HashMap<$key, $value>);
+
+    impl $name {
+      pub fn new() -> Self {
+        $name(HashMap::new())
+      }
+
+      pub fn from(vec: Vec<($key, $value)>) -> Self {
+        $name(vec.into_iter().collect())
+      }
+
+      pub fn insert(&mut self, key: $key, value: $value) {
+        self.0.insert(key, value);
+      }
+
+      pub fn get(&self, key: &$key) -> Option<&$value> {
+        self.0.get(key)
+      }
+    }
+
+    impl FromIterator<($key, $value)> for $name {
+      fn from_iter<I: IntoIterator<Item = ($key, $value)>>(iter: I) -> Self {
+        $name(iter.into_iter().collect())
+      }
+    }
+
+    impl PartialEq for $name {
+      fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+      }
+    }
+
+    impl Eq for $name {}
+
+    impl Hash for $name {
+      fn hash<H: Hasher>(&self, state: &mut H) {
+        let vec: Vec<_> = self.0.iter().collect();
+        // vec.sort_by(|a, b| a.0.cmp(b.0)); // Sort by keys
+        for (key, value) in vec {
+          key.hash(state);
+          value.hash(state);
+        }
+      }
+    }
+  };
+}
+
+impl_hashset_traits!(ExprSet, Expr);
+impl_hashset_traits!(ExprW256Set, (Expr, W256));
+impl_hashmap_traits!(ExprContractMap, Expr, Contract);
+impl_hashmap_traits!(AddrStringMap, Addr, String);
+impl_hashmap_traits!(ExprExprMap, Expr, Expr);
+impl_hashmap_traits!(W256W256Map, W256, W256);

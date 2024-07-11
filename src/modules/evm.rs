@@ -1,6 +1,7 @@
 use std::clone;
 use std::collections::{hash_set, HashMap, HashSet};
 use std::convert::TryFrom;
+use std::convert::TryInto;
 use std::hash::Hash;
 use std::sync::Arc;
 use tiny_keccak::{Hasher, Keccak};
@@ -8,8 +9,9 @@ use tiny_keccak::{Hasher, Keccak};
 #[path = "./types.rs"]
 mod types;
 use types::{
-  Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, Expr, ForkState, FrameState, Gas, Memory, MutableMemory,
-  RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TreePos, TxState, VMOpts, VM,
+  len_buf, Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, Expr, ExprSet, ExprW256Set, ForkState,
+  FrameState, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TreePos, TxState, VMOpts,
+  W256W256Map, Word8, VM,
 };
 
 fn initial_gas() -> u64 {
@@ -50,7 +52,7 @@ fn make_vm(opts: VMOpts) -> VM {
   let txaccess_list = &opts.tx_access_list;
   let txorigin = opts.origin.clone();
   let txto_addr = opts.address.clone();
-  let initial_accessed_addrs = HashSet::from([txorigin.clone(), txto_addr.clone(), opts.coinbase.clone()]);
+  let initial_accessed_addrs = ExprSet::from([txorigin.clone(), txto_addr.clone(), opts.coinbase.clone()]);
   let initial_accessed_storage_keys: HashSet<_> =
     txaccess_list.iter().flat_map(|(k, v)| v.iter().map(move |v| (k.clone(), v.clone()))).collect();
   let touched = if opts.create {
@@ -75,7 +77,7 @@ fn make_vm(opts: VMOpts) -> VM {
         selfdestructs: Vec::new(),
         touched_accounts: touched,
         accessed_addresses: initial_accessed_addrs,
-        accessed_storage_keys: initial_accessed_storage_keys,
+        accessed_storage_keys: initial_accessed_storage_keys.iter().cloned().collect(),
         refunds: Vec::new(),
       },
       is_create: opts.create,
@@ -158,11 +160,11 @@ fn make_vm(opts: VMOpts) -> VM {
 fn unknown_contract(addr: Expr) -> Contract {
   Contract {
     code: ContractCode::UnKnownCode(Box::new(addr.clone())),
-    storage: Expr::AbstractStore(Box::new(addr), None),
+    storage: Expr::AbstractStore(Box::new(addr.clone()), None),
     orig_storage: Expr::AbstractStore(Box::new(addr.clone()), None),
     balance: Expr::Balance(Box::new(addr.clone())),
     nonce: None,
-    codehash: Expr::CodeHash(hashcode(&ContractCode::UnknownCode(addr.clone()))),
+    codehash: Expr::CodeHash(Box::new(hashcode(&ContractCode::UnKnownCode(Box::new(addr.clone()))))),
     op_idx_map: Vec::new(),
     code_ops: Vec::new(),
     external: false,
@@ -176,7 +178,7 @@ fn abstract_contract(code: ContractCode, addr: Expr) -> Contract {
     orig_storage: Expr::AbstractStore(Box::new(addr.clone()), None),
     balance: Expr::Balance(Box::new(addr.clone())),
     nonce: if is_creation(&code) { Some(1) } else { Some(0) },
-    codehash: Expr::CodeHash(hashcode(&code)),
+    codehash: Expr::CodeHash(Box::new(hashcode(&code))),
     op_idx_map: Vec::new(),
     code_ops: Vec::new(),
     external: false,
@@ -192,11 +194,11 @@ fn empty_contract() -> Contract {
 fn initial_contract(code: ContractCode) -> Contract {
   Contract {
     code: code.clone(),
-    storage: Expr::ConcreteStore(HashMap::new()),
-    orig_storage: Expr::ConcreteStore(HashMap::new()),
+    storage: Expr::ConcreteStore(W256W256Map::new()),
+    orig_storage: Expr::ConcreteStore(W256W256Map::new()),
     balance: Expr::Lit(0),
     nonce: if is_creation(&code) { Some(1) } else { Some(0) },
-    codehash: Expr::CodeHash(hashcode(&code)),
+    codehash: Expr::CodeHash(Box::new(hashcode(&code))),
     op_idx_map: Vec::new(),
     code_ops: Vec::new(),
     external: false,
@@ -222,11 +224,25 @@ fn exec1(vm: &mut VM) {
 
   if let Some(lit_self) = maybe_lit_addr(self_contract) {
     if lit_self > 0x0 && lit_self <= 0x9 {
-      let calldatasize = vm.state.calldata.len();
-      copy_bytes_to_memory(vm.state.calldata, calldatasize, Expr::Lit(0), Expr::Lit(0), vm);
-      execute_precompile(lit_self, vm.state.gas, 0, calldatasize, 0, 0, vec![]);
+      let calldatasize = len_buf(&vm.state.calldata);
+      copy_bytes_to_memory(
+        vm.state.calldata,
+        Expr::Lit(calldatasize as u32),
+        Expr::Lit(0),
+        Expr::Lit(0),
+        vm,
+      );
+      execute_precompile(
+        lit_self,
+        vm.state.gas,
+        Expr::Lit(0),
+        Expr::Lit(calldatasize as u32),
+        Expr::Lit(0),
+        Expr::Lit(0),
+        vec![],
+      );
       match vm.state.stack.first() {
-        Some(boxed_expr) => if let Some(expr_lit) = Expr::Lit(0) {},
+        Some(boxed_expr) => if let Some(expr_lit) = Some(Expr::Lit(0)) {},
         None => underrun(),
       }
     }
@@ -234,9 +250,15 @@ fn exec1(vm: &mut VM) {
     finish_frame("FrameReturned", vec![]);
   } else {
     let op = match &vm.state.code {
-      ContractCode::UnknownCode(_) => internal_error("Cannot execute unknown code"),
+      ContractCode::UnKnownCode(_) => panic!("cannot execute unknown code"),
       ContractCode::InitCode(conc, _) => conc[vm.state.pc],
       ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(data)) => data[vm.state.pc],
+      ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
+        match maybe_lit_byte(&ops[vm.state.pc]) {
+          Some(b) => b,
+          None => panic!("could not analyze symbolic code"),
+        }
+      }
     };
 
     match get_op(op) {
@@ -251,11 +273,12 @@ fn exec1(vm: &mut VM) {
       "OpPush" => {
         let n = usize::try_from(op).unwrap();
         let xs = match &vm.state.code {
-          ContractCode::UnknownCode(_) => internal_error("Cannot execute unknown code"),
+          ContractCode::UnKnownCode(_) => internal_error("Cannot execute unknown code"),
           ContractCode::InitCode(conc, _) => Expr::Word(conc[vm.state.pc + 1..vm.state.pc + 1 + n].to_vec()),
           ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(data)) => {
             Expr::Word(data[vm.state.pc + 1..vm.state.pc + 1 + n].to_vec())
           }
+          ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {}
         };
         limit_stack(1, || {
           burn(fees.g_verylow, || {
@@ -373,7 +396,7 @@ fn exec1(vm: &mut VM) {
         if let Some(x) = stk.first() {
           force_addr(x, "BALANCE", |a| {
             access_and_burn(a, || {
-              fetch_account(*a, |c| {
+              fetch_account(&a, |c| {
                 next(vm);
                 vm.state.stack = stk[1..].to_vec();
                 push_sym(vm, Box::new(c.balance));
@@ -408,12 +431,12 @@ fn exec1(vm: &mut VM) {
           });
         });
       }
-      "OpCalldataload" => stack_op1(vm, fees.g_verylow, |ind| Expr::read_word(ind, &vm.state.calldata)),
+      "OpCalldataload" => stack_op1(vm, fees.g_verylow, |ind| Expr::ReadWord(ind, &vm.state.calldata)),
       "OpCalldatasize" => {
         limit_stack(1, || {
           burn(fees.g_base, || {
             next(vm);
-            push_sym(vm, vm.state.calldata.len());
+            push_sym(vm, Box::new(Expr::Lit(len_buf(&vm.state.calldata) as u32)));
           });
         });
       }
@@ -442,7 +465,7 @@ fn exec1(vm: &mut VM) {
         limit_stack(1, || {
           burn(fees.g_base, || {
             next(vm);
-            push_sym(vm, vm.state.code.len());
+            push_sym(vm, Box::new(codelen(&vm.state.code)));
           });
         });
       }
@@ -455,7 +478,13 @@ fn exec1(vm: &mut VM) {
                   next(vm);
                   vm.state.stack = xs.to_vec();
                   if let Some(b) = to_buf(&vm.state.code) {
-                    copy_bytes_to_memory(b, n, code_offset, mem_offset);
+                    copy_bytes_to_memory(
+                      Expr::ConcreteBuf(b.to_vec()),
+                      unbox(n.clone()),
+                      unbox(code_offset.clone()),
+                      unbox(mem_offset.clone()),
+                      vm,
+                    );
                   } else {
                     internal_error("Cannot produce a buffer from UnknownCode");
                   }
@@ -475,7 +504,7 @@ fn exec1(vm: &mut VM) {
         limit_stack(1, || {
           burn(fees.g_base, || {
             next(vm);
-            push_sym(vm, vm.tx.gasprice);
+            push_sym(vm, Box::new(Expr::Lit(vm.tx.gasprice)));
           });
         });
       }
@@ -506,11 +535,17 @@ fn exec1(vm: &mut VM) {
                 force_addr(ext_account, "EXTCODECOPY", |a| {
                   burn_extcodecopy(a, code_size, || {
                     access_memory_range(mem_offset, code_size, || {
-                      fetch_account(a, |c| {
+                      fetch_account(&a, |c| {
                         next(vm);
                         vm.state.stack = xs.to_vec();
                         if let Some(b) = &c.bytecode {
-                          copy_bytes_to_memory(b, code_size, code_offset, mem_offset);
+                          copy_bytes_to_memory(
+                            Expr::ConcreteBuf(b),
+                            unbox(code_size.clone()),
+                            unbox(code_offset.clone()),
+                            unbox(mem_offset.clone()),
+                            vm,
+                          );
                         } else {
                           internal_error("Cannot copy from unknown code");
                         }
@@ -535,7 +570,7 @@ fn exec1(vm: &mut VM) {
         limit_stack(1, || {
           burn(fees.g_base, || {
             next(vm);
-            push_sym(vm, vm.state.returndata.len());
+            push_sym(vm, Box::new(Expr::Lit(len_buf(&vm.state.returndata) as u32)));
           });
         });
       }
@@ -555,9 +590,17 @@ fn get_op(op: u8) -> &'static str {
   }
 }
 
-fn maybe_lit_addr(addr: &Expr) -> Option<u64> {
-  if let Expr::Addr(s) = addr {
-    Some(u64::from_str_radix(s, 16).unwrap_or(0))
+fn maybe_lit_byte(byte: &Expr) -> Option<Word8> {
+  if let Expr::LitByte(b) = byte {
+    Some(*b)
+  } else {
+    None
+  }
+}
+
+fn maybe_lit_addr(addr: &Expr) -> Option<Addr> {
+  if let Expr::LitAddr(s) = addr {
+    Some(*s)
   } else {
     None
   }
@@ -616,37 +659,15 @@ fn copy_bytes_to_memory(bs: Expr, size: Expr, src_offset: Expr, mem_offset: Expr
   }
 }
 
-/*
-copyBytesToMemory
-  :: Expr Buf -> Expr EWord -> Expr EWord -> Expr EWord -> EVM t s ()
-copyBytesToMemory bs size srcOffset memOffset =
-  if size == Lit 0 then noop
-  else do
-    gets (.state.memory) >>= \case
-      ConcreteMemory mem ->
-        case (bs, size, srcOffset, memOffset) of
-          (ConcreteBuf b, Lit size', Lit srcOffset', Lit memOffset') -> do
-            let src =
-                  if srcOffset' >= unsafeInto (BS.length b) then
-                    BS.replicate (unsafeInto size') 0
-                  else
-                    BS.take (unsafeInto size') $
-                    padRight (unsafeInto size') $
-                    BS.drop (unsafeInto srcOffset') b
-
-            writeMemory mem (unsafeInto memOffset') src
-          _ -> do
-            -- copy out and move to symbolic memory
-            buf <- freezeMemory mem
-            assign (#state % #memory) $
-              SymbolicMemory $ copySlice srcOffset memOffset size bs buf
-      SymbolicMemory mem ->
-        assign (#state % #memory) $
-          SymbolicMemory $ copySlice srcOffset memOffset size bs mem
-
-*/
-
-fn execute_precompile(lit_self: u64, gas: u64, a: u64, calldatasize: usize, b: u64, c: u64, d: Vec<u8>) {
+fn execute_precompile(
+  pre_compile_addr: Addr,
+  gas: Gas,
+  in_offset: Expr,
+  in_size: Expr,
+  out_offset: Expr,
+  out_size: Expr,
+  xs: Vec<Expr>,
+) {
   // Implement precompile logic
 }
 
@@ -709,14 +730,13 @@ fn trace_top_log(logs: Vec<Expr>) {
 
 fn stack_op2(vm: &mut VM, gas: u64, op: &str) {
   if let Some((a, b)) = vm.state.stack.split_first().and_then(|(a, rest)| rest.split_first().map(|(b, rest)| (a, b))) {
-    burn(gas, || {
-      next(vm);
-      let res = match op {
-        "add" => Box::new(Expr::Add(a.clone(), b.clone())),
-        _ => Box::new(Expr::Mempty),
-      };
-      vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(2).cloned()).collect();
-    });
+    //burn(gas)
+    let res = match op {
+      "add" => Box::new(Expr::Add(a.clone(), b.clone())),
+      _ => Box::new(Expr::Mempty),
+    };
+    next(vm);
+    vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(2).cloned()).collect();
   } else {
     underrun();
   }
@@ -726,15 +746,14 @@ fn stack_op3(vm: &mut VM, gas: u64, op: &str) {
   if let Some((a, rest)) = vm.state.stack.split_first() {
     if let Some((b, rest)) = rest.split_first() {
       if let Some((c, rest)) = rest.split_first() {
-        burn(gas, || {
-          next(vm);
-          let res = match op {
-            "addmod" => Box::new(Expr::AddMod(a.clone(), b.clone(), c.clone())),
-            "mulmod" => Box::new(Expr::MulMod(a.clone(), b.clone(), c.clone())),
-            _ => Box::new(Expr::Mempty),
-          };
-          vm.state.stack = std::iter::once(res).chain(rest.iter().cloned()).collect();
-        });
+        // burn(gas)
+        let res = match op {
+          "addmod" => Box::new(Expr::AddMod(a.clone(), b.clone(), c.clone())),
+          "mulmod" => Box::new(Expr::MulMod(a.clone(), b.clone(), c.clone())),
+          _ => Box::new(Expr::Mempty),
+        };
+        next(vm);
+        vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(3).cloned()).collect();
       } else {
         underrun();
       }
@@ -746,16 +765,16 @@ fn stack_op3(vm: &mut VM, gas: u64, op: &str) {
   }
 }
 
-fn stack_op1<F>(vm: &mut VM, gas: u64, op: F)
-where
-  F: FnOnce(Expr) -> Expr,
-{
+fn stack_op1<F>(vm: &mut VM, gas: u64, op: &str) {
   if let Some(a) = vm.state.stack.first() {
-    burn(gas, || {
-      next(vm);
-      let res = op(*a.clone());
-      vm.state.stack[0] = res;
-    });
+    // burn(gas)
+    let res = match op {
+      "iszero" => Box::new(Expr::IsZero(a.clone())),
+      "not" => Box::new(Expr::Not(a.clone())),
+      _ => Box::new(Expr::Mempty),
+    };
+    next(vm);
+    vm.state.stack[0] = res;
   } else {
     underrun();
   }
@@ -774,7 +793,7 @@ fn underrun() {
 }
 
 fn push_addr(vm: &mut VM, addr: Expr) {
-  vm.state.stack.push(addr);
+  vm.state.stack.push(Box::new(addr.clone()));
 }
 
 fn internal_error(msg: &str) {
@@ -803,13 +822,15 @@ fn word32(xs: &[u8]) -> u32 {
   xs.iter().enumerate().fold(0, |acc, (n, &x)| acc | (u32::from(x) << (8 * n)))
 }
 
-fn keccak(buf: Expr) -> Expr {
+fn keccak(buf: Expr) -> Result<Expr, &'static str> {
   match buf {
     Expr::ConcreteBuf(bs) => {
       let hash_result = keccak_bytes(&bs);
-      Expr::Lit(hash_result)
+      let byte_array: [u8; 4] = hash_result[..4].try_into().map_err(|_| "Conversion failed")?;
+      // Convert the byte array to a u32 (assuming the bytes are in little-endian order)
+      Ok(Expr::Lit(u32::from_le_bytes(byte_array)))
     }
-    _ => Expr::Keccak(Box::new(buf)), // Assuming Expr has a variant for Keccak
+    _ => Ok(Expr::Keccak(Box::new(buf))), // Assuming Expr has a variant for Keccak
   }
 }
 
@@ -826,3 +847,41 @@ fn abi_keccak(input: &[u8]) -> FunctionSelector {
   let selector = word32(selector_bytes);
   FunctionSelector(selector)
 }
+
+fn from_list(v: Vec<Expr>) -> Expr {
+  Expr::Mempty
+}
+
+fn hashcode(cc: &ContractCode) -> Expr {
+  match cc {
+    ContractCode::UnKnownCode(a) => Expr::CodeHash(a.clone()),
+    ContractCode::InitCode(ops, args) => keccak(Expr::ConcreteBuf(ops.clone())).unwrap(),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => {
+      keccak(Expr::ConcreteBuf(ops.clone())).unwrap()
+    }
+    ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => keccak(from_list(ops.clone())).unwrap(),
+  }
+}
+
+fn codelen(cc: &ContractCode) -> Expr {
+  match cc {
+    ContractCode::UnKnownCode(a) => Expr::CodeSize(a.clone()),
+    ContractCode::InitCode(ops, args) => keccak(Expr::ConcreteBuf(ops.clone())).unwrap(),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => Expr::Lit(ops.len() as u32),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => Expr::Lit(ops.len() as u32),
+  }
+}
+
+/*
+-- | The length of the code including any constructor args.
+-- This can return an abstract value
+codelen :: ContractCode -> Expr EWord
+codelen (UnknownCode a) = CodeSize a
+codelen c@(InitCode {}) = case toBuf c of
+  Just b -> bufLength b
+  Nothing -> internalError "impossible"
+-- these are never going to be negative so unsafeInto is fine here
+codelen (RuntimeCode (ConcreteRuntimeCode ops)) = Lit . unsafeInto $ BS.length ops
+codelen (RuntimeCode (SymbolicRuntimeCode ops)) = Lit . unsafeInto $ length ops
+
+*/
