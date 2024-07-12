@@ -765,7 +765,7 @@ impl Hash for Expr {
 
 // Propositions -----------------------------------------------------------------------------------
 #[derive(Debug, Clone, PartialEq, Hash)]
-enum Prop {
+pub enum Prop {
   PEq(Expr),
   PLT(Expr, Expr),
   PGT(Expr, Expr),
@@ -835,7 +835,7 @@ impl fmt::Display for EvmError {
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
-enum Op<A> {
+pub enum Op<A> {
   OpStop,
   OpAdd,
   OpMul,
@@ -990,6 +990,7 @@ impl Default for TraceContext {
   }
 }
 
+#[derive(Debug, Clone)]
 pub enum Gas {
   Symbolic,
   Concerete(Word64),

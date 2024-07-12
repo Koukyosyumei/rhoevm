@@ -219,7 +219,7 @@ fn unbox<T>(value: Box<T>) -> T {
 }
 
 fn exec1(vm: &mut VM) {
-  let stk = &vm.state.stack;
+  // let mut vm.state.stack = &vm.state.stack;
   let self_contract = &vm.state.contract;
   let this_contract = vm.env.contracts.get(self_contract).unwrap();
   let fees = &vm.block.schedule;
@@ -228,7 +228,7 @@ fn exec1(vm: &mut VM) {
     if lit_self > 0x0 && lit_self <= 0x9 {
       let calldatasize = len_buf(&vm.state.calldata);
       copy_bytes_to_memory(
-        vm.state.calldata,
+        vm.state.calldata.clone(),
         Expr::Lit(calldatasize as u32),
         Expr::Lit(0),
         Expr::Lit(0),
@@ -236,7 +236,7 @@ fn exec1(vm: &mut VM) {
       );
       execute_precompile(
         lit_self,
-        vm.state.gas,
+        vm.state.gas.clone(),
         Expr::Lit(0),
         Expr::Lit(calldatasize as u32),
         Expr::Lit(0),
@@ -265,19 +265,20 @@ fn exec1(vm: &mut VM) {
 
     match get_op(op) {
       "OpPush0" => {
-        limit_stack(1, || {
-          burn(fees.g_base, || {
-            next(vm);
-            push_sym(vm, Box::new(Expr::Lit(0)));
-          });
+        //limit_stack(1, || {
+        burn(fees.g_base, || {
+          next(vm);
+          push_sym(vm, Box::new(Expr::Lit(0)));
         });
+
+        //});
       }
       "OpPush" => {
         let n = usize::try_from(op).unwrap();
         let xs = match &vm.state.code {
           ContractCode::UnKnownCode(_) => panic!("Cannot execute unknown code"),
           ContractCode::InitCode(conc, _) => {
-            let bytes = pad_right(n, *conc);
+            let bytes = pad_right(n, conc.clone());
             Expr::Lit(word32(&bytes))
           }
           ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => {
@@ -290,68 +291,65 @@ fn exec1(vm: &mut VM) {
             from_list(padded_bytes)
           }
         };
-        limit_stack(1, || {
-          burn(fees.g_verylow, || {
-            next(vm);
-            push_sym(vm, Box::new(xs));
-          });
+        //limit_stack(1, || {
+        burn(fees.g_verylow, || {
+          next(vm);
+          push_sym(vm, Box::new(xs));
         });
+        //});
       }
       "OpDup" => {
         let i = usize::try_from(op).unwrap();
-        if let Some(y) = stk.get(i - 1) {
-          limit_stack(1, || {
-            burn(fees.g_verylow, || {
-              next(vm);
-              push_sym(vm, y.clone());
-            });
+        if let Some(y) = vm.state.stack.get(i - 1).cloned() {
+          //limit_stack(1, || {
+          burn(fees.g_verylow, || {
+            next(vm);
+            push_sym(vm, y.clone());
           });
+          //});
         } else {
           underrun();
         }
       }
       "OpSwap" => {
         let i = usize::try_from(op).unwrap();
-        if stk.len() < i + 1 {
+        if vm.state.stack.len() < i + 1 {
           underrun();
         } else {
           burn(fees.g_verylow, || {
-            next(vm);
-            let a = stk[0].clone();
-            let b = stk[i].clone();
+            let a = vm.state.stack[0].clone();
+            let b = vm.state.stack[i].clone();
             vm.state.stack[0] = b;
             vm.state.stack[i] = a;
+            next(vm);
           });
         }
       }
       "OpLog" => {
-        not_static(vm, || {
-          if let Some((x_offset, x_size, xs)) =
-            stk.split_first().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
-          {
-            if xs.len() < usize::try_from(op).unwrap() {
-              underrun();
-            } else {
-              let bytes = read_memory(x_offset, x_size);
-              let (topics, xs) = xs.split_at(usize::try_from(op).unwrap());
-              let logs = vec![Expr::LogEntry(
-                Box::new(vm.state.contract.clone()),
-                Box::new(bytes),
-                topics.to_vec(),
-              )];
-              burn_log(x_size, op, || {
-                access_memory_range(x_offset, x_size, || {
-                  trace_top_log(logs.clone());
-                  next(vm);
-                  vm.state.stack = xs.to_vec();
-                  vm.logs = logs;
-                });
-              });
-            }
-          } else {
+        not_static(vm, || {});
+        if let Some((x_offset, x_size, xs)) =
+          vm.state.stack.split_first().clone().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
+        {
+          if xs.len() < usize::try_from(op).unwrap() {
             underrun();
+          } else {
+            let bytes = read_memory(x_offset, x_size);
+            let (topics, xs) = xs.split_at(usize::try_from(op).unwrap());
+            let logs = vec![Expr::LogEntry(
+              Box::new(vm.state.contract.clone()),
+              Box::new(bytes),
+              topics.to_vec(),
+            )];
+            burn_log(x_size, op, || {});
+            access_memory_range(x_offset, x_size, || {});
+            trace_top_log(logs.clone());
+            vm.state.stack = xs.to_vec();
+            vm.logs = logs;
+            next(vm);
           }
-        });
+        } else {
+          underrun();
+        }
       }
       "OpStop" => {
         finish_frame("FrameReturned", vec![]);
@@ -381,86 +379,93 @@ fn exec1(vm: &mut VM) {
       "OpSar" => stack_op2(vm, fees.g_verylow, "sar"),
       "OpSha3" => {
         if let Some((x_offset, x_size, xs)) =
-          stk.split_first().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
+          vm.state.stack.split_first().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
         {
-          burn_sha3(unbox(*x_size), vm.block.schedule, || {
-            access_memory_range(x_offset, x_size, || {
-              let hash = read_memory(x_offset, x_size).map_or_else(|orig| Keccak::new(orig), |buf| Keccak::new(buf));
-              next(vm);
-              vm.state.stack = std::iter::once(hash).chain(xs.iter().cloned()).collect();
-            });
-          });
+          burn_sha3(unbox(x_size.clone()), vm.block.schedule.clone(), || {});
+          access_memory_range(x_offset, x_size, || {});
+          let buffer = read_memory(x_offset, x_size);
+          let hash = match buffer {
+            Expr::ConcreteBuf(bs) => Expr::Lit(word32(&keccak_prime(&bs.to_vec()))),
+            _ => keccak(buffer).unwrap(),
+          };
+          vm.state.stack = std::iter::once(Box::new(hash)).chain(xs.iter().cloned()).collect();
+          next(vm);
         } else {
           underrun();
         }
       }
       "OpAddress" => {
-        limit_stack(1, || {
-          burn(fees.g_base, || {
-            next(vm);
-            push_addr(vm, self_contract.clone());
-          });
-        });
+        //limit_stack(1, || {
+        burn(fees.g_base, || {});
+        push_addr(vm, self_contract.clone());
+        next(vm);
+        //});
       }
       "OpBalance" => {
-        if let Some(x) = stk.first() {
+        if let Some(x) = vm.state.stack.first() {
+          /*
           force_addr(x, "BALANCE", |a| {
             access_and_burn(a, || {
               fetch_account(&a, |c| {
                 next(vm);
-                vm.state.stack = stk[1..].to_vec();
-                push_sym(vm, Box::new(c.balance));
+                vm.state.stack = vm.state.stack[1..].to_vec();
+                push_sym(vm, Box::new(c.balance.clone()));
               });
             });
           });
+          */
         } else {
           underrun();
         }
       }
       "OpOrigin" => {
-        limit_stack(1, || {
-          burn(fees.g_base, || {
-            next(vm);
-            push_addr(vm, vm.tx.origin.clone());
-          });
+        //limit_stack(1, || {
+        burn(fees.g_base, || {
+          next(vm);
+          push_addr(vm, vm.tx.origin.clone());
         });
+        //});
       }
       "OpCaller" => {
-        limit_stack(1, || {
-          burn(fees.g_base, || {
-            next(vm);
-            push_addr(vm, vm.state.caller.clone());
-          });
+        //limit_stack(1, || {
+        burn(fees.g_base, || {
+          next(vm);
+          push_addr(vm, vm.state.caller.clone());
         });
+        //});
       }
       "OpCallvalue" => {
-        limit_stack(1, || {
-          burn(fees.g_base, || {
-            next(vm);
-            push_sym(vm, Box::new(vm.state.callvalue.clone()));
-          });
+        //limit_stack(1, || {
+        burn(fees.g_base, || {
+          next(vm);
+          push_sym(vm, Box::new(vm.state.callvalue.clone()));
         });
+        //});
       }
-      "OpCalldataload" => stack_op1(vm, fees.g_verylow, |ind| Expr::ReadWord(ind, &vm.state.calldata)),
+      "OpCalldataload" => stack_op1(vm, fees.g_verylow, "calldataload"),
       "OpCalldatasize" => {
-        limit_stack(1, || {
-          burn(fees.g_base, || {
-            next(vm);
-            push_sym(vm, Box::new(Expr::Lit(len_buf(&vm.state.calldata) as u32)));
-          });
+        //limit_stack(1, || {
+        burn(fees.g_base, || {
+          next(vm);
+          push_sym(vm, Box::new(Expr::Lit(len_buf(&vm.state.calldata) as u32)));
         });
+        //});
       }
       "OpCalldatacopy" => {
-        if let Some((x_to, rest)) = stk.split_first() {
+        if let Some((x_to, rest)) = vm.state.stack.clone().split_first() {
           if let Some((x_from, rest)) = rest.split_first() {
             if let Some((x_size, xs)) = rest.split_first() {
-              burn_calldatacopy(unbox(*x_size), vm.block.schedule, || {
-                access_memory_range(x_to, x_size, || {
-                  next(vm);
-                  vm.state.stack = xs.to_vec();
-                  copy_bytes_to_memory(vm.state.calldata, unbox(*x_size), unbox(*x_from), unbox(*x_to), vm);
-                });
-              });
+              burn_calldatacopy(unbox(x_size.clone()), vm.block.schedule.clone(), || {});
+              access_memory_range(x_to, x_size, || {});
+              vm.state.stack = xs.to_vec();
+              copy_bytes_to_memory(
+                vm.state.calldata.clone(),
+                unbox(x_size.clone()),
+                unbox(x_from.clone()),
+                unbox(x_to.clone()),
+                vm,
+              );
+              next(vm);
             } else {
               underrun();
             }
@@ -472,34 +477,36 @@ fn exec1(vm: &mut VM) {
         }
       }
       "OpCodesize" => {
-        limit_stack(1, || {
-          burn(fees.g_base, || {
-            next(vm);
-            push_sym(vm, Box::new(codelen(&vm.state.code)));
-          });
+        //limit_stack(1, || {
+        burn(fees.g_base, || {
+          next(vm);
+          push_sym(vm, Box::new(codelen(&vm.state.code)));
         });
+        //});
       }
       "OpCodecopy" => {
-        if let Some((mem_offset, rest)) = stk.split_first() {
-          if let Some((code_offset, rest)) = rest.split_first() {
-            if let Some((n, xs)) = rest.split_first() {
-              burn_codecopy(unbox(*n), vm.block.schedule, || {
-                access_memory_range(mem_offset, n, || {
+        if let Some((mem_offset, rest1)) = (vm.state.stack).split_first() {
+          let mem_offset = mem_offset.clone();
+          let rest1 = rest1.to_vec();
+          if let Some((code_offset, rest)) = rest1.split_first().clone() {
+            if let Some((n, xs)) = rest.split_first().clone() {
+              burn_codecopy(unbox(n.clone()), vm.block.schedule.clone(), || {
+                access_memory_range(&mem_offset.clone(), &n.clone(), || {
                   next(vm);
                   vm.state.stack = xs.to_vec();
-                  if let Some(b) = to_buf(&vm.state.code) {
-                    copy_bytes_to_memory(
-                      Expr::ConcreteBuf(b.to_vec()),
-                      unbox(n.clone()),
-                      unbox(code_offset.clone()),
-                      unbox(mem_offset.clone()),
-                      vm,
-                    );
-                  } else {
-                    internal_error("Cannot produce a buffer from UnknownCode");
-                  }
                 });
               });
+              if let Some(b) = to_buf(&vm.state.code) {
+                copy_bytes_to_memory(
+                  Expr::ConcreteBuf(b.to_vec()),
+                  unbox(n.clone()),
+                  unbox(code_offset.clone().clone()),
+                  unbox(mem_offset.clone().clone()),
+                  vm,
+                );
+              } else {
+                internal_error("Cannot produce a buffer from UnknownCode");
+              }
             } else {
               underrun();
             }
@@ -511,20 +518,21 @@ fn exec1(vm: &mut VM) {
         }
       }
       "OpGasprice" => {
-        limit_stack(1, || {
-          burn(fees.g_base, || {
-            next(vm);
-            push_sym(vm, Box::new(Expr::Lit(vm.tx.gasprice)));
-          });
+        //limit_stack(1, || {
+        burn(fees.g_base, || {
+          next(vm);
+          push_sym(vm, Box::new(Expr::Lit(vm.tx.gasprice)));
         });
+        //});
       }
       "OpExtcodesize" => {
-        if let Some(x) = stk.first() {
+        if let Some(x) = vm.state.stack.first().clone() {
+          /*
           force_addr(x, "EXTCODESIZE", |a| {
             access_and_burn(a, || {
               fetch_account(&a, |c| {
                 next(vm);
-                vm.state.stack = stk[1..].to_vec();
+                vm.state.stack = vm.state.stack[1..].to_vec();
                 if let Some(b) = &c.bytecode() {
                   push_sym(vm, Box::new(buf_length(b.clone())));
                 } else {
@@ -533,33 +541,43 @@ fn exec1(vm: &mut VM) {
               });
             });
           });
+          */
         } else {
           underrun();
         }
       }
       "OpExtcodecopy" => {
-        if let Some((ext_account, rest)) = stk.split_first() {
-          if let Some((mem_offset, rest)) = rest.split_first() {
-            if let Some((code_offset, rest)) = rest.split_first() {
+        if let Some((ext_account, rest1)) = vm.state.stack.split_first() {
+          let ext_account = ext_account.clone();
+          let rest1 = rest1.to_vec();
+          if let Some((mem_offset, rest2)) = rest1.split_first() {
+            let mem_offset = mem_offset.clone();
+            let rest2 = rest2.to_vec();
+            if let Some((code_offset, rest)) = rest2.split_first() {
               if let Some((code_size, xs)) = rest.split_first() {
-                force_addr(ext_account, "EXTCODECOPY", |a| {
-                  burn_extcodecopy(vm, unbox(*ext_account), unbox(*code_size), vm.block.schedule, || {
-                    access_memory_range(mem_offset, code_size, || {
-                      fetch_account(&a, |c| {
-                        next(vm);
-                        vm.state.stack = xs.to_vec();
-                        if let Some(b) = &c.bytecode() {
-                          copy_bytes_to_memory(
-                            *b,
-                            unbox(code_size.clone()),
-                            unbox(code_offset.clone()),
-                            unbox(mem_offset.clone()),
-                            vm,
-                          );
-                        } else {
-                          internal_error("Cannot copy from unknown code");
-                        }
-                      });
+                force_addr(&ext_account, "EXTCODECOPY", |a| {
+                  burn_extcodecopy(
+                    vm,
+                    unbox(ext_account.clone()),
+                    unbox(code_size.clone()),
+                    vm.block.schedule.clone(),
+                    || {},
+                  );
+                  access_memory_range(&mem_offset, code_size, || {
+                    fetch_account(&a, |c| {
+                      next(vm);
+                      vm.state.stack = xs.to_vec();
+                      if let Some(b) = &c.bytecode() {
+                        copy_bytes_to_memory(
+                          b.clone(),
+                          unbox(code_size.clone()),
+                          unbox(code_offset.clone()),
+                          unbox(mem_offset.clone()),
+                          vm,
+                        );
+                      } else {
+                        internal_error("Cannot copy from unknown code");
+                      }
                     });
                   });
                 });
@@ -577,12 +595,12 @@ fn exec1(vm: &mut VM) {
         }
       }
       "OpReturndatasize" => {
-        limit_stack(1, || {
-          burn(fees.g_base, || {
-            next(vm);
-            push_sym(vm, Box::new(Expr::Lit(len_buf(&vm.state.returndata) as u32)));
-          });
+        //limit_stack(1, || {
+        burn(fees.g_base, || {
+          next(vm);
+          push_sym(vm, Box::new(Expr::Lit(len_buf(&vm.state.returndata) as u32)));
         });
+        //});
       }
       _ => unimplemented!(),
     }
@@ -770,6 +788,14 @@ fn burn_extcodecopy<F: FnOnce()>(vm: &mut VM, ext_account: Expr, code_size: Expr
   burn(cost, f)
 }
 
+fn not_static<F: FnOnce()>(vm: &mut VM, f: F) {
+  if vm.state.static_flag {
+    panic!("vmError StateChangeWhileStatic")
+  } else {
+    f()
+  }
+}
+
 fn access_account_for_gas(vm: &mut VM, addr: Expr) -> bool {
   let accessed = vm.tx.substate.accessed_addresses.contains(&addr);
   vm.tx.substate.accessed_addresses.insert(addr);
@@ -847,12 +873,13 @@ fn stack_op3(vm: &mut VM, gas: u64, op: &str) {
   }
 }
 
-fn stack_op1<F>(vm: &mut VM, gas: u64, op: &str) {
+fn stack_op1(vm: &mut VM, gas: u64, op: &str) {
   if let Some(a) = vm.state.stack.first() {
     // burn(gas)
     let res = match op {
       "iszero" => Box::new(Expr::IsZero(a.clone())),
       "not" => Box::new(Expr::Not(a.clone())),
+      "calldataload" => Box::new(Expr::Mempty),
       _ => Box::new(Expr::Mempty),
     };
     next(vm);
