@@ -1178,8 +1178,8 @@ pub struct FeeSchedule<T> {
   g_fround: T,
   r_block: T,
   g_cold_sload: T,
-  g_cold_account_access: T,
-  g_warm_storage_read: T,
+  pub g_cold_account_access: T,
+  pub g_warm_storage_read: T,
   g_access_list_address: T,
   g_access_list_storage_key: T,
 }

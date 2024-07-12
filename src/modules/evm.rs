@@ -454,7 +454,7 @@ fn exec1(vm: &mut VM) {
         if let Some((x_to, rest)) = stk.split_first() {
           if let Some((x_from, rest)) = rest.split_first() {
             if let Some((x_size, xs)) = rest.split_first() {
-              burn_calldatacopy(x_size, || {
+              burn_calldatacopy(unbox(*x_size), vm.block.schedule, || {
                 access_memory_range(x_to, x_size, || {
                   next(vm);
                   vm.state.stack = xs.to_vec();
@@ -543,7 +543,7 @@ fn exec1(vm: &mut VM) {
             if let Some((code_offset, rest)) = rest.split_first() {
               if let Some((code_size, xs)) = rest.split_first() {
                 force_addr(ext_account, "EXTCODECOPY", |a| {
-                  burn_extcodecopy(a, code_size, || {
+                  burn_extcodecopy(vm, unbox(*ext_account), unbox(*code_size), vm.block.schedule, || {
                     access_memory_range(mem_offset, code_size, || {
                       fetch_account(&a, |c| {
                         next(vm);
@@ -717,7 +717,7 @@ fn burn<F: FnOnce()>(gas: u64, f: F) {
 fn burn_sha3<F: FnOnce()>(x_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
   let cost = match x_size {
     Expr::Lit(c) => schedule.g_sha3 + schedule.g_sha3word * (((c as u64) + 31) / 32),
-    _ => 0,
+    _ => panic!("illegal expression"),
   };
   burn(cost, f)
 }
@@ -736,6 +736,54 @@ fn burn_codecopy<F: FnOnce()>(n: Expr, schedule: FeeSchedule<Word64>, f: F) {
   };
   burn(cost, f)
 }
+
+fn ceil_div(x: u64, y: u64) -> u64 {
+  (x + y - 1) / y
+}
+
+fn burn_calldatacopy<F: FnOnce()>(x_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
+  let cost = match x_size {
+    Expr::Lit(c) => schedule.g_verylow + schedule.g_copy * ceil_div(c as u64, 32),
+    _ => panic!("illegal expression"),
+  };
+  burn(cost, f)
+}
+
+fn burn_extcodecopy<F: FnOnce()>(vm: &mut VM, ext_account: Expr, code_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
+  let ceiled_c = match code_size {
+    Expr::Lit(c) => ceil_div(c as u64, 32),
+    _ => panic!("illegal expression"),
+  };
+
+  let cost = match ext_account {
+    Expr::LitAddr(_) => {
+      let acc = access_account_for_gas(vm, ext_account);
+      let acc_cost = if acc {
+        schedule.g_warm_storage_read
+      } else {
+        schedule.g_cold_account_access
+      };
+      acc_cost + schedule.g_copy * ceiled_c
+    }
+    _ => panic!("illegal expression"),
+  };
+  burn(cost, f)
+}
+
+fn access_account_for_gas(vm: &mut VM, addr: Expr) -> bool {
+  let accessed = vm.tx.substate.accessed_addresses.contains(&addr);
+  vm.tx.substate.accessed_addresses.insert(addr);
+  accessed
+}
+
+/*
+  burnExtcodecopy extAccount (forceLit -> codeSize) continue = do
+    FeeSchedule {..} <- gets (.block.schedule)
+    acc <- accessAccountForGas extAccount
+    let cost = if acc then g_warm_storage_read else g_cold_account_access
+    burn (cost + g_copy * ceilDiv (unsafeInto codeSize) 32) continue
+
+*/
 
 fn next(vm: &mut VM) {
   vm.state.pc += 1;
