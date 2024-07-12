@@ -11,7 +11,11 @@ use tiny_keccak::{Hasher, Keccak};
 
 #[path = "./fetch.rs"]
 mod fetch;
-use fetch::{fetch_block_from, Addr, BlockNumber, Expr, Prop, VM, W256};
+use fetch::{fetch_block_from, fetch_contract_from, Addr, BlockNumber, Expr, Prop, VM, W256};
+
+#[path = "./evm.rs"]
+mod evm;
+use evm::{abstract_contract, initial_contract};
 
 type URL = String;
 
@@ -90,23 +94,35 @@ pub async fn symvm_from_command(cmd: SymbolicCommand, calldata: (Expr, Vec<Prop>
     Expr::Timestamp
   };
 
-  let callvalue = cmd.value.unwrap_or_else(|| TxValue::Lit);
+  let callvalue = if let Some(v) = cmd.value {
+    Expr::Lit(v)
+  } else {
+    Expr::TxValue
+  };
 
   let contract = match (&cmd.rpc, &cmd.address, &cmd.code) {
-    (Some(url), Some(addr), _) => match fetch_contract_from(&cmd.block.unwrap_or(Fetch::Latest), url, addr).await? {
-      None => return Err("Error: contract not found".into()),
-      Some(contract) => match &cmd.code {
-        None => contract,
-        Some(code) => {
-          let contract = initial_contract(mk_code(&decipher(code)));
-          contract
-            .set_orig_storage(contract.orig_storage)
-            .set_balance(contract.balance)
-            .set_nonce(contract.nonce)
-            .set_external(contract.external)
-        }
-      },
-    },
+    (Some(url), Some(addr), _) => {
+      let block = if let Some(block_number) = cmd.block {
+        BlockNumber::BlockNumber(block_number)
+      } else {
+        BlockNumber::Latest
+      };
+      let res = fetch_contract_from(block, url, *addr).await;
+      match res {
+        None => return Err("Error: contract not found".into()),
+        Some(contract) => match &cmd.code {
+          None => contract,
+          Some(code) => {
+            let contract = initial_contract(mk_code(&decipher(code)));
+            contract
+              .set_orig_storage(contract.orig_storage)
+              .set_balance(contract.balance)
+              .set_nonce(contract.nonce)
+              .set_external(contract.external)
+          }
+        },
+      }
+    }
     (_, _, Some(code)) => abstract_contract(&mk_code(&decipher(code)), &address),
     _ => return Err("Error: must provide at least (rpc + address) or code".into()),
   };

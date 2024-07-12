@@ -173,7 +173,7 @@ fn unknown_contract(addr: Expr) -> Contract {
   }
 }
 
-fn abstract_contract(code: ContractCode, addr: Expr) -> Contract {
+pub fn abstract_contract(code: ContractCode, addr: Expr) -> Contract {
   Contract {
     code: code.clone(),
     storage: Expr::AbstractStore(Box::new(addr.clone()), None),
@@ -187,13 +187,13 @@ fn abstract_contract(code: ContractCode, addr: Expr) -> Contract {
   }
 }
 
-fn empty_contract() -> Contract {
+pub fn empty_contract() -> Contract {
   initial_contract(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(
     Vec::new(),
   )))
 }
 
-fn initial_contract(code: ContractCode) -> Contract {
+pub fn initial_contract(code: ContractCode) -> Contract {
   Contract {
     code: code.clone(),
     storage: Expr::ConcreteStore(W256W256Map::new()),
