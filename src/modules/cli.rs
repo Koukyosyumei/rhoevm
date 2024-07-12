@@ -107,8 +107,8 @@ pub async fn symvm_from_command(cmd: SymbolicCommand, calldata: (Expr, Vec<Prop>
       let res = fetch_contract_from(block, url, *addr).await;
       match res {
         None => return Err("Error: contract not found".into()),
-        Some(contract) => match &cmd.code {
-          None => contract,
+        Some(contract_) => match &cmd.code {
+          None => contract_,
           Some(code) => {
             let bs = hex_byte_string("bytes", &strip_0x(code));
             let mc = if cmd.create {
@@ -117,11 +117,11 @@ pub async fn symvm_from_command(cmd: SymbolicCommand, calldata: (Expr, Vec<Prop>
               ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs))
             };
             let contract = initial_contract(mc);
+            contract.orig_storage = contract_.orig_storage;
+            contract.balance = contract_.balance;
+            contract.nonce = contract_.nonce;
+            contract.external = contract_.external;
             contract
-              .set_orig_storage(contract.orig_storage)
-              .set_balance(contract.balance)
-              .set_nonce(contract.nonce)
-              .set_external(contract.external)
           }
         },
       }
