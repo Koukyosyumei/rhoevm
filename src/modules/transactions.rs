@@ -1,0 +1,80 @@
+use std::collections::HashMap;
+
+use crate::modules::evm::initial_contract;
+use crate::modules::types::{Contract, ContractCode, Expr, ExprContractMap, RuntimeCodeStruct, VM};
+
+fn touch_account(pre_state: &mut ExprContractMap, addr: &Expr) {
+  let new_account = new_account(); // Create new account using newAccount function
+  pre_state.insert(addr.clone(), new_account);
+}
+
+fn new_account() -> Contract {
+  let initial_code = RuntimeCodeStruct::ConcreteRuntimeCode(String::new().into());
+  let runtime_code = ContractCode::RuntimeCode(initial_code);
+  initial_contract(runtime_code)
+}
+
+fn setup_tx(origin: &Expr, coinbase: &Expr, gas_price: u64, gas_limit: u64, pre_state: &mut ExprContractMap) {
+  let gas_cost = gas_price * gas_limit;
+
+  // Adjust origin account in pre_state
+  if let Some(account) = pre_state.get_mut(origin) {
+    if let Some(n) = account.nonce {
+      account.nonce = Some(n + 1)
+    };
+    if let Expr::Lit(b) = account.balance {
+      account.balance = Expr::Lit(b - gas_cost as u32)
+    };
+  }
+
+  // Touch accounts for origin and coinbase
+  touch_account(pre_state, origin);
+  touch_account(pre_state, coinbase);
+}
+
+pub fn init_tx(mut vm: VM) -> VM {
+  let to_addr = vm.state.contract.clone();
+  let origin = vm.tx.origin.clone();
+  let gas_price = vm.tx.gasprice;
+  let gas_limit = vm.tx.gaslimit;
+  let coinbase = vm.block.coinbase.clone();
+  let value = vm.state.callvalue;
+  let to_contract = initial_contract(vm.state.code.clone());
+
+  let pre_state = &vm.env.contracts;
+  setup_tx(&origin, &coinbase, gas_price as u64, gas_limit, &mut pre_state);
+
+  let old_balance = pre_state.get(&to_addr).map_or(0, |account| account.balance);
+
+  let creation = vm.tx.is_create;
+
+  // Update state based on conditions
+  let mut init_state = pre_state.clone();
+  if creation {
+    let to_contract_updated = to_contract.with_balance(old_balance);
+    init_state.insert(to_addr.clone(), to_contract_updated);
+  } else {
+    touch_account(&mut init_state, &to_addr);
+  }
+
+  if let Some(is) = init_state.get_mut(&origin) {
+    if let Expr::Lit(b) = is.balance {
+      if let Expr::Lit(v) = value {
+        is.balance = Expr::Lit(b - v)
+      }
+    }
+  }
+
+  if let Some(is) = init_state.get_mut(&to_addr) {
+    if let Expr::Lit(b) = is.balance {
+      if let Expr::Lit(v) = value {
+        is.balance = Expr::Lit(b + v)
+      }
+    }
+  }
+
+  vm.env.contracts = init_state;
+  vm.tx.tx_reversion = pre_state.clone();
+
+  vm
+}

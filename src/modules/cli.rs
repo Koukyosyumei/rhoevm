@@ -12,6 +12,7 @@ use tiny_keccak::{Hasher, Keccak};
 use crate::modules::evm::{abstract_contract, initial_contract};
 use crate::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};
 use crate::modules::format::{hex_byte_string, strip_0x};
+use crate::modules::transactions::init_tx;
 use crate::modules::types::{Addr, ContractCode, Expr, Prop, RuntimeCodeStruct, VM, W256};
 
 type URL = String;
@@ -133,7 +134,12 @@ pub async fn symvm_from_command(cmd: SymbolicCommand, calldata: (Expr, Vec<Prop>
       } else {
         ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs))
       };
-      abstract_contract(mc, &address)
+      let address = if let Some(a) = cmd.origin {
+        Expr::LitAddr(a)
+      } else {
+        Expr::SymAddr("origin".to_string())
+      };
+      abstract_contract(mc, address)
     }
     _ => return Err("Error: must provide at least (rpc + address) or code".into()),
   };
@@ -141,5 +147,5 @@ pub async fn symvm_from_command(cmd: SymbolicCommand, calldata: (Expr, Vec<Prop>
   let vm = vm0(
     base_fee, miner, ts, block_num, prev_ran, calldata, callvalue, caller, contract,
   );
-  Ok(EVM::Transaction::init_tx(vm))
+  Ok(init_tx(vm))
 }

@@ -1348,6 +1348,14 @@ macro_rules! impl_hashmap_traits {
       pub fn get(&self, key: &$key) -> Option<&$value> {
         self.0.get(key)
       }
+
+      pub fn get_mut(&mut self, key: &$key) -> Option<&mut $value> {
+        self.0.get_mut(key)
+      }
+
+      pub fn entry(&mut self, key: $key) -> std::collections::hash_map::Entry<$key, $value> {
+        self.0.entry(key)
+      }
     }
 
     impl FromIterator<($key, $value)> for $name {
