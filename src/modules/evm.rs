@@ -218,369 +218,246 @@ fn unbox<T>(value: Box<T>) -> T {
   *value
 }
 
-fn exec1(vm: &mut VM) {
-  // let mut vm.state.stack = &vm.state.stack;
-  let self_contract = &vm.state.contract;
-  let this_contract = vm.env.contracts.get(self_contract).unwrap();
-  let fees = &vm.block.schedule;
+impl VM {
+  pub fn exec1(&mut self) {
+    // let mut vm.state.stack = &vm.state.stack;
+    let self_contract = self.state.contract.clone();
+    let this_contract = self.env.contracts.get(&self_contract).unwrap();
+    let fees = self.block.schedule.clone();
 
-  if let Some(lit_self) = maybe_lit_addr(self_contract) {
-    if lit_self > 0x0 && lit_self <= 0x9 {
-      let calldatasize = len_buf(&vm.state.calldata);
-      copy_bytes_to_memory(
-        vm.state.calldata.clone(),
-        Expr::Lit(calldatasize as u32),
-        Expr::Lit(0),
-        Expr::Lit(0),
-        vm,
-      );
-      execute_precompile(
-        lit_self,
-        vm.state.gas.clone(),
-        Expr::Lit(0),
-        Expr::Lit(calldatasize as u32),
-        Expr::Lit(0),
-        Expr::Lit(0),
-        vec![],
-      );
-      match vm.state.stack.first() {
-        Some(boxed_expr) => if let Some(expr_lit) = Some(Expr::Lit(0)) {},
-        None => underrun(),
-      }
-    }
-  } else if vm.state.pc >= opslen(&vm.state.code) {
-    finish_frame("FrameReturned", vec![]);
-  } else {
-    let op = match &vm.state.code {
-      ContractCode::UnKnownCode(_) => panic!("cannot execute unknown code"),
-      ContractCode::InitCode(conc, _) => conc[vm.state.pc],
-      ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(data)) => data[vm.state.pc],
-      ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
-        match maybe_lit_byte(&ops[vm.state.pc]) {
-          Some(b) => b,
-          None => panic!("could not analyze symbolic code"),
+    if let Some(lit_self) = maybe_lit_addr(&self_contract) {
+      if lit_self > 0x0 && lit_self <= 0x9 {
+        let calldatasize = len_buf(&self.state.calldata);
+        copy_bytes_to_memory(
+          self.state.calldata.clone(),
+          Expr::Lit(calldatasize as u32),
+          Expr::Lit(0),
+          Expr::Lit(0),
+          self,
+        );
+        execute_precompile(
+          lit_self,
+          self.state.gas.clone(),
+          Expr::Lit(0),
+          Expr::Lit(calldatasize as u32),
+          Expr::Lit(0),
+          Expr::Lit(0),
+          vec![],
+        );
+        match self.state.stack.first() {
+          Some(boxed_expr) => if let Some(expr_lit) = Some(Expr::Lit(0)) {},
+          None => underrun(),
         }
       }
-    };
-
-    match get_op(op) {
-      "OpPush0" => {
-        //limit_stack(1, || {
-        burn(fees.g_base, || {
-          next(vm);
-          push_sym(vm, Box::new(Expr::Lit(0)));
-        });
-
-        //});
-      }
-      "OpPush" => {
-        let n = usize::try_from(op).unwrap();
-        let xs = match &vm.state.code {
-          ContractCode::UnKnownCode(_) => panic!("Cannot execute unknown code"),
-          ContractCode::InitCode(conc, _) => {
-            let bytes = pad_right(n, conc.clone());
-            Expr::Lit(word32(&bytes))
+    } else if self.state.pc >= opslen(&self.state.code) {
+      finish_frame("FrameReturned", vec![]);
+    } else {
+      let op = match &self.state.code {
+        ContractCode::UnKnownCode(_) => panic!("cannot execute unknown code"),
+        ContractCode::InitCode(conc, _) => conc[self.state.pc],
+        ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(data)) => data[self.state.pc],
+        ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
+          match maybe_lit_byte(&ops[self.state.pc]) {
+            Some(b) => b,
+            None => panic!("could not analyze symbolic code"),
           }
-          ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => {
-            let bytes = bs.get((1 + vm.state.pc)..).ok_or("Index out of bounds");
-            Expr::Lit(word32(&bytes.unwrap()))
-          }
-          ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
-            let bytes = ops.get((1 + vm.state.pc)..(1 + vm.state.pc + n)).ok_or("Index out of bounds");
-            let padded_bytes = pad_left_prime(32, bytes.unwrap().to_vec());
-            from_list(padded_bytes)
-          }
-        };
-        //limit_stack(1, || {
-        burn(fees.g_verylow, || {
-          next(vm);
-          push_sym(vm, Box::new(xs));
-        });
-        //});
-      }
-      "OpDup" => {
-        let i = usize::try_from(op).unwrap();
-        if let Some(y) = vm.state.stack.get(i - 1).cloned() {
-          //limit_stack(1, || {
-          burn(fees.g_verylow, || {
-            next(vm);
-            push_sym(vm, y.clone());
-          });
-          //});
-        } else {
-          underrun();
         }
-      }
-      "OpSwap" => {
-        let i = usize::try_from(op).unwrap();
-        if vm.state.stack.len() < i + 1 {
-          underrun();
-        } else {
-          burn(fees.g_verylow, || {
-            let a = vm.state.stack[0].clone();
-            let b = vm.state.stack[i].clone();
-            vm.state.stack[0] = b;
-            vm.state.stack[i] = a;
-            next(vm);
+      };
+
+      match get_op(op) {
+        "OpPush0" => {
+          limit_stack(1, || {
+            burn(self, fees.g_base, || {});
+            next(self);
+            push_sym(self, Box::new(Expr::Lit(0)));
           });
         }
-      }
-      "OpLog" => {
-        not_static(vm, || {});
-        if let Some((x_offset, x_size, xs)) =
-          vm.state.stack.split_first().clone().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
-        {
-          if xs.len() < usize::try_from(op).unwrap() {
-            underrun();
-          } else {
-            let bytes = read_memory(x_offset, x_size);
-            let (topics, xs) = xs.split_at(usize::try_from(op).unwrap());
-            let logs = vec![Expr::LogEntry(
-              Box::new(vm.state.contract.clone()),
-              Box::new(bytes),
-              topics.to_vec(),
-            )];
-            burn_log(x_size, op, || {});
-            access_memory_range(x_offset, x_size, || {});
-            trace_top_log(logs.clone());
-            vm.state.stack = xs.to_vec();
-            vm.logs = logs;
-            next(vm);
-          }
-        } else {
-          underrun();
-        }
-      }
-      "OpStop" => {
-        finish_frame("FrameReturned", vec![]);
-      }
-      "OpAdd" => stack_op2(vm, fees.g_verylow, "add"),
-      "OpMul" => stack_op2(vm, fees.g_low, "mul"),
-      "OpSub" => stack_op2(vm, fees.g_verylow, "sub"),
-      "OpDiv" => stack_op2(vm, fees.g_low, "div"),
-      "OpSdiv" => stack_op2(vm, fees.g_low, "sdiv"),
-      "OpMod" => stack_op2(vm, fees.g_low, "nmod"),
-      "OpSmod" => stack_op2(vm, fees.g_low, "smod"),
-      "OpAddmod" => stack_op3(vm, fees.g_mid, "addmod"),
-      "OpMulmod" => stack_op3(vm, fees.g_mid, "mulmod"),
-      "OpLt" => stack_op2(vm, fees.g_verylow, "lt"),
-      "OpGt" => stack_op2(vm, fees.g_verylow, "gt"),
-      "OpSlt" => stack_op2(vm, fees.g_verylow, "slt"),
-      "OpSgt" => stack_op2(vm, fees.g_verylow, "sgt"),
-      "OpEq" => stack_op2(vm, fees.g_verylow, "eq"),
-      "OpIszero" => stack_op1(vm, fees.g_verylow, "iszero"),
-      "OpAnd" => stack_op2(vm, fees.g_verylow, "and"),
-      "OpOr" => stack_op2(vm, fees.g_verylow, "or"),
-      "OpXor" => stack_op2(vm, fees.g_verylow, "xor"),
-      "OpNot" => stack_op1(vm, fees.g_verylow, "not"),
-      "OpByte" => stack_op2(vm, fees.g_verylow, "byte"),
-      "OpShl" => stack_op2(vm, fees.g_verylow, "shl"),
-      "OpShr" => stack_op2(vm, fees.g_verylow, "shr"),
-      "OpSar" => stack_op2(vm, fees.g_verylow, "sar"),
-      "OpSha3" => {
-        if let Some((x_offset, x_size, xs)) =
-          vm.state.stack.split_first().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
-        {
-          burn_sha3(unbox(x_size.clone()), vm.block.schedule.clone(), || {});
-          access_memory_range(x_offset, x_size, || {});
-          let buffer = read_memory(x_offset, x_size);
-          let hash = match buffer {
-            Expr::ConcreteBuf(bs) => Expr::Lit(word32(&keccak_prime(&bs.to_vec()))),
-            _ => keccak(buffer).unwrap(),
+        "OpPush" => {
+          let n = usize::try_from(op).unwrap();
+          let xs = match &self.state.code {
+            ContractCode::UnKnownCode(_) => panic!("Cannot execute unknown code"),
+            ContractCode::InitCode(conc, _) => {
+              let bytes = pad_right(n, conc.clone());
+              Expr::Lit(word32(&bytes))
+            }
+            ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => {
+              let bytes = bs.get((1 + self.state.pc)..).ok_or("Index out of bounds");
+              Expr::Lit(word32(&bytes.unwrap()))
+            }
+            ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
+              let bytes = ops.get((1 + self.state.pc)..(1 + self.state.pc + n)).ok_or("Index out of bounds");
+              let padded_bytes = pad_left_prime(32, bytes.unwrap().to_vec());
+              from_list(padded_bytes)
+            }
           };
-          vm.state.stack = std::iter::once(Box::new(hash)).chain(xs.iter().cloned()).collect();
-          next(vm);
-        } else {
-          underrun();
-        }
-      }
-      "OpAddress" => {
-        //limit_stack(1, || {
-        burn(fees.g_base, || {});
-        push_addr(vm, self_contract.clone());
-        next(vm);
-        //});
-      }
-      "OpBalance" => {
-        if let Some(x) = vm.state.stack.first() {
-          /*
-          force_addr(x, "BALANCE", |a| {
-            access_and_burn(a, || {
-              fetch_account(&a, |c| {
-                next(vm);
-                vm.state.stack = vm.state.stack[1..].to_vec();
-                push_sym(vm, Box::new(c.balance.clone()));
-              });
-            });
+          limit_stack(1, || {
+            burn(self, fees.g_verylow, || {});
+            next(self);
+            push_sym(self, Box::new(xs));
           });
-          */
-        } else {
-          underrun();
         }
-      }
-      "OpOrigin" => {
-        //limit_stack(1, || {
-        burn(fees.g_base, || {
-          next(vm);
-          push_addr(vm, vm.tx.origin.clone());
-        });
-        //});
-      }
-      "OpCaller" => {
-        //limit_stack(1, || {
-        burn(fees.g_base, || {
-          next(vm);
-          push_addr(vm, vm.state.caller.clone());
-        });
-        //});
-      }
-      "OpCallvalue" => {
-        //limit_stack(1, || {
-        burn(fees.g_base, || {
-          next(vm);
-          push_sym(vm, Box::new(vm.state.callvalue.clone()));
-        });
-        //});
-      }
-      "OpCalldataload" => stack_op1(vm, fees.g_verylow, "calldataload"),
-      "OpCalldatasize" => {
-        //limit_stack(1, || {
-        burn(fees.g_base, || {
-          next(vm);
-          push_sym(vm, Box::new(Expr::Lit(len_buf(&vm.state.calldata) as u32)));
-        });
-        //});
-      }
-      "OpCalldatacopy" => {
-        if let Some((x_to, rest)) = vm.state.stack.clone().split_first() {
-          if let Some((x_from, rest)) = rest.split_first() {
-            if let Some((x_size, xs)) = rest.split_first() {
-              burn_calldatacopy(unbox(x_size.clone()), vm.block.schedule.clone(), || {});
-              access_memory_range(x_to, x_size, || {});
-              vm.state.stack = xs.to_vec();
-              copy_bytes_to_memory(
-                vm.state.calldata.clone(),
-                unbox(x_size.clone()),
-                unbox(x_from.clone()),
-                unbox(x_to.clone()),
-                vm,
-              );
-              next(vm);
-            } else {
+        "OpDup" => {
+          let i = usize::try_from(op).unwrap();
+          if let Some(y) = self.state.stack.get(i - 1).cloned() {
+            limit_stack(1, || {
+              burn(self, fees.g_verylow, || {});
+              next(self);
+              push_sym(self, y.clone());
+            });
+          } else {
+            underrun();
+          }
+        }
+        "OpSwap" => {
+          let i = usize::try_from(op).unwrap();
+          if self.state.stack.len() < i + 1 {
+            underrun();
+          } else {
+            burn(self, fees.g_verylow, || {});
+            next(self);
+            let a = self.state.stack[0].clone();
+            let b = self.state.stack[i].clone();
+            self.state.stack[0] = b;
+            self.state.stack[i] = a;
+          }
+        }
+        "OpLog" => {
+          not_static(self, || {});
+          if let Some((x_offset, x_size, xs)) =
+            self.state.stack.split_first().clone().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
+          {
+            if xs.len() < usize::try_from(op).unwrap() {
               underrun();
+            } else {
+              let bytes = read_memory(x_offset, x_size);
+              let (topics, xs) = xs.split_at(usize::try_from(op).unwrap());
+              let logs = vec![Expr::LogEntry(
+                Box::new(self.state.contract.clone()),
+                Box::new(bytes),
+                topics.to_vec(),
+              )];
+              burn_log(x_size, op, || {});
+              access_memory_range(x_offset, x_size, || {});
+              trace_top_log(logs.clone());
+              self.state.stack = xs.to_vec();
+              self.logs = logs;
+              next(self);
             }
           } else {
             underrun();
           }
-        } else {
-          underrun();
         }
-      }
-      "OpCodesize" => {
-        //limit_stack(1, || {
-        burn(fees.g_base, || {
-          next(vm);
-          push_sym(vm, Box::new(codelen(&vm.state.code)));
-        });
-        //});
-      }
-      "OpCodecopy" => {
-        if let Some((mem_offset, rest1)) = (vm.state.stack).split_first() {
-          let mem_offset = mem_offset.clone();
-          let rest1 = rest1.to_vec();
-          if let Some((code_offset, rest)) = rest1.split_first().clone() {
-            if let Some((n, xs)) = rest.split_first().clone() {
-              burn_codecopy(unbox(n.clone()), vm.block.schedule.clone(), || {
-                access_memory_range(&mem_offset.clone(), &n.clone(), || {
-                  next(vm);
-                  vm.state.stack = xs.to_vec();
+        "OpStop" => {
+          finish_frame("FrameReturned", vec![]);
+        }
+        "OpAdd" => stack_op2(self, fees.g_verylow, "add"),
+        "OpMul" => stack_op2(self, fees.g_low, "mul"),
+        "OpSub" => stack_op2(self, fees.g_verylow, "sub"),
+        "OpDiv" => stack_op2(self, fees.g_low, "div"),
+        "OpSdiv" => stack_op2(self, fees.g_low, "sdiv"),
+        "OpMod" => stack_op2(self, fees.g_low, "nmod"),
+        "OpSmod" => stack_op2(self, fees.g_low, "smod"),
+        "OpAddmod" => stack_op3(self, fees.g_mid, "addmod"),
+        "OpMulmod" => stack_op3(self, fees.g_mid, "mulmod"),
+        "OpLt" => stack_op2(self, fees.g_verylow, "lt"),
+        "OpGt" => stack_op2(self, fees.g_verylow, "gt"),
+        "OpSlt" => stack_op2(self, fees.g_verylow, "slt"),
+        "OpSgt" => stack_op2(self, fees.g_verylow, "sgt"),
+        "OpEq" => stack_op2(self, fees.g_verylow, "eq"),
+        "OpIszero" => stack_op1(self, fees.g_verylow, "iszero"),
+        "OpAnd" => stack_op2(self, fees.g_verylow, "and"),
+        "OpOr" => stack_op2(self, fees.g_verylow, "or"),
+        "OpXor" => stack_op2(self, fees.g_verylow, "xor"),
+        "OpNot" => stack_op1(self, fees.g_verylow, "not"),
+        "OpByte" => stack_op2(self, fees.g_verylow, "byte"),
+        "OpShl" => stack_op2(self, fees.g_verylow, "shl"),
+        "OpShr" => stack_op2(self, fees.g_verylow, "shr"),
+        "OpSar" => stack_op2(self, fees.g_verylow, "sar"),
+        "OpSha3" => {
+          if let Some((x_offset, x_size, xs)) =
+            self.state.stack.clone().split_first().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
+          {
+            burn_sha3(self, unbox(x_size.clone()), self.block.schedule.clone(), || {});
+            access_memory_range(x_offset, x_size, || {});
+            let buffer = read_memory(x_offset, x_size);
+            let hash = match buffer {
+              Expr::ConcreteBuf(bs) => Expr::Lit(word32(&keccak_prime(&bs.to_vec()))),
+              _ => keccak(buffer).unwrap(),
+            };
+            self.state.stack = std::iter::once(Box::new(hash)).chain(xs.iter().cloned()).collect();
+            next(self);
+          } else {
+            underrun();
+          }
+        }
+        "OpAddress" => {
+          limit_stack(1, || {
+            burn(self, fees.g_base, || {});
+            next(self);
+            push_addr(self, self_contract.clone());
+          });
+        }
+        "OpBalance" => {
+          if let Some(x) = self.state.stack.first() {
+            /*
+            force_addr(x, "BALANCE", |a| {
+              access_and_burn(a, || {
+                fetch_account(&a, |c| {
+                  next(self);
+                  self.state.stack = self.state.stack[1..].to_vec();
+                  push_sym(self, Box::new(c.balance.clone()));
                 });
               });
-              if let Some(b) = to_buf(&vm.state.code) {
+            });
+            */
+          } else {
+            underrun();
+          }
+        }
+        "OpOrigin" => {
+          limit_stack(1, || {
+            burn(self, fees.g_base, || {});
+            next(self);
+            push_addr(self, self.tx.origin.clone());
+          });
+        }
+        "OpCaller" => {
+          limit_stack(1, || {
+            burn(self, fees.g_base, || {});
+            next(self);
+            push_addr(self, self.state.caller.clone());
+          });
+        }
+        "OpCallvalue" => {
+          limit_stack(1, || {
+            burn(self, fees.g_base, || {});
+            next(self);
+            push_sym(self, Box::new(self.state.callvalue.clone()));
+          });
+        }
+        "OpCalldataload" => stack_op1(self, fees.g_verylow, "calldataload"),
+        "OpCalldatasize" => {
+          limit_stack(1, || {
+            burn(self, fees.g_base, || {});
+            next(self);
+            push_sym(self, Box::new(Expr::Lit(len_buf(&self.state.calldata) as u32)));
+          });
+        }
+        "OpCalldatacopy" => {
+          if let Some((x_to, rest)) = self.state.stack.clone().split_first() {
+            if let Some((x_from, rest)) = rest.split_first() {
+              if let Some((x_size, xs)) = rest.split_first() {
+                burn_calldatacopy(self, unbox(x_size.clone()), self.block.schedule.clone(), || {});
+                access_memory_range(x_to, x_size, || {});
+                self.state.stack = xs.to_vec();
                 copy_bytes_to_memory(
-                  Expr::ConcreteBuf(b.to_vec()),
-                  unbox(n.clone()),
-                  unbox(code_offset.clone().clone()),
-                  unbox(mem_offset.clone().clone()),
-                  vm,
+                  self.state.calldata.clone(),
+                  unbox(x_size.clone()),
+                  unbox(x_from.clone()),
+                  unbox(x_to.clone()),
+                  self,
                 );
-              } else {
-                internal_error("Cannot produce a buffer from UnknownCode");
-              }
-            } else {
-              underrun();
-            }
-          } else {
-            underrun();
-          }
-        } else {
-          underrun();
-        }
-      }
-      "OpGasprice" => {
-        //limit_stack(1, || {
-        burn(fees.g_base, || {
-          next(vm);
-          push_sym(vm, Box::new(Expr::Lit(vm.tx.gasprice)));
-        });
-        //});
-      }
-      "OpExtcodesize" => {
-        if let Some(x) = vm.state.stack.first().clone() {
-          /*
-          force_addr(x, "EXTCODESIZE", |a| {
-            access_and_burn(a, || {
-              fetch_account(&a, |c| {
-                next(vm);
-                vm.state.stack = vm.state.stack[1..].to_vec();
-                if let Some(b) = &c.bytecode() {
-                  push_sym(vm, Box::new(buf_length(b.clone())));
-                } else {
-                  push_sym(vm, Box::new(Expr::CodeSize(Box::new(a))));
-                }
-              });
-            });
-          });
-          */
-        } else {
-          underrun();
-        }
-      }
-      "OpExtcodecopy" => {
-        if let Some((ext_account, rest1)) = vm.state.stack.split_first() {
-          let ext_account = ext_account.clone();
-          let rest1 = rest1.to_vec();
-          if let Some((mem_offset, rest2)) = rest1.split_first() {
-            let mem_offset = mem_offset.clone();
-            let rest2 = rest2.to_vec();
-            if let Some((code_offset, rest)) = rest2.split_first() {
-              if let Some((code_size, xs)) = rest.split_first() {
-                force_addr(&ext_account, "EXTCODECOPY", |a| {
-                  burn_extcodecopy(
-                    vm,
-                    unbox(ext_account.clone()),
-                    unbox(code_size.clone()),
-                    vm.block.schedule.clone(),
-                    || {},
-                  );
-                  access_memory_range(&mem_offset, code_size, || {
-                    fetch_account(&a, |c| {
-                      next(vm);
-                      vm.state.stack = xs.to_vec();
-                      if let Some(b) = &c.bytecode() {
-                        copy_bytes_to_memory(
-                          b.clone(),
-                          unbox(code_size.clone()),
-                          unbox(code_offset.clone()),
-                          unbox(mem_offset.clone()),
-                          vm,
-                        );
-                      } else {
-                        internal_error("Cannot copy from unknown code");
-                      }
-                    });
-                  });
-                });
+                next(self);
               } else {
                 underrun();
               }
@@ -590,19 +467,131 @@ fn exec1(vm: &mut VM) {
           } else {
             underrun();
           }
-        } else {
-          underrun();
         }
+        "OpCodesize" => {
+          limit_stack(1, || {
+            burn(self, fees.g_base, || {});
+            next(self);
+            push_sym(self, Box::new(codelen(&self.state.code)));
+          });
+        }
+        "OpCodecopy" => {
+          if let Some((mem_offset, rest1)) = (self.state.stack).split_first() {
+            let mem_offset = mem_offset.clone();
+            let rest1 = rest1.to_vec();
+            if let Some((code_offset, rest)) = rest1.split_first().clone() {
+              if let Some((n, xs)) = rest.split_first().clone() {
+                burn_codecopy(self, unbox(n.clone()), self.block.schedule.clone(), || {});
+                access_memory_range(&mem_offset.clone(), &n.clone(), || {
+                  next(self);
+                  self.state.stack = xs.to_vec();
+                });
+                if let Some(b) = to_buf(&self.state.code) {
+                  copy_bytes_to_memory(
+                    Expr::ConcreteBuf(b.to_vec()),
+                    unbox(n.clone()),
+                    unbox(code_offset.clone().clone()),
+                    unbox(mem_offset.clone().clone()),
+                    self,
+                  );
+                } else {
+                  internal_error("Cannot produce a buffer from UnknownCode");
+                }
+              } else {
+                underrun();
+              }
+            } else {
+              underrun();
+            }
+          } else {
+            underrun();
+          }
+        }
+        "OpGasprice" => {
+          limit_stack(1, || {
+            burn(self, fees.g_base, || {});
+            next(self);
+            push_sym(self, Box::new(Expr::Lit(self.tx.gasprice)));
+          });
+        }
+        "OpExtcodesize" => {
+          if let Some(x) = self.state.stack.first().clone() {
+            /*
+            force_addr(x, "EXTCODESIZE", |a| {
+              access_and_burn(a, || {
+                fetch_account(&a, |c| {
+                  next(self);
+                  self.state.stack = self.state.stack[1..].to_vec();
+                  if let Some(b) = &c.bytecode() {
+                    push_sym(self, Box::new(buf_length(b.clone())));
+                  } else {
+                    push_sym(self, Box::new(Expr::CodeSize(Box::new(a))));
+                  }
+                });
+              });
+            });
+            */
+          } else {
+            underrun();
+          }
+        }
+        "OpExtcodecopy" => {
+          if let Some((ext_account, rest1)) = self.state.stack.split_first() {
+            let ext_account = ext_account.clone();
+            let rest1 = rest1.to_vec();
+            if let Some((mem_offset, rest2)) = rest1.split_first() {
+              let mem_offset = mem_offset.clone();
+              let rest2 = rest2.to_vec();
+              if let Some((code_offset, rest)) = rest2.split_first() {
+                if let Some((code_size, xs)) = rest.split_first() {
+                  force_addr(&ext_account, "EXTCODECOPY", |a| {
+                    burn_extcodecopy(
+                      self,
+                      unbox(ext_account.clone()),
+                      unbox(code_size.clone()),
+                      self.block.schedule.clone(),
+                      || {},
+                    );
+                    access_memory_range(&mem_offset, code_size, || {
+                      fetch_account(&a, |c| {
+                        next(self);
+                        self.state.stack = xs.to_vec();
+                        if let Some(b) = &c.bytecode() {
+                          copy_bytes_to_memory(
+                            b.clone(),
+                            unbox(code_size.clone()),
+                            unbox(code_offset.clone()),
+                            unbox(mem_offset.clone()),
+                            self,
+                          );
+                        } else {
+                          internal_error("Cannot copy from unknown code");
+                        }
+                      });
+                    });
+                  });
+                } else {
+                  underrun();
+                }
+              } else {
+                underrun();
+              }
+            } else {
+              underrun();
+            }
+          } else {
+            underrun();
+          }
+        }
+        "OpReturndatasize" => {
+          limit_stack(1, || {
+            burn(self, fees.g_base, || {});
+            next(self);
+            push_sym(self, Box::new(Expr::Lit(len_buf(&self.state.returndata) as u32)));
+          });
+        }
+        _ => unimplemented!(),
       }
-      "OpReturndatasize" => {
-        //limit_stack(1, || {
-        burn(fees.g_base, || {
-          next(vm);
-          push_sym(vm, Box::new(Expr::Lit(len_buf(&vm.state.returndata) as u32)));
-        });
-        //});
-      }
-      _ => unimplemented!(),
     }
   }
 }
@@ -727,20 +716,33 @@ fn limit_stack<F: FnOnce()>(n: usize, f: F) {
   // Implement stack limit check
 }
 
-fn burn<F: FnOnce()>(gas: u64, f: F) {
-  // Implement gas burning logic
-  f()
+fn burn<F: FnOnce()>(vm: &mut VM, gas: u64, f: F) {
+  match vm.state.gas {
+    Gas::Symbolic => f(),
+    Gas::Concerete(available_gas_val) => match vm.burned {
+      Gas::Symbolic => f(),
+      Gas::Concerete(burned_gas_val) => {
+        if gas <= available_gas_val {
+          vm.state.gas = Gas::Concerete(available_gas_val - gas);
+          vm.burned = Gas::Concerete(burned_gas_val + gas);
+          f()
+        } else {
+          panic!("out of gas")
+        }
+      }
+    },
+  };
 }
 
-fn burn_sha3<F: FnOnce()>(x_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
+fn burn_sha3<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
   let cost = match x_size {
     Expr::Lit(c) => schedule.g_sha3 + schedule.g_sha3word * (((c as u64) + 31) / 32),
     _ => panic!("illegal expression"),
   };
-  burn(cost, f)
+  burn(vm, cost, f)
 }
 
-fn burn_codecopy<F: FnOnce()>(n: Expr, schedule: FeeSchedule<Word64>, f: F) {
+fn burn_codecopy<F: FnOnce()>(vm: &mut VM, n: Expr, schedule: FeeSchedule<Word64>, f: F) {
   let max_word64 = u64::MAX;
   let cost = match n {
     Expr::Lit(c) => {
@@ -752,19 +754,19 @@ fn burn_codecopy<F: FnOnce()>(n: Expr, schedule: FeeSchedule<Word64>, f: F) {
     }
     _ => panic!("illegal expression"),
   };
-  burn(cost, f)
+  burn(vm, cost, f)
 }
 
 fn ceil_div(x: u64, y: u64) -> u64 {
   (x + y - 1) / y
 }
 
-fn burn_calldatacopy<F: FnOnce()>(x_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
+fn burn_calldatacopy<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
   let cost = match x_size {
     Expr::Lit(c) => schedule.g_verylow + schedule.g_copy * ceil_div(c as u64, 32),
     _ => panic!("illegal expression"),
   };
-  burn(cost, f)
+  burn(vm, cost, f)
 }
 
 fn burn_extcodecopy<F: FnOnce()>(vm: &mut VM, ext_account: Expr, code_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
@@ -785,7 +787,7 @@ fn burn_extcodecopy<F: FnOnce()>(vm: &mut VM, ext_account: Expr, code_size: Expr
     }
     _ => panic!("illegal expression"),
   };
-  burn(cost, f)
+  burn(vm, cost, f)
 }
 
 fn not_static<F: FnOnce()>(vm: &mut VM, f: F) {
