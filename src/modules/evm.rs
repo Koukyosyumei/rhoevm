@@ -8,12 +8,10 @@ use std::sync::Arc;
 use std::{clone, ops};
 use tiny_keccak::{Hasher, Keccak};
 
-#[path = "./types.rs"]
-mod types;
-use types::{
-  from_list, len_buf, Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, Expr, ExprSet, ExprW256Set,
-  FeeSchedule, ForkState, FrameState, GVar, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState,
-  Trace, TreePos, TxState, VMOpts, W256W256Map, Word64, Word8, VM,
+use crate::modules::types::{
+  from_list, len_buf, Addr, Block, Cache, Contract, ContractCode, Env, Expr, ExprSet, FeeSchedule, ForkState,
+  FrameState, GVar, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts,
+  W256W256Map, Word64, Word8, VM,
 };
 
 fn initial_gas() -> u64 {

@@ -1,6 +1,6 @@
-use revm::modules::evm;
-use revm::modules::types;
+pub use revm::modules::evm;
+pub use revm::modules::types;
 
 fn main() {
-    println!("Hello, world!");
+  println!("Hello, world!");
 }

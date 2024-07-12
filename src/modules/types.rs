@@ -7,9 +7,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::Display;
 use std::vec::Vec;
 
-#[path = "./etypes.rs"]
-pub mod etypes;
-pub use etypes::{Buf, Byte, EAddr, EContract, ETypeTrait, EWord, End, Log, Storage};
+use crate::modules::etypes::{Buf, Byte, EAddr, EContract, ETypeTrait, EWord, End, Log, Storage};
 
 pub type Addr = u32;
 pub type W64 = u8;

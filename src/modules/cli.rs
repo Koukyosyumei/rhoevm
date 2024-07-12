@@ -9,13 +9,10 @@ use std::sync::Arc;
 use std::{clone, ops};
 use tiny_keccak::{Hasher, Keccak};
 
-#[path = "./fetch.rs"]
-mod fetch;
-use fetch::{fetch_block_from, fetch_contract_from, Addr, BlockNumber, Expr, Prop, VM, W256};
-
-#[path = "./evm.rs"]
-mod evm;
-use evm::{abstract_contract, initial_contract};
+use crate::modules::evm::{abstract_contract, initial_contract};
+use crate::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};
+use crate::modules::format::{hex_byte_string, strip_0x};
+use crate::modules::types::{Addr, ContractCode, Expr, Prop, RuntimeCodeStruct, VM, W256};
 
 type URL = String;
 
@@ -113,7 +110,13 @@ pub async fn symvm_from_command(cmd: SymbolicCommand, calldata: (Expr, Vec<Prop>
         Some(contract) => match &cmd.code {
           None => contract,
           Some(code) => {
-            let contract = initial_contract(mk_code(&decipher(code)));
+            let bs = hex_byte_string("bytes", &strip_0x(code));
+            let mc = if cmd.create {
+              ContractCode::InitCode(bs, Box::new(Expr::Mempty))
+            } else {
+              ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs))
+            };
+            let contract = initial_contract(mc);
             contract
               .set_orig_storage(contract.orig_storage)
               .set_balance(contract.balance)
@@ -123,7 +126,15 @@ pub async fn symvm_from_command(cmd: SymbolicCommand, calldata: (Expr, Vec<Prop>
         },
       }
     }
-    (_, _, Some(code)) => abstract_contract(&mk_code(&decipher(code)), &address),
+    (_, _, Some(code)) => {
+      let bs = hex_byte_string("bytes", &strip_0x(code));
+      let mc = if cmd.create {
+        ContractCode::InitCode(bs, Box::new(Expr::Mempty))
+      } else {
+        ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs))
+      };
+      abstract_contract(mc, &address)
+    }
     _ => return Err("Error: must provide at least (rpc + address) or code".into()),
   };
 

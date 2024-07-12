@@ -1,31 +1,12 @@
-use futures::future::FutureExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::cmp::max;
-use std::collections::{hash_set, HashMap, HashSet};
-use std::convert::TryFrom;
-use std::convert::TryInto;
-use std::error::Error;
 use std::fmt::Debug;
 use std::future::Future;
-use std::hash::Hash;
-use std::iter;
 use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::Arc;
-use std::{clone, ops};
-use tiny_keccak::{Hasher, Keccak};
 
-use futures::{executor::block_on, future, task::SpawnExt};
-
-#[path = "./types.rs"]
-pub mod types;
-pub use types::{
-  from_list, len_buf, Addr, Block, Buf, Cache, Contract, ContractCode, EAddr, Env, Expr, ExprSet, ExprW256Set,
-  FeeSchedule, ForkState, FrameState, GVar, Gas, Memory, MutableMemory, Prop, RuntimeCodeStruct, RuntimeConfig,
-  SubState, Trace, TreePos, TxState, VMOpts, W256W256Map, Word64, Word8, VM, W256,
-};
+use crate::modules::types::{Addr, Block, Contract, Expr, W256};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BlockNumber {
