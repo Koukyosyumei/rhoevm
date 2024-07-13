@@ -48,7 +48,7 @@ fn current_contract(vm: &VM) -> Option<Contract> {
   vm.env.contracts.get(&vm.state.code_contract).cloned()
 }
 
-fn make_vm(opts: VMOpts) -> VM {
+pub fn make_vm(opts: VMOpts) -> VM {
   let txaccess_list = &opts.tx_access_list;
   let txorigin = opts.origin.clone();
   let txto_addr = opts.address.clone();

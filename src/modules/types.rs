@@ -937,6 +937,20 @@ pub struct Contract {
   pub code_ops: Vec<(i32, Op<Expr>)>,
 }
 
+pub fn update_balance(c: Contract, new_balance: Expr) -> Contract {
+  Contract {
+    code: c.code,
+    storage: c.storage,
+    orig_storage: c.orig_storage,
+    balance: new_balance,
+    nonce: c.nonce,
+    codehash: c.codehash,
+    op_idx_map: c.op_idx_map,
+    external: c.external,
+    code_ops: c.code_ops,
+  }
+}
+
 impl Contract {
   pub fn bytecode(&self) -> Option<Expr> {
     match &self.code {
