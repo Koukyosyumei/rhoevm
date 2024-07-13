@@ -9,7 +9,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 // Define the Solver enum
-enum Solver {
+pub enum Solver {
   Z3,
   CVC5,
   Bitwuzla,
@@ -36,7 +36,7 @@ struct SolverInstance {
   process: std::process::Child,
 }
 
-fn with_solvers<F, R>(solver: Solver, count: usize, timeout: Option<usize>, cont: F) -> R
+pub fn with_solvers<F, R>(solver: Solver, count: usize, timeout: Option<usize>, cont: F) -> R
 where
   F: FnOnce(SolverGroup) -> R,
 {
@@ -154,6 +154,39 @@ fn send_command(instance: &mut SolverInstance, cmd: &str) -> Result<String, std:
   Ok(response.trim().to_string())
 }
 
+fn orchestrate(queue: Receiver<Task>, avail: Receiver<Arc<Mutex<SolverInstance>>>, file_counter: usize) {
+  // Loop to continuously orchestrate tasks
+  loop {
+    // Attempt to receive a task from the queue
+    let task = match queue.recv() {
+      Ok(task) => task,
+      Err(_) => break, // Break the loop if receiving fails
+    };
+
+    // Attempt to receive a solver instance from the available instances channel
+    let inst = match avail.recv() {
+      Ok(inst) => inst,
+      Err(_) => break, // Break the loop if receiving fails
+    };
+
+    // Clone Arc<Mutex<SolverInstance>> for use in the closure
+    let inst_clone = Arc::clone(&inst);
+
+    // Spawn a new thread to run the task asynchronously
+    thread::spawn(move || {
+      // Lock the SolverInstance to obtain a mutable reference
+      let mut inst = inst_clone.lock().unwrap();
+
+      // Execute the task using the run_task function
+      run_task(task, &mut inst, file_counter);
+    });
+
+    // Increment the file counter for the next task
+    let file_counter = file_counter + 1;
+  }
+}
+
+/*
 // Example function to orchestrate tasks (similar to orchestrate function in Haskell)
 fn orchestrate(instance: Arc<Mutex<SolverInstance>>, queue: Arc<Mutex<Vec<Task>>>) {
   thread::spawn(move || {
@@ -171,7 +204,7 @@ fn orchestrate(instance: Arc<Mutex<SolverInstance>>, queue: Arc<Mutex<Vec<Task>>
       }
     }
   });
-}
+}*/
 
 struct SolverGroup {
   task_queue: Arc<Mutex<VecDeque<Task>>>,
@@ -233,6 +266,7 @@ impl SolverInstance {
     let process = command;
 
     Ok(SolverInstance {
+      solver_type: Solver::Z3,
       stdin: BufWriter::new(stdin),
       stdout: BufReader::new(stdout),
       process,

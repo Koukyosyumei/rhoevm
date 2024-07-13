@@ -19,6 +19,7 @@ use crate::modules::evm::{abstract_contract, initial_contract, make_vm};
 use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};
 use crate::modules::format::{hex_byte_string, strip_0x};
+use crate::modules::solvers::{with_solvers, Solver};
 use crate::modules::transactions::init_tx;
 use crate::modules::types::{
   Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
@@ -69,7 +70,7 @@ pub struct SymbolicCommand {
   get_models: bool,                        // Print example testcase for each execution path
   show_tree: bool,                         // Print branches explored in tree view
   show_reachable_tree: bool,               // Print only reachable branches explored in tree view
-  smt_timeout: Option<u64>,                // Timeout given to SMT solver in seconds (default: 300)
+  smt_timeout: Option<usize>,              // Timeout given to SMT solver in seconds (default: 300)
   max_iterations: Option<i64>,             // Number of times we may revisit a particular branching point
   solver: Option<String>,                  // Used SMT solver: z3 (default), cvc5, or bitwuzla
   smt_debug: bool,                         // Print smt queries sent to the solver
@@ -105,7 +106,7 @@ async fn assert(cmd: SymbolicCommand) -> Result<(), Box<dyn std::error::Error>> 
   let solver_count = cmd.num_solvers.unwrap_or(cores as u64);
   // let solver = get_solver(&cmd).await?;
 
-  with_solvers(solver, solver_count, cmd.smttimeout, |solvers| async {
+  with_solvers(Solver::Z3, solver_count as usize, cmd.smt_timeout, |solvers| async {
     let opts = VeriOpts {
       simp: true,
       max_iter: cmd.max_iterations,
