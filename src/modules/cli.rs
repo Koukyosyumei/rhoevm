@@ -20,6 +20,12 @@ use super::types::VMOpts;
 
 type URL = String;
 
+#[derive(Debug)]
+pub enum InitialStorage {
+  Empty,
+  Abstract,
+}
+
 #[derive(Debug, Default)]
 pub struct SymbolicCommand {
   // VM opts
@@ -49,18 +55,18 @@ pub struct SymbolicCommand {
   // Symbolic execution opts
   root: Option<String>, // Path to project root directory (default: .)
   // project_type: Option<ProjectType>,       // Is this a Foundry or DappTools project (default: Foundry)
-  // initial_storage: Option<InitialStorage>, // Starting state for storage: Empty, Abstract (default Abstract)
-  sig: Option<String>,           // Signature of types to decode/encode
-  arg: Vec<String>,              // Values to encode
-  get_models: bool,              // Print example testcase for each execution path
-  show_tree: bool,               // Print branches explored in tree view
-  show_reachable_tree: bool,     // Print only reachable branches explored in tree view
-  smt_timeout: Option<u64>,      // Timeout given to SMT solver in seconds (default: 300)
-  max_iterations: Option<i64>,   // Number of times we may revisit a particular branching point
-  solver: Option<String>,        // Used SMT solver: z3 (default), cvc5, or bitwuzla
-  smt_debug: bool,               // Print smt queries sent to the solver
-  debug: bool,                   // Debug printing of internal behaviour
-  trace: bool,                   // Dump trace
+  initial_storage: Option<InitialStorage>, // Starting state for storage: Empty, Abstract (default Abstract)
+  sig: Option<String>,                     // Signature of types to decode/encode
+  arg: Vec<String>,                        // Values to encode
+  get_models: bool,                        // Print example testcase for each execution path
+  show_tree: bool,                         // Print branches explored in tree view
+  show_reachable_tree: bool,               // Print only reachable branches explored in tree view
+  smt_timeout: Option<u64>,                // Timeout given to SMT solver in seconds (default: 300)
+  max_iterations: Option<i64>,             // Number of times we may revisit a particular branching point
+  solver: Option<String>,                  // Used SMT solver: z3 (default), cvc5, or bitwuzla
+  smt_debug: bool,                         // Print smt queries sent to the solver
+  debug: bool,                             // Debug printing of internal behaviour
+  trace: bool,                             // Dump trace
   assertions: Option<Vec<W256>>, // List of solc panic codes to check for (default: user defined assertion violations only)
   ask_smt_iterations: i64, // Number of times we may revisit a particular branching point before consulting the SMT solver to check reachability (default: 1)
   num_cex_fuzz: i64,       // Number of fuzzing tries to generate a counterexample (default: 3)
@@ -208,9 +214,20 @@ fn vm0(
     schedule: FEE_SCHEDULE,
     chain_id: if let Some(i) = cmd.chainid { i } else { 1 },
     create: cmd.create,
-    base_state: BaseState::EmptyBase,
+    base_state: if let Some(is) = cmd.initial_storage {
+      parseInitialStorage(is)
+    } else {
+      BaseState::AbstractBase
+    },
     tx_access_list: HashMap::new(),
     allow_ffi: false,
   };
   make_vm(opts)
+}
+
+fn parseInitialStorage(is: InitialStorage) -> BaseState {
+  match is {
+    InitialStorage::Empty => BaseState::EmptyBase,
+    InitialStorage::Abstract => BaseState::AbstractBase,
+  }
 }
