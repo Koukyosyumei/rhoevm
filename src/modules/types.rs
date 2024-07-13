@@ -8,6 +8,7 @@ use std::path::Display;
 use std::vec::Vec;
 
 use crate::modules::etypes::{Buf, Byte, EAddr, EContract, ETypeTrait, EWord, End, Log, Storage};
+use crate::modules::feeschedule::FeeSchedule;
 
 pub type Addr = u32;
 pub type W64 = u8;
@@ -1140,61 +1141,7 @@ pub struct Block {
   pub gaslimit: Word64,
   pub base_fee: W256,
   pub max_code_size: W256,
-  pub schedule: FeeSchedule<Word64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FeeSchedule<T> {
-  pub g_zero: T,
-  pub g_base: T,
-  pub g_verylow: T,
-  pub g_low: T,
-  pub g_mid: T,
-  pub g_high: T,
-  g_extcode: T,
-  g_balance: T,
-  g_sload: T,
-  g_jumpdest: T,
-  g_sset: T,
-  g_sreset: T,
-  r_sclear: T,
-  g_selfdestruct: T,
-  g_selfdestruct_newaccount: T,
-  r_selfdestruct: T,
-  g_create: T,
-  g_codedeposit: T,
-  g_call: T,
-  g_callvalue: T,
-  g_callstipend: T,
-  g_newaccount: T,
-  g_exp: T,
-  g_expbyte: T,
-  g_memory: T,
-  g_txcreate: T,
-  g_txdatazero: T,
-  g_txdatanonzero: T,
-  g_transaction: T,
-  g_log: T,
-  g_logdata: T,
-  g_logtopic: T,
-  pub g_sha3: T,
-  pub g_sha3word: T,
-  g_initcodeword: T,
-  pub g_copy: T,
-  g_blockhash: T,
-  g_extcodehash: T,
-  g_quaddivisor: T,
-  g_ecadd: T,
-  g_ecmul: T,
-  g_pairing_point: T,
-  g_pairing_base: T,
-  g_fround: T,
-  r_block: T,
-  g_cold_sload: T,
-  pub g_cold_account_access: T,
-  pub g_warm_storage_read: T,
-  g_access_list_address: T,
-  g_access_list_storage_key: T,
+  pub schedule: FeeSchedule,
 }
 
 pub struct TxState {
@@ -1238,7 +1185,7 @@ pub struct VMOpts {
   pub block_gaslimit: Word64,
   pub gasprice: W256,
   pub base_fee: W256,
-  pub schedule: FeeSchedule<Word64>,
+  pub schedule: FeeSchedule,
   pub chain_id: W256,
   pub create: bool,
   pub tx_access_list: HashMap<Expr, Vec<W256>>,

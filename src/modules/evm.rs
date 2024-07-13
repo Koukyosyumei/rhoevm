@@ -8,10 +8,10 @@ use std::sync::Arc;
 use std::{clone, ops};
 use tiny_keccak::{Hasher, Keccak};
 
+use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::types::{
-  from_list, len_buf, Addr, Block, Cache, Contract, ContractCode, Env, Expr, ExprSet, FeeSchedule, ForkState,
-  FrameState, GVar, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts,
-  W256W256Map, Word64, Word8, VM,
+  from_list, len_buf, Addr, Block, Cache, Contract, ContractCode, Env, Expr, ExprSet, ForkState, FrameState, GVar, Gas,
+  Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts, W256W256Map, Word64, Word8, VM,
 };
 
 fn initial_gas() -> u64 {
@@ -732,7 +732,7 @@ fn burn<F: FnOnce()>(vm: &mut VM, gas: u64, f: F) {
   };
 }
 
-fn burn_sha3<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
+fn burn_sha3<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule, f: F) {
   let cost = match x_size {
     Expr::Lit(c) => schedule.g_sha3 + schedule.g_sha3word * (((c as u64) + 31) / 32),
     _ => panic!("illegal expression"),
@@ -740,7 +740,7 @@ fn burn_sha3<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule<Word6
   burn(vm, cost, f)
 }
 
-fn burn_codecopy<F: FnOnce()>(vm: &mut VM, n: Expr, schedule: FeeSchedule<Word64>, f: F) {
+fn burn_codecopy<F: FnOnce()>(vm: &mut VM, n: Expr, schedule: FeeSchedule, f: F) {
   let max_word64 = u64::MAX;
   let cost = match n {
     Expr::Lit(c) => {
@@ -759,7 +759,7 @@ fn ceil_div(x: u64, y: u64) -> u64 {
   (x + y - 1) / y
 }
 
-fn burn_calldatacopy<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
+fn burn_calldatacopy<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule, f: F) {
   let cost = match x_size {
     Expr::Lit(c) => schedule.g_verylow + schedule.g_copy * ceil_div(c as u64, 32),
     _ => panic!("illegal expression"),
@@ -767,7 +767,7 @@ fn burn_calldatacopy<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedu
   burn(vm, cost, f)
 }
 
-fn burn_extcodecopy<F: FnOnce()>(vm: &mut VM, ext_account: Expr, code_size: Expr, schedule: FeeSchedule<Word64>, f: F) {
+fn burn_extcodecopy<F: FnOnce()>(vm: &mut VM, ext_account: Expr, code_size: Expr, schedule: FeeSchedule, f: F) {
   let ceiled_c = match code_size {
     Expr::Lit(c) => ceil_div(c as u64, 32),
     _ => panic!("illegal expression"),

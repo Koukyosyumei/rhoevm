@@ -10,6 +10,7 @@ use std::{clone, ops};
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::evm::{abstract_contract, initial_contract, make_vm};
+use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};
 use crate::modules::format::{hex_byte_string, strip_0x};
 use crate::modules::transactions::init_tx;
@@ -168,45 +169,34 @@ fn vm0(
   let opts = VMOpts {
     contract: c,
     other_contracts: Vec::new(),
-    calldata: if let Some(b) = cmd.calldata {
-      (Expr::ConcreteBuf(b), Vec::new())
-    } else {
-      (Expr::ConcreteBuf(Vec::new()), Vec::new())
-    },
-    value: if let Some(v) = cmd.value {
-      Expr::Lit(v)
-    } else {
-      Expr::Lit(0)
-    },
-    caller: if let Some(a) = cmd.caller {
+    calldata: calldata,
+    value: callvalue,
+    address: if let Some(a) = cmd.address {
       Expr::LitAddr(a)
     } else {
-      Expr::LitAddr(0)
+      Expr::SymAddr("entrypoint".to_string())
     },
+    caller: caller,
     origin: if let Some(a) = cmd.origin {
       Expr::LitAddr(a)
     } else {
-      Expr::LitAddr(0)
+      Expr::SymAddr("origin".to_string())
     },
-    gas: if let Some(g) = cmd.gas {
-      Gas::Concerete(g)
-    } else {
-      Gas::Concerete(0xffffffffffffffff)
-    },
-    base_fee: base_fee,
-    priority_fee: if let Some(pf) = cmd.priority_fee { pf } else { 0 },
+    gas: Gas::Symbolic,
     gaslimit: if let Some(gl) = cmd.gaslimit {
       gl
     } else {
       0xffffffffffffffff
     },
+    base_fee: base_fee,
+    priority_fee: if let Some(pf) = cmd.priority_fee { pf } else { 0 },
     coinbase: if let Some(c) = cmd.coinbase {
       Expr::LitAddr(c)
     } else {
       miner
     },
     number: if let Some(n) = cmd.number { n } else { block_num },
-    time_stamp: if let Some(t) = cmd.timestamp { Expr::Lit(t) } else { ts },
+    time_stamp: ts,
     block_gaslimit: if let Some(b) = cmd.gaslimit {
       b
     } else {
@@ -215,16 +205,12 @@ fn vm0(
     gasprice: if let Some(g) = cmd.gasprice { g } else { 0 },
     max_code_size: if let Some(m) = cmd.max_code_size { m } else { 0xffffffff },
     prev_randao: if let Some(p) = cmd.prev_randao { p } else { prev_ran },
+    schedule: FEE_SCHEDULE,
     chain_id: if let Some(i) = cmd.chainid { i } else { 1 },
     create: cmd.create,
     base_state: BaseState::EmptyBase,
     tx_access_list: HashMap::new(),
     allow_ffi: false,
-    /*
-    address: if cmd.create {if let Some(a) = cmd.address { Expr::
-
-    }}
-    */
   };
   make_vm(opts)
 }
