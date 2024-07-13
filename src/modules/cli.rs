@@ -1,22 +1,30 @@
+use futures::future::join_all;
+use num_cpus;
 use std::cmp::max;
 use std::collections::{hash_set, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::error::Error;
 use std::hash::Hash;
+use std::io::{self, Write};
 use std::iter;
+use std::process::exit;
 use std::sync::Arc;
 use std::{clone, ops};
 use tiny_keccak::{Hasher, Keccak};
+use tokio::runtime::Runtime;
 
+use crate::modules::abi::Sig;
 use crate::modules::evm::{abstract_contract, initial_contract, make_vm};
 use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};
 use crate::modules::format::{hex_byte_string, strip_0x};
 use crate::modules::transactions::init_tx;
-use crate::modules::types::{Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VM, W256};
+use crate::modules::types::{
+  Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
+};
 
-use super::types::VMOpts;
+use super::types::Block;
 
 type URL = String;
 
@@ -77,7 +85,87 @@ pub struct SymbolicCommand {
   no_decompose: bool,        // Don't decompose storage slots into separate arrays
 }
 
-pub async fn symvm_from_command(cmd: SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
+async fn assert(cmd: SymbolicCommand) -> Result<(), Box<dyn std::error::Error>> {
+  let block = if let Some(b) = cmd.block {
+    BlockNumber::BlockNumber(b)
+  } else {
+    BlockNumber::Latest
+  };
+  let rpcinfo = cmd.rpc.map(|rpc| (block.clone(), rpc));
+
+  let calldata = build_calldata(&cmd)?;
+  let pre_state = symvm_from_command(&cmd, calldata.clone()).await?;
+
+  let err_codes = cmd.assertions.unwrap_or_else(|| default_panic_codes());
+  let cores = num_cpus::get();
+  let solver_count = cmd.num_solvers.unwrap_or(cores);
+  let solver = get_solver(&cmd).await?;
+
+  with_solvers(solver, solver_count, cmd.smttimeout, |solvers| async {
+    let opts = VeriOpts {
+      simp: true,
+      max_iter: cmd.max_iterations,
+      ask_smt_iters: cmd.ask_smt_iterations,
+      loop_heuristic: cmd.loop_detection_heuristic,
+      rpc_info: rpcinfo.clone(),
+    };
+
+    let (expr, res) = verify(
+      solvers.clone(),
+      opts,
+      pre_state.clone(),
+      Some(check_assertions(err_codes)),
+    )
+    .await?;
+
+    match res.as_slice() {
+      [VeriResult::Qed(_)] => {
+        println!("\nQED: No reachable property violations discovered\n");
+        show_extras(solvers, &cmd, calldata.clone(), expr.clone()).await?;
+      }
+      _ => {
+        let cexs: Vec<_> = res.iter().filter_map(get_cex).collect();
+        let timeouts: Vec<_> = res.iter().filter_map(get_timeout).collect();
+
+        let counterexamples = if cexs.is_empty() {
+          vec![]
+        } else {
+          vec![
+            "".to_string(),
+            "Discovered the following counterexamples:".to_string(),
+            "".to_string(),
+          ]
+          .into_iter()
+          .chain(cexs.iter().map(|cex| format_cex(&calldata.0, None, cex)))
+          .collect()
+        };
+
+        let unknowns = if timeouts.is_empty() {
+          vec![]
+        } else {
+          vec![
+            "".to_string(),
+            "Could not determine reachability of the following end states:".to_string(),
+            "".to_string(),
+          ]
+          .into_iter()
+          .chain(timeouts.iter().map(format_expr))
+          .collect()
+        };
+
+        println!("{}", counterexamples.join("\n"));
+        println!("{}", unknowns.join("\n"));
+        show_extras(solvers, &cmd, calldata.clone(), expr.clone()).await?;
+        std::process::exit(1);
+      }
+    }
+
+    Ok(())
+  })
+  .await
+}
+
+pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
   let (miner, block_num, base_fee, prev_ran) = match &cmd.rpc {
     None => (Expr::SymAddr("miner".to_string()), 0, 0, 0),
     Some(url) => {
@@ -230,4 +318,52 @@ fn parseInitialStorage(is: InitialStorage) -> BaseState {
     InitialStorage::Empty => BaseState::EmptyBase,
     InitialStorage::Abstract => BaseState::AbstractBase,
   }
+}
+
+fn build_calldata(cmd: &SymbolicCommand) -> Result<(Expr, Vec<Prop>), Box<dyn std::error::Error>> {
+  match (&cmd.calldata, &cmd.sig) {
+    // Fully abstract calldata
+    (None, None) => Ok(mk_calldata(None, &[])),
+
+    // Fully concrete calldata
+    (Some(c), None) => {
+      let concrete_buf = Expr::ConcreteBuf(hex_byte_string("bytes", &strip_0x(c)));
+      Ok((concrete_buf, vec![]))
+    }
+
+    // Calldata according to given ABI with possible specializations from the `arg` list
+    (None, Some(sig)) => {
+      let method = function_abi(sig)?;
+      let sig = Sig::new(
+        &method.method_signature,
+        &method.inputs.iter().map(|input| input.1.clone()).collect::<Vec<_>>(),
+      );
+      Ok(mk_calldata(Some(sig), &cmd.arg))
+    }
+
+    // Both args provided
+    (_, _) => {
+      eprintln!("incompatible options provided: --calldata and --sig");
+      exit(1);
+    }
+  }
+}
+
+fn mk_calldata(sig: Option<Sig>, args: &[String]) -> (Expr, Vec<Prop>) {
+  // Implementation here
+  // (Expr::, vec![])
+  todo!()
+}
+
+fn function_abi(sig: &str) -> Result<AbiMethod, Box<dyn std::error::Error>> {
+  // Implementation here
+  Ok(AbiMethod {
+    method_signature: sig.to_string(),
+    inputs: vec![],
+  })
+}
+
+struct AbiMethod {
+  method_signature: String,
+  inputs: Vec<(String, String)>,
 }

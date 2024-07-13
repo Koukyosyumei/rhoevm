@@ -931,7 +931,7 @@ fn word32(xs: &[u8]) -> u32 {
   xs.iter().enumerate().fold(0, |acc, (n, &x)| acc | (u32::from(x) << (8 * n)))
 }
 
-fn keccak(buf: Expr) -> Result<Expr, &'static str> {
+pub fn keccak(buf: Expr) -> Result<Expr, &'static str> {
   match buf {
     Expr::ConcreteBuf(bs) => {
       let hash_result = keccak_bytes(&bs);
@@ -943,21 +943,21 @@ fn keccak(buf: Expr) -> Result<Expr, &'static str> {
   }
 }
 
-fn keccak_prime(input: &[u8]) -> Vec<u8> {
+pub fn keccak_prime(input: &[u8]) -> Vec<u8> {
   let hash_result = keccak_bytes(input);
   hash_result[..32].to_vec()
 }
 
-struct FunctionSelector(u32); // Define FunctionSelector appropriately
+pub struct FunctionSelector(u32); // Define FunctionSelector appropriately
 
-fn abi_keccak(input: &[u8]) -> FunctionSelector {
+pub fn abi_keccak(input: &[u8]) -> FunctionSelector {
   let hash_result = keccak_bytes(input);
   let selector_bytes = &hash_result[..4];
   let selector = word32(selector_bytes);
   FunctionSelector(selector)
 }
 
-fn hashcode(cc: &ContractCode) -> Expr {
+pub fn hashcode(cc: &ContractCode) -> Expr {
   match cc {
     ContractCode::UnKnownCode(a) => Expr::CodeHash(a.clone()),
     ContractCode::InitCode(ops, args) => keccak(Expr::ConcreteBuf(ops.clone())).unwrap(),
