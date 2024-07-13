@@ -96,10 +96,14 @@ async fn assert(cmd: SymbolicCommand) -> Result<(), Box<dyn std::error::Error>> 
   let calldata = build_calldata(&cmd)?;
   let pre_state = symvm_from_command(&cmd, calldata.clone()).await?;
 
-  let err_codes = cmd.assertions.unwrap_or_else(|| default_panic_codes());
+  let err_codes = if let Some(ec) = cmd.assertions {
+    ec
+  } else {
+    panic!("error")
+  };
   let cores = num_cpus::get();
-  let solver_count = cmd.num_solvers.unwrap_or(cores);
-  let solver = get_solver(&cmd).await?;
+  let solver_count = cmd.num_solvers.unwrap_or(cores as u64);
+  // let solver = get_solver(&cmd).await?;
 
   with_solvers(solver, solver_count, cmd.smttimeout, |solvers| async {
     let opts = VeriOpts {
