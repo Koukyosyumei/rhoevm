@@ -206,7 +206,7 @@ fn orchestrate(instance: Arc<Mutex<SolverInstance>>, queue: Arc<Mutex<Vec<Task>>
   });
 }*/
 
-struct SolverGroup {
+pub struct SolverGroup {
   task_queue: Arc<Mutex<VecDeque<Task>>>,
 }
 
@@ -334,4 +334,4 @@ enum SolverError {
 struct SMT2(String);
 
 #[derive(Debug, Clone, Default)]
-struct SMTCex;
+pub struct SMTCex;

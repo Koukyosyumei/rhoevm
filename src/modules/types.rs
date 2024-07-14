@@ -5,7 +5,8 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use std::ops::Add;
 use std::ops::{Deref, DerefMut};
 use std::path::Display;
-use std::vec::Vec;
+use std::sync::Arc;
+use std::vec::Vec; // Assuming state crate is used for the State monad
 
 use crate::modules::etypes::{Buf, Byte, EAddr, EContract, ETypeTrait, EWord, End, Log, Storage};
 use crate::modules::feeschedule::FeeSchedule;
@@ -763,9 +764,9 @@ impl Hash for Expr {
 }
 
 // Propositions -----------------------------------------------------------------------------------
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum Prop {
-  PEq(Expr),
+  PEq(Expr, Expr),
   PLT(Expr, Expr),
   PGT(Expr, Expr),
   PGEq(Expr, Expr),
@@ -1120,6 +1121,80 @@ pub enum VMResult {
   VMFailure(EvmError),
   VMSuccess(Expr),
   HandleEffect,
+}
+
+// Type alias for the EVM monad
+pub type EVM<A> = (VM, A);
+
+// Define the Query enum
+pub enum Query {
+  PleaseFetchContract(Addr, BaseState, Arc<dyn Fn(Contract) -> EVM<()> + Send + Sync>),
+  PleaseFetchSlot(Addr, W256, Arc<dyn Fn(W256) -> EVM<()> + Send + Sync>),
+  PleaseAskSMT(Expr, Vec<Prop>, Arc<dyn Fn(BranchCondition) -> EVM<()> + Send + Sync>),
+  PleaseDoFFI(Vec<String>, Arc<dyn Fn(ByteString) -> EVM<()> + Send + Sync>),
+}
+
+// Define the Choose enum
+pub enum Choose {
+  PleaseChoosePath(Expr, Arc<dyn Fn(bool) -> EVM<()> + Send + Sync>),
+}
+
+// Define the Effect enum
+pub enum Effect {
+  Query(Query),
+  Choose(Choose),
+}
+
+// Define the BranchCondition enum
+pub enum BranchCondition {
+  Case(bool),
+  Unknown,
+}
+
+// Implement Display for Query
+impl fmt::Display for Query {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Query::PleaseFetchContract(addr, base, _) => write!(f, "<EVM.Query: fetch contract {} {}>", addr, base),
+      Query::PleaseFetchSlot(addr, slot, _) => write!(f, "<EVM.Query: fetch slot {} for {}>", slot, addr),
+      Query::PleaseAskSMT(condition, constraints, _) => write!(
+        f,
+        "<EVM.Query: ask SMT about {} in context {}>",
+        condition,
+        constraints.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", ")
+      ),
+      Query::PleaseDoFFI(cmd, _) => write!(f, "<EVM.Query: do ffi: {}>", cmd.join(", ")),
+    }
+  }
+}
+
+// Implement Display for Choose
+impl<S> fmt::Display for Choose {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Choose::PleaseChoosePath(_, _) => write!(f, "<EVM.Choice: waiting for user to select path (0,1)>"),
+    }
+  }
+}
+
+// Implement Display for Effect
+impl fmt::Display for Effect {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Effect::Query(query) => write!(f, "{}", query),
+      Effect::Choose(choice) => write!(f, "{}", choice),
+    }
+  }
+}
+
+// Implement Display for BranchCondition
+impl fmt::Display for BranchCondition {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      BranchCondition::Case(b) => write!(f, "Case({})", b),
+      BranchCondition::Unknown => write!(f, "Unknown"),
+    }
+  }
 }
 
 // Various environmental data

@@ -6,9 +6,11 @@ use std::future::Future;
 use std::pin::Pin;
 use std::str::FromStr;
 
-use crate::modules::types::{Addr, Block, Contract, Expr, W256};
+use crate::modules::effects::App;
+use crate::modules::types::{Addr, Block, Contract, Expr, Query, EVM, W256};
+use async_trait::async_trait;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub enum BlockNumber {
   Latest,
   BlockNumber(W256),
@@ -24,7 +26,7 @@ enum RpcQuery {
   QueryChainId,
 }
 
-type RpcInfo = Option<(BlockNumber, String)>;
+pub type RpcInfo = Option<(BlockNumber, String)>;
 
 fn rpc(method: &str, args: Vec<Value>) -> Value {
   json!({
@@ -261,3 +263,11 @@ pub async fn fetch_chain_id_from(url: &str) -> Option<W256> {
     RpcQuery::QueryChainId,
   )*/
 }
+
+pub type Fetcher = (App, Query);
+
+/*
+pub fn fetch(fetcher: Fetcher) -> EVM<()> {
+  todo!()
+}
+  */

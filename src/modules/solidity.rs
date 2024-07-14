@@ -178,33 +178,36 @@ fn read_solc(pt: ProjectType, root: &str, fp: &str) -> Result<BuildOutput, Strin
 }
 
 fn yul(contract_name: &str, src: &str) -> Option<Vec<u8>> {
-  let json = solc("Yul", src)?;
+  let json = solc(Language::Yul, src)?;
   let f = json["contracts"]["hevm.sol"][contract_name];
   let bytecode = f["evm"]["bytecode"]["object"].as_str()?.as_bytes().to_vec();
   Some(to_code(contract_name, &bytecode))
 }
 
 fn yul_runtime(contract_name: &str, src: &str) -> Option<Vec<u8>> {
-  let json = solc("Yul", src)?;
+  let json = solc(Language::Yul, src)?;
   let f = json["contracts"]["hevm.sol"][contract_name];
   let bytecode = f["evm"]["deployedBytecode"]["object"].as_str()?.as_bytes().to_vec();
   Some(to_code(contract_name, &bytecode))
 }
 
-fn solidity<M: MonadUnliftIO>(contract: &str, src: &str) -> m<Option<Vec<u8>>> {
-  let json = solc("Solidity", src)?;
+fn solidity(contract: &str, src: &str) -> Option<Vec<u8>> {
+  let json = solc(Language::Solidity, src)?;
   let (contracts, _, _) = read_std_json(&json)?;
-  m::lift_io(|| contracts.get(&format!("hevm.sol:{}", contract)).map(|contract| contract.creation_code.clone()))
+  contracts.get(&format!("hevm.sol:{}", contract)).map(|contract| contract.creation_code.clone())
 }
 
-fn solc_runtime<M: MonadUnliftIO>(contract: &str, src: &str) -> m<Option<Vec<u8>>> {
-  let json = solc("Solidity", src)?;
+fn solc_runtime(contract: &str, src: &str) -> Option<Vec<u8>> {
+  let json = solc(Language::Solidity, src)?;
   let (contracts, _, _) = read_std_json(&json)?;
-  m::lift_io(|| contracts.get(&format!("hevm.sol:{}", contract)).map(|contract| contract.runtime_code.clone()))
+  contracts.get(&format!("hevm.sol:{}", contract)).map(|contract| contract.runtime_code.clone())
 }
 
 fn function_abi(f: &str) -> Result<Method, String> {
-  let json = solc("Solidity", &format!("contract ABI {{ function {} public {{}}}}", f))?;
+  let json = solc(
+    Language::Solidity,
+    &format!("contract ABI {{ function {} public {{}}}}", f),
+  )?;
   let (contracts, _, _) = read_std_json(&json)?;
   contracts
     .get("hevm.sol:ABI")

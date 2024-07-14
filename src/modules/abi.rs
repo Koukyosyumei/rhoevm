@@ -22,7 +22,7 @@ impl Sig {
 
 // Define AbiValue enum
 #[derive(Debug, Clone)]
-enum AbiValue {
+pub enum AbiValue {
   AbiUInt(i32, u32),
   AbiInt(i32, i32),
   AbiAddress(Addr),
