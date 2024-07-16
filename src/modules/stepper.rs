@@ -79,7 +79,7 @@ impl<A> Program<Action<A>, A> {
 
   pub fn enter(t: String) -> Stepper<()> {
     let mut p = Program::new();
-    p.actions.push(Action::EVM(EVM::PushTrace(TraceData::EntryTrace(t))));
+    p.actions.push(Action::EVM(()));
     p
   }
 }

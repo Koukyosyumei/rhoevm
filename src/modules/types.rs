@@ -187,6 +187,7 @@ pub enum Expr {
   CopySlice(Box<Expr>, Box<Expr>, Box<Expr>, Box<Expr>, Box<Expr>),
 
   BufLength(Box<Expr>),
+  End,
 }
 
 impl fmt::Display for Expr {
@@ -282,6 +283,7 @@ impl fmt::Display for Expr {
         src_offset, dst_offset, size, src, dst
       ),
       Expr::BufLength(buf) => write!(f, "BufLength({})", buf),
+      Expr::End => write!(f, "end"),
     }
   }
 }
@@ -759,6 +761,9 @@ impl Hash for Expr {
         "BufLength".hash(state);
         expr.hash(state);
       }
+      End => {
+        "@end".hash(state);
+      }
     }
   }
 }
@@ -1169,7 +1174,7 @@ impl fmt::Display for Query {
 }
 
 // Implement Display for Choose
-impl<S> fmt::Display for Choose {
+impl fmt::Display for Choose {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Choose::PleaseChoosePath(_, _) => write!(f, "<EVM.Choice: waiting for user to select path (0,1)>"),
@@ -1391,6 +1396,18 @@ macro_rules! impl_hashmap_traits {
 
       pub fn entry(&mut self, key: $key) -> std::collections::hash_map::Entry<$key, $value> {
         self.0.entry(key)
+      }
+
+      pub fn values(&mut self) -> std::collections::hash_map::Values<'_, $key, $value> {
+        self.0.values()
+      }
+
+      pub fn keys(&mut self) -> std::collections::hash_map::Keys<'_, $key, $value> {
+        self.0.keys()
+      }
+
+      pub fn iter(&mut self) -> std::collections::hash_map::Iter<'_, $key, $value> {
+        self.0.iter()
       }
     }
 

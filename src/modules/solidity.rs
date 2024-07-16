@@ -1,6 +1,6 @@
 use hex::decode;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{from_str, json, Value};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
@@ -178,27 +178,27 @@ fn read_solc(pt: ProjectType, root: &str, fp: &str) -> Result<BuildOutput, Strin
 }
 
 fn yul(contract_name: &str, src: &str) -> Option<Vec<u8>> {
-  let json = solc(Language::Yul, src)?;
+  let json: Value = from_str(&solc(Language::Yul, src).unwrap()).unwrap();
   let f = json["contracts"]["hevm.sol"][contract_name];
   let bytecode = f["evm"]["bytecode"]["object"].as_str()?.as_bytes().to_vec();
   Some(to_code(contract_name, &bytecode))
 }
 
 fn yul_runtime(contract_name: &str, src: &str) -> Option<Vec<u8>> {
-  let json = solc(Language::Yul, src)?;
+  let json: Value = from_str(&solc(Language::Yul, src).unwrap()).unwrap();
   let f = json["contracts"]["hevm.sol"][contract_name];
   let bytecode = f["evm"]["deployedBytecode"]["object"].as_str()?.as_bytes().to_vec();
   Some(to_code(contract_name, &bytecode))
 }
 
 fn solidity(contract: &str, src: &str) -> Option<Vec<u8>> {
-  let json = solc(Language::Solidity, src)?;
+  let json = solc(Language::Solidity, src).unwrap();
   let (contracts, _, _) = read_std_json(&json)?;
   contracts.get(&format!("hevm.sol:{}", contract)).map(|contract| contract.creation_code.clone())
 }
 
 fn solc_runtime(contract: &str, src: &str) -> Option<Vec<u8>> {
-  let json = solc(Language::Solidity, src)?;
+  let json = solc(Language::Solidity, src).unwrap();
   let (contracts, _, _) = read_std_json(&json)?;
   contracts.get(&format!("hevm.sol:{}", contract)).map(|contract| contract.runtime_code.clone())
 }

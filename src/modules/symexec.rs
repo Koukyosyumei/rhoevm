@@ -9,6 +9,7 @@ use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{BlockNumber, Fetcher, RpcInfo};
 use crate::modules::solvers::SMTCex;
 use crate::modules::solvers::SolverGroup;
+use crate::modules::stepper::{Action, Stepper};
 use crate::modules::types::{BaseState, ContractCode, Expr, Prop, VMOpts};
 
 use super::evm::make_vm;
@@ -154,36 +155,33 @@ pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[Stri
     type_signature.iter().zip(args.iter()).enumerate().map(|(i, (typ, arg))| mk_arg(typ, arg, i + 1)).collect();
   let (cd_buf, props) = combine_fragments(&calldatas, base);
   let with_selector = write_selector(cd_buf, sig);
-  let size_constraints = Expr::buf_length(&with_selector)
-    .ge(Expr::Lit(calldatas.len() as i64 * 32 + 4))
-    .and(Expr::buf_length(&with_selector).lt(Expr::Lit(2_i64.pow(64))));
+  let size_constraints = Expr::BufLength(Box::new(with_selector))
+    .ge(Expr::Lit((calldatas.len() as u32 * 32 + 4).try_into().unwrap()))
+    .and(Expr::BufLength(&with_selector).lt(Expr::Lit(2_i64.pow(64))));
   (with_selector, vec![size_constraints].into_iter().chain(props).collect())
 }
 
 fn combine_fragments(fragments: &[CalldataFragment], base: Expr) -> (Expr, Vec<Prop>) {
-  fragments.iter().fold(
-    (Expr::Lit(4), base, vec![]),
-    |(idx, buf, props), fragment| match fragment {
-      CalldataFragment::St(p, w) => (
-        idx + Expr::Lit(32),
-        buf.write_word(idx.clone(), w.clone()),
-        props.iter().chain(p.iter()).cloned().collect(),
-      ),
-      CalldataFragment::Comp(xs) if xs.iter().all(|x| matches!(x, CalldataFragment::St(_, _))) => (
-        idx,
-        buf,
-        props
-          .iter()
-          .chain(xs.iter().flat_map(|x| match x {
-            CalldataFragment::St(p, _) => p,
-            _ => unreachable!(),
-          }))
-          .cloned()
-          .collect(),
-      ),
-      _ => panic!("unsupported calldata fragment: {:?}", fragment),
-    },
-  )
+  fragments.iter().fold((Expr::Lit(4), base), |(idx, buf, props), fragment| match fragment {
+    CalldataFragment::St(p, w) => (
+      idx + Expr::Lit(32),
+      buf.write_word(idx.clone(), w.clone()),
+      props.iter().chain(p.iter()).cloned().collect(),
+    ),
+    CalldataFragment::Comp(xs) if xs.iter().all(|x| matches!(x, CalldataFragment::St(_, _))) => (
+      idx,
+      buf,
+      props
+        .iter()
+        .chain(xs.iter().flat_map(|x| match x {
+          CalldataFragment::St(p, _) => p,
+          _ => unreachable!(),
+        }))
+        .cloned()
+        .collect(),
+    ),
+    _ => panic!("unsupported calldata fragment: {:?}", fragment),
+  })
 }
 
 fn write_selector(buf: Expr, sig: &str) -> Expr {
@@ -239,20 +237,20 @@ async fn interpret(
   ask_smt_iters: u64,
   heuristic: LoopHeuristic,
   vm: VM,
-  stepper: Stepper,
+  stepper: Stepper<Expr>,
 ) -> Expr {
-  async fn eval(view: ProgramView, vm: VM) -> Expr {
-    match view {
-      ProgramView::Return(x) => x,
-      ProgramView::Exec(k) => {
+  async fn eval(action: Action<Expr>, vm: VM) -> Expr {
+    match action {
+      Action::Return(x) => x,
+      Action::Exec(k) => {
         let (r, vm) = run_state(exec(vm)).await;
         interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
       }
-      ProgramView::IOAct(q, k) => {
+      Action::IOAct(q, k) => {
         let r = q.await;
         interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
       }
-      ProgramView::Ask(cond, continue_fn, k) => {
+      Action::Ask(cond, continue_fn, k) => {
         let eval_left = async {
           let (ra, vma) = run_state(continue_fn(true, vm.clone())).await;
           interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vma, k(ra)).await
@@ -266,7 +264,7 @@ async fn interpret(
         let (a, b) = join_all(vec![eval_left, eval_right]).await;
         ITE(cond, a[0], b[0])
       }
-      ProgramView::Wait(q, k) => {
+      Action::Wait(q, k) => {
         let perform_query = async {
           let m = fetcher.fetch(q.clone()).await;
           let (r, vm) = run_state(m(vm.clone())).await;
@@ -310,7 +308,7 @@ async fn interpret(
           _ => perform_query.await,
         }
       }
-      ProgramView::EVM(m, k) => {
+      Action::EVM(m, k) => {
         let (r, vm) = run_state(m(vm.clone())).await;
         interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
       }
