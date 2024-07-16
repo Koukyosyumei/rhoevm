@@ -239,83 +239,79 @@ async fn interpret(
   vm: VM,
   stepper: Stepper<Expr>,
 ) -> Expr {
-  async fn eval(action: Action<Expr>, vm: VM) -> Expr {
-    match action {
-      Action::Return(x) => x,
-      Action::Exec(k) => {
-        let (r, vm) = run_state(exec(vm)).await;
-        interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-      }
-      Action::IOAct(q, k) => {
-        let r = q.await;
-        interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-      }
-      Action::Ask(cond, continue_fn, k) => {
-        let eval_left = async {
-          let (ra, vma) = run_state(continue_fn(true, vm.clone())).await;
-          interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vma, k(ra)).await
-        };
+  match stepper.view() {
+    Action::Return(x) => x,
+    Action::Exec(k) => {
+      let (r, vm) = run_state(exec(vm)).await;
+      interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
+    }
+    Action::IOAct(q, k) => {
+      let r = q.await;
+      interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
+    }
+    Action::Ask(cond, continue_fn, k) => {
+      let eval_left = async {
+        let (ra, vma) = run_state(continue_fn(true, vm.clone())).await;
+        interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vma, k(ra)).await
+      };
 
-        let eval_right = async {
-          let (rb, vmb) = run_state(continue_fn(false, vm.clone())).await;
-          interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vmb, k(rb)).await
-        };
+      let eval_right = async {
+        let (rb, vmb) = run_state(continue_fn(false, vm.clone())).await;
+        interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vmb, k(rb)).await
+      };
 
-        let (a, b) = join_all(vec![eval_left, eval_right]).await;
-        ITE(cond, a[0], b[0])
-      }
-      Action::Wait(q, k) => {
-        let perform_query = async {
-          let m = fetcher.fetch(q.clone()).await;
-          let (r, vm) = run_state(m(vm.clone())).await;
-          interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-        };
-
-        match q {
-          PleaseAskSMT(cond, preconds, continue_fn) => {
-            let simp_props = simplify_props(&[(cond != 0) as Prop, &preconds]);
-            if let Some(c) = conc_keccak_simp_expr(cond) {
-              if let (Some(_), Some(true)) = (max_iterations_reached(&vm, max_iter), is_loop_head(heuristic, &vm)) {
-                Partial(
-                  vec![],
-                  TraceContext {
-                    traces: zipper_to_forest(&vm.traces),
-                    contracts: vm.env.contracts.clone(),
-                    labels: vm.labels.clone(),
-                  },
-                  MaxIterationsReached(vm.state.pc, vm.state.contract.clone()),
-                )
-              } else {
-                let (r, vm) = run_state(continue_fn(c > 0, vm.clone())).await;
-                interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-              }
-            } else {
-              if let (Some(true), true, _) = (
-                is_loop_head(heuristic, &vm),
-                ask_smt_iters_reached(&vm, ask_smt_iters),
-                max_iterations_reached(&vm, max_iter),
-              ) {
-                perform_query.await
-              } else {
-                let (r, vm) = match simp_props {
-                  [false] => run_state(continue_fn(false, vm.clone())).await,
-                  _ => run_state(continue_fn(Unknown, vm.clone())).await,
-                };
-                interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-              }
-            }
-          }
-          _ => perform_query.await,
-        }
-      }
-      Action::EVM(m, k) => {
+      let (a, b) = join_all(vec![eval_left, eval_right]).await;
+      ITE(cond, a[0], b[0])
+    }
+    Action::Wait(q, k) => {
+      let perform_query = async {
+        let m = fetcher.fetch(q.clone()).await;
         let (r, vm) = run_state(m(vm.clone())).await;
         interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
+      };
+
+      match q {
+        PleaseAskSMT(cond, preconds, continue_fn) => {
+          let simp_props = simplify_props(&[(cond != 0) as Prop, &preconds]);
+          if let Some(c) = conc_keccak_simp_expr(cond) {
+            if let (Some(_), Some(true)) = (max_iterations_reached(&vm, max_iter), is_loop_head(heuristic, &vm)) {
+              Partial(
+                vec![],
+                TraceContext {
+                  traces: zipper_to_forest(&vm.traces),
+                  contracts: vm.env.contracts.clone(),
+                  labels: vm.labels.clone(),
+                },
+                MaxIterationsReached(vm.state.pc, vm.state.contract.clone()),
+              )
+            } else {
+              let (r, vm) = run_state(continue_fn(c > 0, vm.clone())).await;
+              interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
+            }
+          } else {
+            if let (Some(true), true, _) = (
+              is_loop_head(heuristic, &vm),
+              ask_smt_iters_reached(&vm, ask_smt_iters),
+              max_iterations_reached(&vm, max_iter),
+            ) {
+              perform_query.await
+            } else {
+              let (r, vm) = match simp_props {
+                [false] => run_state(continue_fn(false, vm.clone())).await,
+                _ => run_state(continue_fn(Unknown, vm.clone())).await,
+              };
+              interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
+            }
+          }
+        }
+        _ => perform_query.await,
       }
     }
+    Action::EVM(m, k) => {
+      let (r, vm) = run_state(m(vm.clone())).await;
+      interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
+    }
   }
-
-  eval(stepper.view(), vm).await
 }
 
 fn max_iterations_reached(vm: &VM, max_iter: Option<u64>) -> Option<bool> {
