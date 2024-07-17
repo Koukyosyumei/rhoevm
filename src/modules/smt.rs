@@ -1,12 +1,16 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::hash::Hash;
+use std::str::FromStr;
+use std::{fmt, vec};
 
-use crate::modules::cse::{BufEnv, StoreEnv};
+use futures::sink::Buffer;
+use futures::Future;
+
+use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
-use crate::modules::expr::write_byte;
+use crate::modules::expr::{conc_keccak_props, write_byte};
 use crate::modules::traversals::map_prop_m;
-use crate::modules::types::{Addr, Expr, GVar, Prop, W256};
+use crate::modules::types::{Addr, Expr, Frame, GVar, Prop, W256};
 
 // Type aliases for convenience
 type Text = String;
@@ -107,8 +111,14 @@ struct SMTCex {
 }
 
 // RefinementEqs struct
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 struct RefinementEqs(Vec<Builder>, Vec<Prop>);
+
+impl RefinementEqs {
+  fn new() -> RefinementEqs {
+    RefinementEqs(vec![], vec![])
+  }
+}
 
 // Implementing Semigroup and Monoid traits for RefinementEqs
 impl std::ops::Add for RefinementEqs {
@@ -130,7 +140,7 @@ impl std::ops::AddAssign for RefinementEqs {
 }
 
 // SMT2 struct
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 struct SMT2(Vec<Builder>, RefinementEqs, CexVars, Vec<Prop>);
 
 // Implementing Semigroup and Monoid traits for SMT2
@@ -157,7 +167,7 @@ impl std::ops::AddAssign for SMT2 {
 }
 
 // CexVars struct
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 struct CexVars {
   calldata: Vec<Text>,
   addrs: Vec<Text>,
@@ -165,6 +175,19 @@ struct CexVars {
   store_reads: HashMap<(Expr, Option<W256>), HashSet<Expr>>,
   block_context: Vec<Text>,
   tx_context: Vec<Text>,
+}
+
+impl CexVars {
+  pub fn new() -> Self {
+    CexVars {
+      calldata: vec![],
+      addrs: vec![],
+      buffers: HashMap::new(),
+      store_reads: HashMap::new(),
+      block_context: vec![],
+      tx_context: vec![],
+    }
+  }
 }
 
 // Implementing Semigroup and Monoid traits for CexVars
@@ -210,13 +233,13 @@ fn flatten_bufs(cex: SMTCex) -> Option<SMTCex> {
     .buffers
     .into_iter()
     .map(|(k, v)| {
-      match v {
-        BufModel::Comp(compressed) => collapse(compressed),
-        BufModel::Flat(bytes) => Some(BufModel::Flat(bytes)),
+      if let Some(b) = collapse(v) {
+        (k, b)
+      } else {
+        (k, BufModel::Flat(vec![]))
       }
-      .map(|flat| (k, flat))
     })
-    .collect::<Option<HashMap<Expr, BufModel>>>()?;
+    .collect();
 
   Some(SMTCex {
     vars: cex.vars,
@@ -228,35 +251,34 @@ fn flatten_bufs(cex: SMTCex) -> Option<SMTCex> {
   })
 }
 
-fn to_buf(model: BufModel) -> Option<BufModel> {
+fn unbox<T>(value: Box<T>) -> T {
+  *value
+}
+
+fn to_buf(model: BufModel) -> Option<Expr> {
   match model {
     BufModel::Comp(CompressedBuf::Base { byte, length }) if length <= 120_000_000 => {
       let bytes = vec![byte; length as usize];
-      Some(BufModel::Flat(bytes))
+      Some(Expr::ConcreteBuf(bytes))
     }
-    BufModel::Comp(CompressedBuf::Write { byte, idx, next }) => collapse(*next).map(|flat| {
-      let mut flat_bytes = flat.into_flat_bytes();
-      write_byte(&mut flat_bytes, idx, byte);
-      BufModel::Flat(flat_bytes)
-    }),
-    BufModel::Flat(bytes) => Some(BufModel::Flat(bytes)),
+    BufModel::Comp(CompressedBuf::Write { byte, idx, next }) => {
+      let next = to_buf(BufModel::Comp(unbox(next)));
+      if let Some(n) = next {
+        Some(write_byte(Expr::Lit(idx), Expr::LitByte(byte), n))
+      } else {
+        None
+      }
+    }
+    BufModel::Flat(bytes) => Some(Expr::ConcreteBuf(bytes)),
     _ => None,
   }
 }
 
 // Function to collapse a BufModel
-fn collapse(model: CompressedBuf) -> Option<BufModel> {
-  match model {
-    CompressedBuf::Base { byte, length } if length <= 120_000_000 => {
-      let bytes = vec![byte; length as usize];
-      Some(BufModel::Flat(bytes))
-    }
-    CompressedBuf::Write { byte, idx, next } => collapse(*next).map(|flat| {
-      let mut flat_bytes = flat.into_flat_bytes();
-      write_byte(&mut flat_bytes, idx, byte);
-      BufModel::Flat(flat_bytes)
-    }),
-    CompressedBuf::Flat(bytes) => Some(BufModel::Flat(bytes)),
+fn collapse(model: BufModel) -> Option<BufModel> {
+  match to_buf(model) {
+    Some(Expr::ConcreteBuf(b)) => Some(BufModel::Flat(b)),
+    _ => None,
   }
 }
 
@@ -270,41 +292,47 @@ fn get_var(cex: &SMTCex, name: &str) -> u32 {
 }
 
 fn declare_intermediates(bufs: &BufEnv, stores: &StoreEnv) -> SMT2 {
-  let enc_ss = stores.iter().map(|(k, v)| encode_store(k, v)).collect::<Vec<_>>();
-  let enc_bs = bufs.iter().map(|(k, v)| encode_buf(k, v)).collect::<Vec<_>>();
+  let enc_ss = stores.iter().map(|(k, v)| encode_store(*k, v)).collect::<Vec<_>>();
+  let enc_bs = bufs.iter().map(|(k, v)| encode_buf(*k, v)).collect::<Vec<_>>();
   let mut sorted = enc_ss;
   sorted.extend(enc_bs);
-  sorted.sort_by(|(l, _), (r, _)| l.cmp(r));
+  sorted.sort_by(|SMT2(l, _, _, _), SMT2(r, _, _, _)| l.cmp(r));
 
-  let decls = sorted.iter().map(|(_, decl)| decl.clone()).collect::<Vec<_>>();
+  let decls = sorted; //.iter().map(|SMT2(_, decl, _, _)| decl.clone()).collect::<Vec<_>>();
   let mut smt2 = SMT2(
-    vec![&"; intermediate buffers & stores"],
+    vec![(&"; intermediate buffers & stores").to_string()],
     RefinementEqs::new(),
     CexVars::new(),
     vec![],
   );
   for decl in decls.iter().rev() {
-    smt2 = smt2.combine(decl.clone());
+    smt2 = smt2 + decl.clone();
   }
   smt2
 }
 
-fn encode_store(n: &str, expr: &Expr) -> (usize, SMT2) {
-  let expr_to_smt = expr_to_smt(expr);
-  let txt = format!("(define-fun store{} () Storage {})", n, expr_to_smt);
-  (
-    n.parse().unwrap(),
-    SMT2::new(vec![&txt], RefinementEqs::new(), CexVars::new(), vec![]),
-  )
+fn declare_addrs(names: Vec<Builder>) -> SMT2 {
+  todo!()
 }
 
-fn encode_buf(n: &str, expr: &Expr) -> (usize, SMT2) {
-  let expr_to_smt = expr_to_smt(expr);
+fn declare_vars(names: Vec<Builder>) -> SMT2 {
+  todo!()
+}
+
+fn declare_bufs(props: Vec<Prop>, buf_env: BufEnv, store_env: StoreEnv) -> SMT2 {
+  todo!()
+}
+
+fn encode_store(n: usize, expr: &Expr) -> SMT2 {
+  let expr_to_smt = expr_to_smt(expr.clone());
+  let txt = format!("(define-fun store{} () Storage {})", n, expr_to_smt);
+  SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
+}
+
+fn encode_buf(n: usize, expr: &Expr) -> SMT2 {
+  let expr_to_smt = expr_to_smt(expr.clone());
   let txt = format!("(define-fun buf{} () Buf {})", n, expr_to_smt);
-  (
-    n.parse().unwrap(),
-    SMT2::new(vec![&txt], RefinementEqs::new(), CexVars::new(), vec![]),
-  )
+  SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
 }
 
 fn abstract_away_props(conf: &Config, ps: Vec<Prop>) -> (Vec<Prop>, AbstState) {
@@ -316,11 +344,16 @@ fn abstract_away_props(conf: &Config, ps: Vec<Prop>) -> (Vec<Prop>, AbstState) {
   (abstracted, state)
 }
 
-fn abstract_away(conf: &Config, prop: &Prop, state: &mut AbstState) -> Prop {
-  map_prop_m(conf, prop, state)
+fn go(a: &Expr) -> AbstState {
+  todo!()
+  /*go :: Expr a -> State AbstState (Expr a) */
 }
 
-fn abstr_expr(prop: &Prop, state: &mut AbstState) -> Prop {
+fn abstract_away(conf: &Config, prop: &Prop, state: &mut AbstState) -> Prop {
+  todo!()
+}
+
+fn abstr_expr(prop: &Prop, state: &mut AbstState) -> Expr {
   let v = match state.words.get(&prop) {
     Some(&v) => v,
     None => {
@@ -331,87 +364,242 @@ fn abstr_expr(prop: &Prop, state: &mut AbstState) -> Prop {
     }
   };
   let name = format!("abst_{}", v);
-  Var(name.into())
+  Expr::Var(name.into())
 }
 
-fn assert_props(conf: &Config, ps: Vec<Prop>) -> SMT2 {
-  let simplified_ps = decompose(simplify_props(ps));
-  let decls = declare_intermediates(bufs, stores);
-  let encs = ps.iter().map(|p| prop_to_smt(p)).collect::<Vec<_>>();
+fn decompose(props: Vec<Prop>, conf: &Config) -> Vec<Prop> {
+  if conf.decompose_storage && safe_exprs(&props.clone()) && safe_props(&props.clone()) {
+    if let Some(v) = props.into_iter().map(|prop| decompose_storage_prop(prop)).collect::<Option<Vec<Prop>>>() {
+      v
+    } else {
+      vec![]
+    }
+  } else {
+    props
+  }
+}
+
+// Placeholder functions for the omitted details
+fn decompose_storage_prop(prop: Prop) -> Option<Prop> {
+  // Implementation for decomposing a single Prop
+  Some(prop)
+}
+
+fn safe_to_decompose(prop: &Prop) -> Option<()> {
+  // Implementation for checking if a Prop is safe to decompose
+  Some(())
+}
+
+fn safe_to_decompose_prop(prop: &Prop) -> bool {
+  // Implementation for checking if a Prop is safe to decompose at the property level
+  true
+}
+
+fn safe_exprs(props: &[Prop]) -> bool {
+  props.iter().all(|prop| safe_to_decompose(prop).is_some())
+}
+
+fn safe_props(props: &[Prop]) -> bool {
+  props.iter().all(|prop| safe_to_decompose_prop(prop))
+}
+
+fn to_prop(e: Expr, num: i32) -> Prop {
+  Prop::PEq(e, Expr::Var(format!("abst_{}", num)))
+}
+
+fn abstract_vars(abst: &AbstState) -> Vec<Builder> {
+  abst.words.clone().into_iter().map(|(_, v)| (format!("abst_{}", v))).collect()
+}
+
+fn concatenate_props(a: &[Prop], b: &[Prop], c: &[Prop]) -> Vec<Prop> {
+  a.iter().cloned().chain(b.iter().cloned()).chain(c.iter().cloned()).collect()
+}
+
+/*
+allVars = fmap referencedVars toDeclarePsElim <> fmap referencedVars bufVals <> fmap referencedVars storeVals <> [abstrVars abst]
+*/
+
+fn gather_all_vars(
+  to_declare_ps_elim: &[Prop],
+  buf_vals: &Vec<Expr>,
+  store_vals: &Vec<Expr>,
+  abst: &AbstState,
+) -> Vec<Expr> {
+  to_declare_ps_elim
+    .iter()
+    .flat_map(|p| p.referenced_vars())
+    .chain(buf_vals.iter().flat_map(|v| v.referenced_vars()))
+    .chain(store_vals.iter().flat_map(|v| v.referenced_vars()))
+    .chain(abstract_vars(abst).into_iter())
+    .collect()
+}
+
+fn gather_frame_context(
+  to_declare_ps_elim: &[Prop],
+  buf_vals: &Vec<Expr>,
+  store_vals: &Vec<Expr>,
+) -> Vec<FrameContext> {
+  to_declare_ps_elim
+    .iter()
+    .flat_map(|p| p.referenced_frame_context())
+    .chain(buf_vals.iter().flat_map(|v| v.referenced_frame_context()))
+    .chain(store_vals.iter().flat_map(|v| v.referenced_frame_context()))
+    .collect()
+}
+
+fn gather_block_context(
+  to_declare_ps_elim: &[Prop],
+  buf_vals: &Vec<Expr>,
+  store_vals: &Vec<Expr>,
+) -> Vec<BlockContext> {
+  to_declare_ps_elim
+    .iter()
+    .flat_map(|p| p.referenced_block_context())
+    .chain(buf_vals.iter().flat_map(|v| v.referenced_block_context()))
+    .chain(store_vals.iter().flat_map(|v| v.referenced_block_context()))
+    .collect()
+}
+
+fn create_keccak_assertions(kecc_assump: &[Prop], kecc_comp: &[Prop]) -> Vec<SMT2> {
+  let mut assertions = Vec::new();
+  assertions.push(SMT2::line("; keccak assumptions"));
+  assertions.push(SMT2::new(
+    kecc_assump.iter().map(|p| format!("(assert {})", p.to_smt())).collect(),
+  ));
+  assertions.push(SMT2::line("; keccak computations"));
+  assertions.push(SMT2::new(
+    kecc_comp.iter().map(|p| format!("(assert {})", p.to_smt())).collect(),
+  ));
+  assertions
+}
+
+fn create_read_assumptions(ps_elim: &[Prop], bufs: &Bufs, stores: &Stores) -> Vec<SMT2> {
+  let assumptions = assert_reads(ps_elim, bufs, stores);
+  let mut result = Vec::new();
+  result.push(SMT2::line("; read assumptions"));
+  result.push(SMT2::new(
+    assumptions.iter().map(|p| format!("(assert {})", p.to_smt())).collect(),
+  ));
+  result
+}
+
+fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
+  let ps = conc_keccak_props(ps_pre_conc);
+  let (ps_elim, bufs, stores) = eliminate_props(ps);
+
+  let (ps_elim_abst, abst) = if config.abst_refine_arith || config.abst_refine_mem {
+    abstract_away_props(config, ps_elim.clone())
+  } else {
+    (
+      ps_elim.clone(),
+      AbstState {
+        words: HashMap::new(),
+        count: 0,
+      },
+    )
+  };
+
+  let buf_vals = bufs.values().cloned().collect::<Vec<_>>();
+  let store_vals = stores.values().cloned().collect::<Vec<_>>();
+
+  let kecc_assump = keccak_assumptions(&ps_pre_conc, &buf_vals, &store_vals);
+  let kecc_comp = keccak_compute(&ps_pre_conc, &buf_vals, &store_vals);
+  let keccak_assertions = create_keccak_assertions(&kecc_assump, &kecc_comp);
+
+  let abst_props = abst_expr_to_int(&abst).into_iter().map(|(e, num)| to_prop(e, num)).collect::<Vec<Prop>>();
+
+  let to_declare_ps = concatenate_props(&ps, &kecc_assump, &kecc_comp);
+  let to_declare_ps_elim = concatenate_props(&ps_elim, &kecc_assump, &kecc_comp);
+
+  /*allVars = fmap referencedVars toDeclarePsElim <> fmap referencedVars bufVals <> fmap referencedVars storeVals <> [abstrVars abst] */
+
+  let all_vars = gather_all_vars(&to_declare_ps_elim, &buf_vals, &store_vals, &abst);
+  let frame_ctx = gather_frame_context(&to_declare_ps_elim, &buf_vals, &store_vals);
+  let block_ctx = gather_block_context(&to_declare_ps_elim, &buf_vals, &store_vals);
+
+  let storage_reads = find_storage_reads(&to_declare_ps);
+  let abstract_stores = find_abstract_stores(&to_declare_ps);
+  let addresses = find_addresses(&to_declare_ps);
+
+  let read_assumes = create_read_assumptions(&ps_elim, &bufs, &stores);
+
+  /*
+      ps = Expr.concKeccakProps psPreConc
+      (psElim, bufs, stores) = eliminateProps ps
+  */
+
+  let simplified_ps = decompose(simplify_props(ps), config);
+  let decls = declare_intermediates(&bufs, &stores);
+  let encs = ps.iter().map(|p| prop_to_smt(p.clone())).collect::<Vec<_>>();
   let abst_smt = abst_props.iter().map(|p| prop_to_smt(p)).collect::<Vec<_>>();
-  let smt2 = SMT2::new(vec![], RefinementEqs::new(), CexVars::new(), vec![])
-    .combine(smt2_line("; intermediate buffers & stores"))
-    .combine(decls)
-    .combine(smt2_line(""))
-    .combine(declare_addrs(addresses))
-    .combine(smt2_line(""))
-    .combine(declare_bufs(to_declare_ps_elim, bufs, stores))
-    .combine(smt2_line(""))
-    .combine(declare_vars(nub_ord(all_vars.iter().fold(Vec::new(), |mut acc, x| {
+  let smt2 = SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![])
+    + (smt2_line("; intermediate buffers & stores".to_owned()))
+    + (decls)
+    + (smt2_line("".to_owned()))
+    + (declare_addrs(addresses))
+    + (smt2_line("".to_owned()))
+    + (declare_bufs(to_declare_ps_elim, bufs, stores))
+    + (smt2_line("".to_owned()))
+    + (declare_vars(nub_ord(all_vars.iter().fold(Vec::new(), |mut acc, x| {
       acc.extend(x.clone());
       acc
     }))))
-    .combine(smt2_line(""))
-    .combine(declare_frame_context(nub_ord(frame_ctx.iter().fold(
-      Vec::new(),
-      |mut acc, x| {
-        acc.extend(x.clone());
-        acc
-      },
-    ))))
-    .combine(smt2_line(""))
-    .combine(declare_block_context(nub_ord(block_ctx.iter().fold(
-      Vec::new(),
-      |mut acc, x| {
-        acc.extend(x.clone());
-        acc
-      },
-    ))))
-    .combine(smt2_line(""))
-    .combine(intermediates)
-    .combine(smt2_line(""))
-    .combine(keccak_assertions)
-    .combine(read_assumes)
-    .combine(smt2_line(""));
+    + (smt2_line("".to_owned()))
+    + (declare_frame_context(nub_ord(frame_ctx.iter().fold(Vec::new(), |mut acc, x| {
+      acc.extend(x.clone());
+      acc
+    }))))
+    + (smt2_line("".to_owned()))
+    + (declare_block_context(nub_ord(block_ctx.iter().fold(Vec::new(), |mut acc, x| {
+      acc.extend(x.clone());
+      acc
+    }))))
+    + (smt2_line("".to_owned()))
+    + (intermediates)
+    + (smt2_line("".to_owned()))
+    + (keccak_assertions)
+    + (read_assumes)
+    + (smt2_line("".to_owned()));
 
   encs.iter().for_each(|p| {
-    smt2.combine(SMT2::new(
-      vec![from_text(&format!("(assert {})", p))],
-      RefinementEqs::new(),
-      CexVars::new(),
-      vec![],
-    ));
+    smt2
+      + (SMT2(
+        vec![(format!("(assert {})", p))],
+        RefinementEqs::new(),
+        CexVars::new(),
+        vec![],
+      ));
   });
-  SMT2::new(vec![], RefinementEqs::new(), CexVars::new(), vec![])
-    .combine(smt2_line("; keccak assumptions"))
-    .combine(SMT2::new(
-      kecc_assump.iter().map(|p| from_text(&format!("(assert {})", prop_to_smt(p)))).collect::<Vec<_>>(),
+  SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![])
+    + (smt2_line("; keccak assumptions".to_owned()))
+    + (SMT2(
+      kecc_assump.iter().map(|p| (&format!("(assert {})", prop_to_smt(p)))).collect::<Vec<_>>(),
       RefinementEqs::new(),
       CexVars::new(),
       vec![],
     ))
-    .combine(smt2_line("; keccak computations"))
-    .combine(SMT2::new(
-      kecc_comp.iter().map(|p| from_text(&format!("(assert {})", prop_to_smt(p)))).collect::<Vec<_>>(),
+    + (smt2_line("; keccak computations".to_owned()))
+    + (SMT2(
+      kecc_comp.iter().map(|p| (&format!("(assert {})", prop_to_smt(p)))).collect::<Vec<_>>(),
       RefinementEqs::new(),
       CexVars::new(),
       vec![],
     ))
-    .combine(smt2_line(""))
-    .combine(SMT2::new(vec![], RefinementEqs::new(), storage_reads, vec![]))
-    .combine(SMT2::new(vec![], RefinementEqs::new(), CexVars::new(), ps_pre_conc))
+    + (smt2_line("".to_owned()))
+    + (SMT2(vec![], RefinementEqs::new(), storage_reads, vec![]))
+    + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), ps_pre_conc))
 }
 
 fn expr_to_smt(expr: Expr) -> String {
-  match expr.to_expr() {
+  match expr {
     Expr::Lit(w) => format!("(_ bv{} 256)", w),
     Expr::Var(s) => s,
     Expr::GVar(GVar::BufVar(n)) => format!("buf{}", n),
     Expr::GVar(GVar::StoreVar(n)) => format!("store{}", n),
     Expr::JoinBytes(v) => concat_bytes(&v),
-    Expr::Add(a, b) => op2("bvadd", a, b),
-    Expr::Sub(a, b) => op2("bvsub", a, b),
-    Expr::Mul(a, b) => op2("bvmul", a, b),
+    Expr::Add(a, b) => op2("bvadd", unbox(a), unbox(b)),
+    Expr::Sub(a, b) => op2("bvsub", unbox(a), unbox(b)),
+    Expr::Mul(a, b) => op2("bvmul", unbox(a), unbox(b)),
     Expr::Exp(a, b) => match *b {
       Expr::Lit(b_lit) => expand_exp(*a, b_lit),
       _ => panic!("cannot encode symbolic exponentiation into SMT"),
@@ -677,7 +865,7 @@ fn expand_exp(base: Expr, expnt: W256) -> Builder {
 
 // Concatenates a list of bytes into a larger bitvector
 fn write_bytes(bytes: &[u8], buf: Expr) -> Builder {
-  let skip_zeros = buf == Expr::mempty();
+  let skip_zeros = buf == Expr::Mempty();
   let mut idx = 0;
   let mut inner = expr_to_smt(buf);
   for &byte in bytes {
@@ -685,7 +873,7 @@ fn write_bytes(bytes: &[u8], buf: Expr) -> Builder {
       idx += 1;
     } else {
       let byte_smt = expr_to_smt(Expr::LitByte(byte));
-      let idx_smt = expr_to_smt(Expr::Lit(unsafe_into(idx)));
+      let idx_smt = expr_to_smt(Expr::Lit(idx));
       inner = format!("(store {} {} {})", inner, idx_smt, byte_smt);
       idx += 1;
     }
@@ -721,6 +909,11 @@ fn format_e_addr(addr: Expr) -> Builder {
 }
 
 // ** Cex parsing ** --------------------------------------------------------------------------------
+
+enum SpecConstant {
+  Hexadecimal(u8),
+  Binary(u8),
+}
 
 fn parse_addr(sc: SpecConstant) -> Addr {
   parse_sc(sc)
@@ -804,7 +997,7 @@ async fn get_addrs(
 
 async fn get_vars(
   parse_name: impl Fn(&str) -> Expr,
-  get_val: impl Fn(&str) -> Future<Output = String>,
+  get_val: impl Fn(&str) -> dyn Future<Output = String>,
   names: &[&str],
 ) -> HashMap<Expr, W256> {
   let mut map = HashMap::new();
@@ -818,7 +1011,7 @@ async fn get_vars(
 
 async fn get_one<T>(
   parse_val: impl Fn(SpecConstant) -> T,
-  get_val: impl Fn(&str) -> Future<Output = String>,
+  get_val: impl Fn(&str) -> dyn Future<Output = String>,
   mut acc: HashMap<String, T>,
   name: &str,
 ) -> HashMap<String, T> {
@@ -837,7 +1030,7 @@ async fn get_one<T>(
 
 // Queries the solver for models for each of the expressions representing the max read index for a given buffer
 async fn query_max_reads(
-  get_val: impl Fn(&str) -> Future<Output = String>,
+  get_val: impl Fn(&str) -> dyn Future<Output = String>,
   max_reads: &HashMap<String, Expr>,
 ) -> HashMap<String, W256> {
   let mut map = HashMap::new();
@@ -849,7 +1042,7 @@ async fn query_max_reads(
 }
 
 // Gets the initial model for each buffer, these will often be much too large for our purposes
-async fn get_bufs(get_val: impl Fn(&str) -> Future<Output = String>, bufs: &[&str]) -> HashMap<Expr<Buf>, BufModel> {
+async fn get_bufs(get_val: impl Fn(&str) -> dyn Future<Output = String>, bufs: &[&str]) -> HashMap<Expr, BufModel> {
   let mut map = HashMap::new();
   for &name in bufs {
     let len = get_length(&get_val, name).await;
@@ -860,7 +1053,7 @@ async fn get_bufs(get_val: impl Fn(&str) -> Future<Output = String>, bufs: &[&st
   map
 }
 
-async fn get_length(get_val: impl Fn(&str) -> Future<Output = String>, name: &str) -> W256 {
+async fn get_length(get_val: impl Fn(&str) -> dyn Future<Output = String>, name: &str) -> W256 {
   let raw = get_val(&format!("len_{}", name)).await;
   parse_w256(parse_comment_free_file_msg(&raw))
 }
@@ -888,4 +1081,8 @@ fn parse_buf(len: W256, res: Result<ResSpecific, ()>) -> BufModel {
     }
     Err(_) => panic!("cannot parse buf model"),
   }
+}
+
+fn smt2_line(txt: Builder) -> SMT2 {
+  SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
 }

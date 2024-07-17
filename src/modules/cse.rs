@@ -1,8 +1,9 @@
-use crate::modules::types::{Expr, Prop};
+use crate::modules::traversals::map_prop_m;
+use crate::modules::types::{Expr, GVar, Prop};
 use std::collections::HashMap;
 use std::hash::Hash;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct BuilderState {
   bufs: HashMap<Expr, usize>,
   stores: HashMap<Expr, usize>,
@@ -12,7 +13,7 @@ struct BuilderState {
 pub type BufEnv = HashMap<usize, Expr>;
 pub type StoreEnv = HashMap<usize, Expr>;
 
-fn init_state() -> BuilderState {
+pub fn init_state() -> BuilderState {
   BuilderState {
     bufs: HashMap::new(),
     stores: HashMap::new(),
@@ -20,34 +21,32 @@ fn init_state() -> BuilderState {
   }
 }
 
-fn go(expr: Expr) -> State<BuilderState, Expr> {
-  State::new(move |state: &mut BuilderState| {
-    match expr.clone() {
-      // Buffers
-      e @ Expr::WriteWord(_) | e @ Expr::WriteByte(_) | e @ Expr::CopySlice(_) => {
-        if let Some(&v) = state.bufs.get(&e) {
-          (Expr::GVar(BufVar(v)), state.clone())
-        } else {
-          let next = state.count;
-          state.bufs.insert(e.clone(), next);
-          state.count += 1;
-          (Expr::GVar(BufVar(next)), state.clone())
-        }
+fn go(state: &mut BuilderState, expr: Expr) -> (&mut BuilderState, Expr) {
+  match expr.clone() {
+    // Buffers
+    e @ Expr::WriteWord(_, _, _) | e @ Expr::WriteByte(_, _, _) | e @ Expr::CopySlice(_, _, _, _, _) => {
+      if let Some(&v) = state.bufs.get(&e) {
+        (state, Expr::GVar(GVar::BufVar(v as i32)))
+      } else {
+        let next = state.count;
+        state.bufs.insert(e.clone(), next);
+        state.count += 1;
+        (state, Expr::GVar(GVar::BufVar(next as i32)))
       }
-      // Storage
-      e @ Expr::SStore(_) => {
-        if let Some(&v) = state.stores.get(&e) {
-          (Expr::GVar(StoreVar(v)), state.clone())
-        } else {
-          let next = state.count;
-          state.stores.insert(e.clone(), next);
-          state.count += 1;
-          (Expr::GVar(StoreVar(next)), state.clone())
-        }
-      }
-      _ => (e, state.clone()),
     }
-  })
+    // Storage
+    e @ Expr::SStore(_, _, _, _) => {
+      if let Some(&v) = state.stores.get(&e) {
+        (state, Expr::GVar(GVar::StoreVar(v as i32)))
+      } else {
+        let next = state.count;
+        state.stores.insert(e.clone(), next);
+        state.count += 1;
+        (state, Expr::GVar(GVar::StoreVar(next as i32)))
+      }
+    }
+    e @ _ => (state, e),
+  }
 }
 
 fn invert_key_val<K, V>(map: HashMap<K, V>) -> HashMap<V, K>
@@ -59,9 +58,8 @@ where
 }
 
 fn eliminate_expr<'a>(e: Expr) -> (Expr, BufEnv, StoreEnv) {
-  let mut state_machine = StateMachine::new(init_state());
-  let e_prime = state_machine.run(go(e));
-  let state = state_machine.state();
+  let mut state = init_state();
+  let (_, e_prime) = go(&mut state, e);
   (
     e_prime,
     invert_key_val(state.bufs.clone()),
@@ -69,18 +67,17 @@ fn eliminate_expr<'a>(e: Expr) -> (Expr, BufEnv, StoreEnv) {
   )
 }
 
-fn eliminate_prop<'a>(prop: Prop) -> State<BuilderState, Prop> {
-  map_prop_m(go, prop)
+fn eliminate_prop<'a>(prop: Prop) -> (BuilderState, Prop) {
+  todo!()
 }
 
-fn eliminate_props<'a>(props: Vec<Prop>) -> State<BuilderState, Vec<Prop>> {
+pub fn eliminate_props_prime<'a>(props: Vec<Prop>) -> (BuilderState, Vec<Prop>) {
   map_m(eliminate_prop, props)
 }
 
-fn eliminate_props_top_level(props: Vec<Prop>) -> (Vec<Prop>, BufEnv, StoreEnv) {
-  let mut state_machine = StateMachine::new(init_state());
-  let props_prime = state_machine.run(eliminate_props(props));
-  let state = state_machine.state();
+pub fn eliminate_props(props: Vec<Prop>) -> (Vec<Prop>, BufEnv, StoreEnv) {
+  let mut state = init_state();
+  let (_, props_prime) = eliminate_props_prime(props);
   (
     props_prime,
     invert_key_val(state.bufs.clone()),
@@ -88,30 +85,21 @@ fn eliminate_props_top_level(props: Vec<Prop>) -> (Vec<Prop>, BufEnv, StoreEnv) 
   )
 }
 
-fn map_expr_m<F, S>(f: F, expr: Expr) -> State<S, Expr>
+fn map_expr_m<F, S>(f: F, expr: Expr) -> (S, Expr)
 where
-  F: Fn(Expr) -> State<S, Expr>,
+  F: Fn(Expr) -> (S, Expr),
   S: Clone,
 {
   // Dummy implementation for map_expr_m
   f(expr)
 }
 
-fn map_prop_m<F, S>(f: F, prop: Prop) -> State<S, Prop>
+fn map_m<F, S, T>(f: F, items: Vec<T>) -> (S, Vec<T>)
 where
-  F: Fn(Expr) -> State<S, Expr>,
-  S: Clone,
-{
-  // Dummy implementation for map_prop_m
-  State::new(move |state: &mut S| (prop.clone(), state.clone()))
-}
-
-fn map_m<F, S, T>(f: F, items: Vec<T>) -> State<S, Vec<T>>
-where
-  F: Fn(T) -> State<S, T>,
+  F: Fn(T) -> (S, T),
   S: Clone,
   T: Clone,
 {
   // Dummy implementation for map_m
-  State::new(move |state: &mut S| (items.clone(), state.clone()))
+  todo!()
 }

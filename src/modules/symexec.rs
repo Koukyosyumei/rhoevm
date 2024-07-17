@@ -3,14 +3,14 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use crate::modules::abi::{AbiType, AbiValue};
-use crate::modules::evm::{abstract_contract, initial_contract};
+use crate::modules::evm::{abstract_contract, get_code_location, initial_contract};
 use crate::modules::expr::in_range;
 use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{BlockNumber, Fetcher, RpcInfo};
 use crate::modules::solvers::SMTCex;
 use crate::modules::solvers::SolverGroup;
 use crate::modules::stepper::{Action, Stepper};
-use crate::modules::types::{BaseState, ContractCode, Expr, Prop, VMOpts};
+use crate::modules::types::{BaseState, ByteString, ContractCode, Expr, Prop, VMOpts};
 
 use super::evm::make_vm;
 use super::types::VM;

@@ -8,6 +8,7 @@ pub mod expr;
 pub mod feeschedule;
 pub mod fetch;
 pub mod format;
+pub mod keccak;
 pub mod smt;
 pub mod solidity;
 pub mod solvers;

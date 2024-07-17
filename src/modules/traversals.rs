@@ -744,6 +744,17 @@ where
   let _ = map_prop_m(f_upd_fn, prop).await;
 }
 
+pub fn map_expr_m<F>(f: F, expr: Expr) -> Expr
+where
+  F: Fn(&Expr) -> Expr,
+{
+  todo!()
+}
+
+/*
+mapExprM :: Monad m => (forall a . Expr a -> m (Expr a)) -> Expr b -> m (Expr b)
+*/
+
 // MapEContractM function
 async fn map_econtract_m<F, Fut>(f: F, expr: Expr) -> Expr
 where

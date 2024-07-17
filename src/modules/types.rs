@@ -1081,7 +1081,7 @@ pub struct VM {
   pub labels: HashMap<Addr, String>,
 }
 
-type CodeLocation = (Expr, i64);
+pub type CodeLocation = (Expr, i64);
 
 pub struct Cache {
   pub fetched: HashMap<Addr, Contract>,

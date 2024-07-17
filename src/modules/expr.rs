@@ -1,4 +1,274 @@
-use crate::modules::types::{Expr, Prop};
+use crate::modules::types::{Expr, Prop, W256};
+
+// ** Constants **
+
+const MAX_LIT: W256 = 0xffffffffffffffffffffffffffffffff;
+
+// ** Stack Ops ** ---------------------------------------------------------------------------------
+
+fn op1<F1, F2>(symbolic: F1, concrete: F2, x: &Expr) -> Expr
+where
+  F1: Fn(Box<Expr>) -> Expr,
+  F2: Fn(W256) -> W256,
+{
+  match x {
+    Expr::Lit(x) => Expr::Lit(concrete(*x)),
+    _ => symbolic(Box::new(x.clone())),
+  }
+}
+
+fn op2<F1, F2>(symbolic: F1, concrete: F2, x: &Expr, y: &Expr) -> Expr
+where
+  F1: Fn(Box<Expr>, Box<Expr>) -> Expr,
+  F2: Fn(W256, W256) -> W256,
+{
+  match (x, y) {
+    (Expr::Lit(x), Expr::Lit(y)) => Expr::Lit(concrete(x.clone(), y.clone())),
+    _ => symbolic(Box::new(x.clone()), Box::new(y.clone())),
+  }
+}
+
+fn op3<F1, F2>(symbolic: F1, concrete: F2, x: &Expr, y: &Expr, z: &Expr) -> Expr
+where
+  F1: Fn(Box<Expr>, Box<Expr>, Box<Expr>) -> Expr,
+  F2: Fn(W256, W256, W256) -> W256,
+{
+  match (x, y, z) {
+    (Expr::Lit(x), Expr::Lit(y), Expr::Lit(z)) => Expr::Lit(concrete(x.clone(), y.clone(), z.clone())),
+    _ => symbolic(Box::new(x.clone()), Box::new(y.clone()), Box::new(z.clone())),
+  }
+}
+
+fn norm_args<F1, F2>(symbolic: F1, concrete: F2, l: &Expr, r: &Expr) -> Expr
+where
+  F1: Fn(Box<Expr>, Box<Expr>) -> Expr,
+  F2: Fn(W256, W256) -> W256,
+{
+  match (l, r) {
+    (Expr::Lit(_), _) => op2(symbolic, &concrete, l, r),
+    (_, Expr::Lit(_)) => op2(symbolic, &concrete, r, l),
+    _ => op2(symbolic, &concrete, l, r),
+  }
+}
+
+// Integers
+
+fn add(l: Expr, r: Expr) -> Expr {
+  norm_args(Expr::Add, |x: W256, y: W256| x + y, &l, &r)
+}
+
+fn sub(l: Expr, r: Expr) -> Expr {
+  op2(Expr::Sub, |x, y| x - y, &l, &r)
+}
+
+fn mul(l: Expr, r: Expr) -> Expr {
+  norm_args(Expr::Mul, |x, y| x * y, &l, &r)
+}
+
+fn div(l: Expr, r: Expr) -> Expr {
+  op2(Expr::Div, |x, y| if y == 0 { 0 } else { x / y }, &l, &r)
+}
+
+fn sdiv(l: Expr, r: Expr) -> Expr {
+  op2(
+    Expr::SDiv,
+    |x, y| {
+      let sx = x as W256;
+      let sy = y as W256;
+      if y == 0 {
+        0
+      } else {
+        (sx / sy) as W256
+      }
+    },
+    &l,
+    &r,
+  )
+}
+
+fn r#mod(l: Expr, r: Expr) -> Expr {
+  op2(Expr::Mod, |x, y| if y == 0 { 0 } else { x % y }, &l, &r)
+}
+
+fn smod(l: Expr, r: Expr) -> Expr {
+  op2(
+    Expr::SMod,
+    |x, y| {
+      let sx = x as W256;
+      let sy = y as W256;
+      if y == 0 {
+        0
+      } else {
+        (sx % sy) as W256
+      }
+    },
+    &l,
+    &r,
+  )
+}
+
+fn addmod(x: Expr, y: Expr, z: Expr) -> Expr {
+  op3(
+    Expr::AddMod,
+    |x, y, z| {
+      if z == 0 {
+        0
+      } else {
+        ((x as W256 + y as W256) % z as W256) as W256
+      }
+    },
+    &x,
+    &y,
+    &z,
+  )
+}
+
+fn mulmod(x: Expr, y: Expr, z: Expr) -> Expr {
+  op3(
+    Expr::MulMod,
+    |x, y, z| {
+      if z == 0 {
+        0
+      } else {
+        ((x as W256 * y as W256) % z as W256) as W256
+      }
+    },
+    &x,
+    &y,
+    &z,
+  )
+}
+
+fn exp(x: Expr, y: Expr) -> Expr {
+  op2(Expr::Exp, |x, y| x.pow(y as u32), &x, &y)
+}
+
+fn sex(bytes: Expr, x: Expr) -> Expr {
+  op2(
+    Expr::SEx,
+    |bytes, x| {
+      if bytes >= 32 {
+        x
+      } else {
+        let n = bytes * 8 + 7;
+        if x & (1 << n) != 0 {
+          x | (!(1 << n) + 1)
+        } else {
+          x & ((1 << n) - 1)
+        }
+      }
+    },
+    &bytes,
+    &x,
+  )
+}
+
+// Booleans
+
+fn lt(x: Expr, y: Expr) -> Expr {
+  op2(Expr::LT, |x, y| if x < y { 1 } else { 0 }, &x, &y)
+}
+
+fn gt(x: Expr, y: Expr) -> Expr {
+  op2(Expr::GT, |x, y| if x > y { 1 } else { 0 }, &x, &y)
+}
+
+fn leq(x: Expr, y: Expr) -> Expr {
+  op2(Expr::LEq, |x, y| if x <= y { 1 } else { 0 }, &x, &y)
+}
+
+fn geq(x: Expr, y: Expr) -> Expr {
+  op2(Expr::GEq, |x, y| if x >= y { 1 } else { 0 }, &x, &y)
+}
+
+fn slt(x: Expr, y: Expr) -> Expr {
+  op2(
+    Expr::SLT,
+    |x, y| {
+      let sx = x as W256;
+      let sy = y as W256;
+      if sx < sy {
+        1
+      } else {
+        0
+      }
+    },
+    &x,
+    &y,
+  )
+}
+
+fn sgt(x: Expr, y: Expr) -> Expr {
+  op2(
+    Expr::SGT,
+    |x, y| {
+      let sx = x as W256;
+      let sy = y as W256;
+      if sx > sy {
+        1
+      } else {
+        0
+      }
+    },
+    &x,
+    &y,
+  )
+}
+
+fn eq(x: Expr, y: Expr) -> Expr {
+  norm_args(Expr::Eq, |x, y| if x == y { 1 } else { 0 }, &x, &y)
+}
+
+fn iszero(x: Expr) -> Expr {
+  op1(Expr::IsZero, |x| if x == 0 { 1 } else { 0 }, &x)
+}
+
+// Bits
+
+fn and(x: Expr, y: Expr) -> Expr {
+  norm_args(Expr::And, |x, y| x & y, &x, &y)
+}
+
+fn or(x: Expr, y: Expr) -> Expr {
+  norm_args(Expr::Or, |x, y| x | y, &x, &y)
+}
+
+fn xor(x: Expr, y: Expr) -> Expr {
+  norm_args(Expr::Xor, |x, y| x ^ y, &x, &y)
+}
+
+fn not(x: Expr) -> Expr {
+  op1(Expr::Not, |x| !x, &x)
+}
+
+fn shl(x: Expr, y: Expr) -> Expr {
+  op2(Expr::SHL, |x, y| if x > 256 { 0 } else { y << x }, &x, &y)
+}
+
+fn shr(x: Expr, y: Expr) -> Expr {
+  op2(Expr::SHR, |x, y| if x > 256 { 0 } else { y >> x }, &x, &y)
+}
+
+fn sar(x: Expr, y: Expr) -> Expr {
+  op2(
+    Expr::SAR,
+    |x, y| {
+      let msb = (y >> 255) & 1 != 0;
+      let as_signed = y as W256;
+      if x > 256 {
+        if msb {
+          W256::max_value()
+        } else {
+          0
+        }
+      } else {
+        (as_signed >> x) as W256
+      }
+    },
+    &x,
+    &y,
+  )
+}
 
 pub fn in_range(sz: u32, e: Expr) -> Prop {
   Prop::PAnd(
@@ -7,7 +277,7 @@ pub fn in_range(sz: u32, e: Expr) -> Prop {
   )
 }
 
-pub const MAX_BYTES: u64 = (u32::MAX as u64) / 8;
+pub const MAX_BYTES: u32 = (u32::MAX) / 8;
 
 pub fn write_byte(offset: Expr, byte: Expr, src: Expr) -> Expr {
   match (offset, byte, src) {
@@ -26,4 +296,8 @@ pub fn write_byte(offset: Expr, byte: Expr, src: Expr) -> Expr {
     }
     (offset, byte, src) => Expr::WriteByte(Box::new(offset), Box::new(byte), Box::new(src)),
   }
+}
+
+pub fn conc_keccak_props(props: Vec<Prop>) -> Vec<Prop> {
+  todo!()
 }

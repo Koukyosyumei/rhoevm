@@ -10,8 +10,9 @@ use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::types::{
-  from_list, len_buf, Addr, Block, Cache, Contract, ContractCode, Env, Expr, ExprSet, ForkState, FrameState, GVar, Gas,
-  Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts, W256W256Map, Word64, Word8, VM,
+  from_list, len_buf, Addr, Block, Cache, CodeLocation, Contract, ContractCode, Env, Expr, ExprSet, ForkState,
+  FrameState, GVar, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts,
+  W256W256Map, Word64, Word8, VM,
 };
 
 fn initial_gas() -> u64 {
@@ -1051,3 +1052,12 @@ fn max_expr(a: Expr, b: Expr) -> Expr {
     a
   }
 }
+
+pub fn get_code_location(vm: &VM) -> CodeLocation {
+  (vm.state.contract, vm.state.pc)
+}
+
+/*
+getCodeLocation :: VM t s -> CodeLocation
+getCodeLocation vm = (vm.state.contract, vm.state.pc)
+*/
