@@ -9,8 +9,8 @@ struct BuilderState {
   count: usize,
 }
 
-type BufEnv = HashMap<usize, Expr>;
-type StoreEnv = HashMap<usize, Expr>;
+pub type BufEnv = HashMap<usize, Expr>;
+pub type StoreEnv = HashMap<usize, Expr>;
 
 fn init_state() -> BuilderState {
   BuilderState {

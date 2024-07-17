@@ -712,7 +712,7 @@ impl ExprMappable for Expr {
 }
 
 // MapPropM function
-async fn map_prop_m<F, Fut>(f: F, prop: Prop) -> Prop
+pub async fn map_prop_m<F, Fut>(f: F, prop: Prop) -> Prop
 where
   F: Fn(&Expr) -> Fut + Send + Sync,
   Fut: std::future::Future<Output = Expr> + Send,

@@ -179,9 +179,9 @@ fn read_solc(pt: ProjectType, root: &str, fp: &str) -> Result<BuildOutput, Strin
 
 fn yul(contract_name: &str, src: &str) -> Option<Vec<u8>> {
   let json: Value = from_str(&solc(Language::Yul, src).unwrap()).unwrap();
-  let f = json["contracts"]["hevm.sol"][contract_name];
-  let bytecode = f["evm"]["bytecode"]["object"].as_str()?.as_bytes().to_vec();
-  Some(to_code(contract_name, &bytecode))
+  let f = json["contracts"]["hevm.sol"][contract_name].clone();
+  let bytecode = String::from_utf8(f["evm"]["bytecode"]["object"].as_str()?.as_bytes().to_vec());
+  Some(to_code(contract_name, &bytecode.unwrap()).unwrap())
 }
 
 fn yul_runtime(contract_name: &str, src: &str) -> Option<Vec<u8>> {

@@ -1,7 +1,12 @@
-use crate::modules::types::{Addr, Expr, Prop, W256};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
+
+use crate::modules::cse::{BufEnv, StoreEnv};
+use crate::modules::effects::Config;
+use crate::modules::expr::write_byte;
+use crate::modules::traversals::map_prop_m;
+use crate::modules::types::{Addr, Expr, GVar, Prop, W256};
 
 // Type aliases for convenience
 type Text = String;
@@ -189,9 +194,6 @@ impl std::ops::AddAssign for CexVars {
   }
 }
 
-// Implementing Eq and Show traits for CexVars
-impl Eq for CexVars {}
-
 impl fmt::Display for CexVars {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(
@@ -204,12 +206,12 @@ impl fmt::Display for CexVars {
 
 // Function to flatten buffers in SMTCex
 fn flatten_bufs(cex: SMTCex) -> Option<SMTCex> {
-  let buffers = cex
+  let bs = cex
     .buffers
     .into_iter()
     .map(|(k, v)| {
       match v {
-        BufModel::Comp(compressed) => collapse(compressed).map(BufModel::Flat),
+        BufModel::Comp(compressed) => collapse(compressed),
         BufModel::Flat(bytes) => Some(BufModel::Flat(bytes)),
       }
       .map(|flat| (k, flat))
@@ -219,18 +221,34 @@ fn flatten_bufs(cex: SMTCex) -> Option<SMTCex> {
   Some(SMTCex {
     vars: cex.vars,
     addrs: cex.addrs,
-    buffers,
+    buffers: bs,
     store: cex.store,
     block_context: cex.block_context,
     tx_context: cex.tx_context,
   })
 }
 
+fn to_buf(model: BufModel) -> Option<BufModel> {
+  match model {
+    BufModel::Comp(CompressedBuf::Base { byte, length }) if length <= 120_000_000 => {
+      let bytes = vec![byte; length as usize];
+      Some(BufModel::Flat(bytes))
+    }
+    BufModel::Comp(CompressedBuf::Write { byte, idx, next }) => collapse(*next).map(|flat| {
+      let mut flat_bytes = flat.into_flat_bytes();
+      write_byte(&mut flat_bytes, idx, byte);
+      BufModel::Flat(flat_bytes)
+    }),
+    BufModel::Flat(bytes) => Some(BufModel::Flat(bytes)),
+    _ => None,
+  }
+}
+
 // Function to collapse a BufModel
 fn collapse(model: CompressedBuf) -> Option<BufModel> {
   match model {
     CompressedBuf::Base { byte, length } if length <= 120_000_000 => {
-      let bytes = vec![byte; unsafe_into(length)];
+      let bytes = vec![byte; length as usize];
       Some(BufModel::Flat(bytes))
     }
     CompressedBuf::Write { byte, idx, next } => collapse(*next).map(|flat| {
@@ -247,8 +265,8 @@ struct AbstState {
   count: i32,
 }
 
-fn get_var(cex: &SMTCex, name: &str) -> TS::Text {
-  cex.vars.get(&Var(name.to_string())).unwrap().clone()
+fn get_var(cex: &SMTCex, name: &str) -> u32 {
+  cex.vars.get(&Expr::Var(name.to_string())).unwrap().clone()
 }
 
 fn declare_intermediates(bufs: &BufEnv, stores: &StoreEnv) -> SMT2 {
@@ -259,12 +277,12 @@ fn declare_intermediates(bufs: &BufEnv, stores: &StoreEnv) -> SMT2 {
   sorted.sort_by(|(l, _), (r, _)| l.cmp(r));
 
   let decls = sorted.iter().map(|(_, decl)| decl.clone()).collect::<Vec<_>>();
-  let mut smt2 = SMT2 {
-    ls: vec![from_text("; intermediate buffers & stores")],
-    refps: RefinementEqs::new(),
-    cex_vars: CexVars::new(),
-    props: vec![],
-  };
+  let mut smt2 = SMT2(
+    vec![&"; intermediate buffers & stores"],
+    RefinementEqs::new(),
+    CexVars::new(),
+    vec![],
+  );
   for decl in decls.iter().rev() {
     smt2 = smt2.combine(decl.clone());
   }
@@ -276,7 +294,7 @@ fn encode_store(n: &str, expr: &Expr) -> (usize, SMT2) {
   let txt = format!("(define-fun store{} () Storage {})", n, expr_to_smt);
   (
     n.parse().unwrap(),
-    SMT2::new(vec![from_text(&txt)], RefinementEqs::new(), CexVars::new(), vec![]),
+    SMT2::new(vec![&txt], RefinementEqs::new(), CexVars::new(), vec![]),
   )
 }
 
@@ -285,7 +303,7 @@ fn encode_buf(n: &str, expr: &Expr) -> (usize, SMT2) {
   let txt = format!("(define-fun buf{} () Buf {})", n, expr_to_smt);
   (
     n.parse().unwrap(),
-    SMT2::new(vec![from_text(&txt)], RefinementEqs::new(), CexVars::new(), vec![]),
+    SMT2::new(vec![&txt], RefinementEqs::new(), CexVars::new(), vec![]),
   )
 }
 
@@ -300,20 +318,6 @@ fn abstract_away_props(conf: &Config, ps: Vec<Prop>) -> (Vec<Prop>, AbstState) {
 
 fn abstract_away(conf: &Config, prop: &Prop, state: &mut AbstState) -> Prop {
   map_prop_m(conf, prop, state)
-}
-
-fn map_prop_m(conf: &Config, prop: &Prop, state: &mut AbstState) -> Prop {
-  match prop {
-    Mod(_) if conf.abst_refine_arith => abstr_expr(prop, state),
-    SMod(_) if conf.abst_refine_arith => abstr_expr(prop, state),
-    MulMod(_) if conf.abst_refine_arith => abstr_expr(prop, state),
-    AddMod(_) if conf.abst_refine_arith => abstr_expr(prop, state),
-    Mul(_) if conf.abst_refine_arith => abstr_expr(prop, state),
-    Div(_) if conf.abst_refine_arith => abstr_expr(prop, state),
-    SDiv(_) if conf.abst_refine_arith => abstr_expr(prop, state),
-    ReadWord(_) if conf.abst_refine_mem => abstr_expr(prop, state),
-    _ => prop.clone(),
-  }
 }
 
 fn abstr_expr(prop: &Prop, state: &mut AbstState) -> Prop {
@@ -396,4 +400,492 @@ fn assert_props(conf: &Config, ps: Vec<Prop>) -> SMT2 {
     .combine(smt2_line(""))
     .combine(SMT2::new(vec![], RefinementEqs::new(), storage_reads, vec![]))
     .combine(SMT2::new(vec![], RefinementEqs::new(), CexVars::new(), ps_pre_conc))
+}
+
+fn expr_to_smt(expr: Expr) -> String {
+  match expr.to_expr() {
+    Expr::Lit(w) => format!("(_ bv{} 256)", w),
+    Expr::Var(s) => s,
+    Expr::GVar(GVar::BufVar(n)) => format!("buf{}", n),
+    Expr::GVar(GVar::StoreVar(n)) => format!("store{}", n),
+    Expr::JoinBytes(v) => concat_bytes(&v),
+    Expr::Add(a, b) => op2("bvadd", a, b),
+    Expr::Sub(a, b) => op2("bvsub", a, b),
+    Expr::Mul(a, b) => op2("bvmul", a, b),
+    Expr::Exp(a, b) => match *b {
+      Expr::Lit(b_lit) => expand_exp(*a, b_lit),
+      _ => panic!("cannot encode symbolic exponentiation into SMT"),
+    },
+    Expr::Min(a, b) => {
+      let aenc = expr_to_smt(*a);
+      let benc = expr_to_smt(*b);
+      format!("(ite (bvule {} {}) {} {})", aenc, benc, aenc, benc)
+    }
+    Expr::Max(a, b) => {
+      let aenc = expr_to_smt(*a);
+      let benc = expr_to_smt(*b);
+      format!("(max {} {})", aenc, benc)
+    }
+    Expr::LT(a, b) => {
+      let cond = op2("bvult", *a, *b);
+      format!("(ite {} {} {})", cond, one(), zero())
+    }
+    Expr::SLT(a, b) => {
+      let cond = op2("bvslt", *a, *b);
+      format!("(ite {} {} {})", cond, one(), zero())
+    }
+    Expr::SGT(a, b) => {
+      let cond = op2("bvsgt", *a, *b);
+      format!("(ite {} {} {})", cond, one(), zero())
+    }
+    Expr::GT(a, b) => {
+      let cond = op2("bvugt", *a, *b);
+      format!("(ite {} {} {})", cond, one(), zero())
+    }
+    Expr::LEq(a, b) => {
+      let cond = op2("bvule", *a, *b);
+      format!("(ite {} {} {})", cond, one(), zero())
+    }
+    Expr::GEq(a, b) => {
+      let cond = op2("bvuge", *a, *b);
+      format!("(ite {} {} {})", cond, one(), zero())
+    }
+    Expr::Eq(a, b) => {
+      let cond = op2("=", *a, *b);
+      format!("(ite {} {} {})", cond, one(), zero())
+    }
+    Expr::IsZero(a) => {
+      let cond = op2("=", *a, Expr::Lit(0));
+      format!("(ite {} {} {})", cond, one(), zero())
+    }
+    Expr::And(a, b) => op2("bvand", *a, *b),
+    Expr::Or(a, b) => op2("bvor", *a, *b),
+    Expr::Xor(a, b) => op2("bvxor", *a, *b),
+    Expr::Not(a) => op1("bvnot", *a),
+    Expr::SHL(a, b) => op2("bvshl", *b, *a),
+    Expr::SHR(a, b) => op2("bvlshr", *b, *a),
+    Expr::SAR(a, b) => op2("bvashr", *b, *a),
+    Expr::SEx(a, b) => op2("signext", *a, *b),
+    Expr::Div(a, b) => op2_check_zero("bvudiv", *a, *b),
+    Expr::SDiv(a, b) => op2_check_zero("bvsdiv", *a, *b),
+    Expr::Mod(a, b) => op2_check_zero("bvurem", *a, *b),
+    Expr::SMod(a, b) => op2_check_zero("bvsrem", *a, *b),
+    Expr::MulMod(a, b, c) => {
+      let aexp = expr_to_smt(*a);
+      let bexp = expr_to_smt(*b);
+      let cexp = expr_to_smt(*c);
+      let alift = format!("(concat (_ bv0 256) {})", aexp);
+      let blift = format!("(concat (_ bv0 256) {})", bexp);
+      let clift = format!("(concat (_ bv0 256) {})", cexp);
+      format!(
+        "((_ extract 255 0) (ite (= {} (_ bv0 256)) (_ bv0 512) (bvurem (bvmul {} {}) {})))",
+        cexp, alift, blift, clift
+      )
+    }
+    Expr::AddMod(a, b, c) => {
+      let aexp = expr_to_smt(*a);
+      let bexp = expr_to_smt(*b);
+      let cexp = expr_to_smt(*c);
+      let alift = format!("(concat (_ bv0 256) {})", aexp);
+      let blift = format!("(concat (_ bv0 256) {})", bexp);
+      let clift = format!("(concat (_ bv0 256) {})", cexp);
+      format!(
+        "((_ extract 255 0) (ite (= {} (_ bv0 256)) (_ bv0 512) (bvurem (bvadd {} {}) {})))",
+        cexp, alift, blift, clift
+      )
+    }
+    Expr::EqByte(a, b) => {
+      let cond = op2("=", *a, *b);
+      format!("(ite {} {} {})", cond, one(), zero())
+    }
+    Expr::Keccak(a) => {
+      let enc = expr_to_smt(*a);
+      format!("(keccak {})", enc)
+    }
+    Expr::SHA256(a) => {
+      let enc = expr_to_smt(*a);
+      format!("(sha256 {})", enc)
+    }
+    Expr::TxValue => "txvalue".to_string(),
+    Expr::Balance(a) => format!("balance_{}", format_e_addr(*a)),
+    Expr::Origin => "origin".to_string(),
+    Expr::BlockHash(a) => {
+      let enc = expr_to_smt(*a);
+      format!("(blockhash {})", enc)
+    }
+    Expr::CodeSize(a) => {
+      let enc = expr_to_smt(*a);
+      format!("(codesize {})", enc)
+    }
+    Expr::Coinbase => "coinbase".to_string(),
+    Expr::Timestamp => "timestamp".to_string(),
+    Expr::BlockNumber => "blocknumber".to_string(),
+    Expr::PrevRandao => "prevrandao".to_string(),
+    Expr::GasLimit => "gaslimit".to_string(),
+    Expr::ChainId => "chainid".to_string(),
+    Expr::BaseFee => "basefee".to_string(),
+    Expr::SymAddr(a) => format_e_addr(*a),
+    Expr::WAddr(a) => format!("(concat (_ bv0 96) {})", expr_to_smt(*a)),
+    Expr::LitByte(b) => format!("(_ bv{} 8)", b),
+    Expr::IndexWord(idx, w) => match *idx {
+      Expr::Lit(n) => {
+        if n >= 0 && n < 32 {
+          let enc = expr_to_smt(*w);
+          format!("(indexWord{})", n, enc)
+        } else {
+          expr_to_smt(Expr::LitByte(0))
+        }
+      }
+      _ => op2("indexWord", *idx, *w),
+    },
+    Expr::ReadByte(idx, src) => op2("select", *src, *idx),
+    Expr::ConcreteBuf("") => "((as const Buf) #b00000000)".to_string(),
+    Expr::ConcreteBuf(bs) => write_bytes(&bs, Expr::mempty()),
+    Expr::AbstractBuf(s) => s,
+    Expr::ReadWord(idx, prev) => op2("readWord", *idx, *prev),
+    Expr::BufLength(Expr::AbstractBuf(b)) => format!("{}_length", b),
+    Expr::BufLength(Expr::GVar(GVar::BufVar(n))) => format!("buf{}_length", n),
+    Expr::BufLength(b) => expr_to_smt(buf_length(*b)),
+    Expr::WriteByte(idx, val, prev) => {
+      let enc_idx = expr_to_smt(*idx);
+      let enc_val = expr_to_smt(*val);
+      let enc_prev = expr_to_smt(*prev);
+      format!("(store {} {} {})", enc_prev, enc_idx, enc_val)
+    }
+    Expr::WriteWord(idx, val, prev) => {
+      let enc_idx = expr_to_smt(*idx);
+      let enc_val = expr_to_smt(*val);
+      let enc_prev = expr_to_smt(*prev);
+      format!("(writeWord {} {} {})", enc_idx, enc_val, enc_prev)
+    }
+    Expr::CopySlice(src_idx, dst_idx, size, src, dst) => {
+      copy_slice(*src_idx, *dst_idx, *size, expr_to_smt(*src), expr_to_smt(*dst))
+    }
+    Expr::ConcreteStore(s) => encode_concrete_store(&s),
+    Expr::AbstractStore(a, idx) => store_name(a, *idx),
+    Expr::SStore(idx, val, prev) => {
+      let enc_idx = expr_to_smt(*idx);
+      let enc_val = expr_to_smt(*val);
+      let enc_prev = expr_to_smt(*prev);
+      format!("(store {} {} {})", enc_prev, enc_idx, enc_val)
+    }
+    Expr::SLoad(idx, store) => op2("select", *store, *idx),
+    _ => panic!("{}", &format!("TODO: implement: {:?}", expr)),
+  }
+}
+
+fn op1(op: &str, a: Expr) -> String {
+  let enc = expr_to_smt(a);
+  format!("({} {})", op, enc)
+}
+
+fn op2(op: &str, a: Expr, b: Expr) -> String {
+  let aenc = expr_to_smt(a);
+  let benc = expr_to_smt(b);
+  format!("({} {} {})", op, aenc, benc)
+}
+
+fn op2_check_zero(op: &str, a: Expr, b: Expr) -> String {
+  let aenc = expr_to_smt(a);
+  let benc = expr_to_smt(b);
+  format!("(ite (= {} (_ bv0 256)) (_ bv0 256) ({} {} {}))", benc, op, aenc, benc)
+}
+
+fn concat_bytes(bytes: &[Expr]) -> String {
+  bytes.iter().map(|b| expr_to_smt(b.clone())).collect::<Vec<String>>().join(" ")
+}
+
+fn zero() -> String {
+  "(_ bv0 256)".to_string()
+}
+
+fn one() -> String {
+  "(_ bv1 256)".to_string()
+}
+
+fn prop_to_smt(prop: Prop) -> String {
+  match prop {
+    Prop::PEq(a, b) => op2("=", a, b),
+    Prop::PLT(a, b) => op2("bvult", a, b),
+    Prop::PGT(a, b) => op2("bvugt", a, b),
+    Prop::PLEq(a, b) => op2("bvule", a, b),
+    Prop::PGEq(a, b) => op2("bvuge", a, b),
+    Prop::PNeg(a) => {
+      let enc = prop_to_smt(*a);
+      format!("(not {})", enc)
+    }
+    Prop::PAnd(a, b) => {
+      let aenc = prop_to_smt(*a);
+      let benc = prop_to_smt(*b);
+      format!("(and {} {})", aenc, benc)
+    }
+    Prop::POr(a, b) => {
+      let aenc = prop_to_smt(*a);
+      let benc = prop_to_smt(*b);
+      format!("(or {} {})", aenc, benc)
+    }
+    Prop::PImpl(a, b) => {
+      let aenc = prop_to_smt(*a);
+      let benc = prop_to_smt(*b);
+      format!("(=> {} {})", aenc, benc)
+    }
+    Prop::PBool(b) => {
+      if b {
+        "true".to_string()
+      } else {
+        "false".to_string()
+      }
+    }
+  }
+}
+
+// ** Helpers ** ---------------------------------------------------------------------------------
+
+// Stores a region of src into dst
+fn copy_slice(src_offset: Expr, dst_offset: Expr, size0: Expr, src: Builder, dst: Builder) -> Builder {
+  if let Expr::Lit(_) = size0 {
+    let src_repr = format!("(let ((src {})) {})", src, internal(size0));
+    src_repr
+  } else {
+    panic!("TODO: implement copy_slice with a symbolically sized region");
+  }
+}
+
+fn internal(size: Expr) -> Builder {
+  match size {
+    Expr::Lit(0) => dst,
+    _ => {
+      let size_prime = Expr::sub(size, Expr::Lit(1));
+      let enc_dst_off = expr_to_smt(Expr::add(dst_offset, size_prime));
+      let enc_src_off = expr_to_smt(Expr::add(src_offset, size_prime));
+      let child = internal(size_prime);
+      format!("(store {} {} (select src {}))", child, enc_dst_off, enc_src_off)
+    }
+  }
+}
+
+// Unrolls an exponentiation into a series of multiplications
+fn expand_exp(base: Expr, expnt: W256) -> Builder {
+  if expnt == 1 {
+    expr_to_smt(base)
+  } else {
+    let b = expr_to_smt(base);
+    let n = expand_exp(base, expnt - 1);
+    format!("(bvmul {} {})", b, n)
+  }
+}
+
+// Concatenates a list of bytes into a larger bitvector
+fn write_bytes(bytes: &[u8], buf: Expr) -> Builder {
+  let skip_zeros = buf == Expr::mempty();
+  let mut idx = 0;
+  let mut inner = expr_to_smt(buf);
+  for &byte in bytes {
+    if skip_zeros && byte == 0 {
+      idx += 1;
+    } else {
+      let byte_smt = expr_to_smt(Expr::LitByte(byte));
+      let idx_smt = expr_to_smt(Expr::Lit(unsafe_into(idx)));
+      inner = format!("(store {} {} {})", inner, idx_smt, byte_smt);
+      idx += 1;
+    }
+  }
+  inner
+}
+
+fn encode_concrete_store(s: &HashMap<W256, W256>) -> Builder {
+  s.iter().fold(
+    "((as const Storage) #x0000000000000000000000000000000000000000000000000000000000000000)".to_string(),
+    |prev, (key, val)| {
+      let enc_key = expr_to_smt(Expr::Lit(*key));
+      let enc_val = expr_to_smt(Expr::Lit(*val));
+      format!("(store {} {} {})", prev, enc_key, enc_val)
+    },
+  )
+}
+
+fn store_name(a: Expr, idx: Option<W256>) -> Builder {
+  match idx {
+    Some(idx) => format!("baseStore_{}_{}", format_e_addr(a), idx),
+    None => format!("baseStore_{}", format_e_addr(a)),
+  }
+}
+
+fn format_e_addr(addr: Expr) -> Builder {
+  match addr {
+    Expr::LitAddr(a) => format!("litaddr_{}", a),
+    Expr::SymAddr(a) => format!("symaddr_{}", a),
+    Expr::GVar(_) => panic!("Unexpected GVar"),
+    _ => panic!("unexpected expr"),
+  }
+}
+
+// ** Cex parsing ** --------------------------------------------------------------------------------
+
+fn parse_addr(sc: SpecConstant) -> Addr {
+  parse_sc(sc)
+}
+
+fn parse_w256(sc: SpecConstant) -> W256 {
+  parse_sc(sc)
+}
+
+fn parse_integer(sc: SpecConstant) -> i64 {
+  parse_sc(sc)
+}
+
+fn parse_w8(sc: SpecConstant) -> u8 {
+  parse_sc(sc)
+}
+
+fn parse_sc<T: FromStr + Default>(sc: SpecConstant) -> T {
+  match sc {
+    SpecConstant::Hexadecimal(a) => i64::from_str_radix(&a[2..], 16).unwrap_or_default(),
+    SpecConstant::Binary(a) => i64::from_str_radix(&a[2..], 2).unwrap_or_default(),
+    _ => panic!("cannot parse: {:?}", sc),
+  }
+}
+
+fn parse_err<T>(res: T) -> ! {
+  panic!("cannot parse solver response: {:?}", res)
+}
+
+fn parse_var(name: &str) -> Expr {
+  Expr::Var(name.to_string())
+}
+
+fn parse_e_addr(name: &str) -> Expr {
+  if let Some(a) = name.strip_prefix("litaddr_") {
+    Expr::LitAddr(a.parse().unwrap())
+  } else if let Some(a) = name.strip_prefix("symaddr_") {
+    Expr::SymAddr(a.to_string())
+  } else {
+    panic!("cannot parse: {:?}", name)
+  }
+}
+
+fn parse_block_ctx(t: &str) -> Expr {
+  match t {
+    "origin" => Expr::Origin,
+    "coinbase" => Expr::Coinbase,
+    "timestamp" => Expr::Timestamp,
+    "blocknumber" => Expr::BlockNumber,
+    "prevrandao" => Expr::PrevRandao,
+    "gaslimit" => Expr::GasLimit,
+    "chainid" => Expr::ChainId,
+    "basefee" => Expr::BaseFee,
+    _ => panic!("cannot parse {} into an Expr", t),
+  }
+}
+
+fn parse_tx_ctx(name: &str) -> Expr {
+  if name == "txvalue" {
+    Expr::TxValue
+  } else if let Some(a) = name.strip_prefix("balance_") {
+    Expr::Balance(parse_e_addr(a))
+  } else {
+    panic!("cannot parse {} into an Expr", name)
+  }
+}
+
+async fn get_addrs(
+  parse_name: impl Fn(&str) -> Expr,
+  get_val: impl Fn(&str) -> Future<Output = String>,
+  names: &[&str],
+) -> HashMap<Expr, Addr> {
+  let mut map = HashMap::new();
+  for &name in names {
+    let raw = get_val(name).await;
+    let val = parse_addr(parse_comment_free_file_msg(&raw));
+    map.insert(parse_name(name), val);
+  }
+  map
+}
+
+async fn get_vars(
+  parse_name: impl Fn(&str) -> Expr,
+  get_val: impl Fn(&str) -> Future<Output = String>,
+  names: &[&str],
+) -> HashMap<Expr, W256> {
+  let mut map = HashMap::new();
+  for &name in names {
+    let raw = get_val(name).await;
+    let val = parse_w256(parse_comment_free_file_msg(&raw));
+    map.insert(parse_name(name), val);
+  }
+  map
+}
+
+async fn get_one<T>(
+  parse_val: impl Fn(SpecConstant) -> T,
+  get_val: impl Fn(&str) -> Future<Output = String>,
+  mut acc: HashMap<String, T>,
+  name: &str,
+) -> HashMap<String, T> {
+  let raw = get_val(name).await;
+  let parsed = match parse_comment_free_file_msg(&raw) {
+    Ok(ResSpecific(val_parsed)) if val_parsed.len() == 1 => val_parsed[0].clone(),
+    res => parse_err(res),
+  };
+  let val = match parsed {
+    (TermQualIdentifier::Unqualified(IdSymbol(symbol)), TermSpecConstant(sc)) if symbol == name => parse_val(sc),
+    _ => panic!("solver did not return model for requested value"),
+  };
+  acc.insert(name.to_string(), val);
+  acc
+}
+
+// Queries the solver for models for each of the expressions representing the max read index for a given buffer
+async fn query_max_reads(
+  get_val: impl Fn(&str) -> Future<Output = String>,
+  max_reads: &HashMap<String, Expr>,
+) -> HashMap<String, W256> {
+  let mut map = HashMap::new();
+  for (key, val) in max_reads {
+    let result = query_value(&get_val, val).await;
+    map.insert(key.clone(), result);
+  }
+  map
+}
+
+// Gets the initial model for each buffer, these will often be much too large for our purposes
+async fn get_bufs(get_val: impl Fn(&str) -> Future<Output = String>, bufs: &[&str]) -> HashMap<Expr<Buf>, BufModel> {
+  let mut map = HashMap::new();
+  for &name in bufs {
+    let len = get_length(&get_val, name).await;
+    let raw = get_val(name).await;
+    let buf = parse_buf(len, parse_comment_free_file_msg(&raw));
+    map.insert(Expr::AbstractBuf(name.to_string()), buf);
+  }
+  map
+}
+
+async fn get_length(get_val: impl Fn(&str) -> Future<Output = String>, name: &str) -> W256 {
+  let raw = get_val(&format!("len_{}", name)).await;
+  parse_w256(parse_comment_free_file_msg(&raw))
+}
+
+fn parse_comment_free_file_msg(raw: &str) -> Result<ResSpecific, ()> {
+  let parsed = parse_z3_response(raw).map_err(|e| eprintln!("{}", e))?;
+  Ok(ResSpecific(parsed))
+}
+
+fn parse_buf(len: W256, res: Result<ResSpecific, ()>) -> BufModel {
+  match res {
+    Ok(ResSpecific(model)) => {
+      let buf = model
+        .iter()
+        .map(|term| match term {
+          (TermQualIdentifier::Unqualified(IdSymbol(ref sym)), TermSpecConstant(val)) if sym.starts_with("buf") => {
+            let idx = sym[3..].parse().expect("cannot parse buf index");
+            let val = parse_w8(*val);
+            (idx, val)
+          }
+          _ => panic!("unexpected term while parsing buf: {:?}", term),
+        })
+        .collect();
+      BufModel { len, buf }
+    }
+    Err(_) => panic!("cannot parse buf model"),
+  }
 }
