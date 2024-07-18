@@ -2,7 +2,7 @@ use derive_more::From;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::modules::abi::{AbiType, AbiValue};
+use crate::modules::abi::{make_abi_value, AbiType, AbiValue};
 use crate::modules::evm::{abstract_contract, get_code_location, initial_contract};
 use crate::modules::expr::in_range;
 use crate::modules::feeschedule::FEE_SCHEDULE;
@@ -143,9 +143,9 @@ pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[Stri
     match arg.as_str() {
       "<symbolic>" => sym_abi_arg(&format!("arg{}", n), typ.clone()),
       _ => match make_abi_value(typ, arg) {
-        AbiValue::AbiUInt(_, w) => CalldataFragment::St(vec![], Expr::Lit(w.into())),
-        AbiValue::AbiInt(_, w) => CalldataFragment::St(vec![], Expr::Lit(w.into())),
-        AbiValue::AbiAddress(w) => CalldataFragment::St(vec![], Expr::Lit(w.into())),
+        AbiValue::AbiUInt(_, w) => CalldataFragment::St(vec![], Expr::Lit(w as u32)),
+        AbiValue::AbiInt(_, w) => CalldataFragment::St(vec![], Expr::Lit(w as u32)),
+        AbiValue::AbiAddress(w) => CalldataFragment::St(vec![], Expr::Lit(w as u32)),
         AbiValue::AbiBool(w) => CalldataFragment::St(vec![], Expr::Lit(if w { 1 } else { 0 })),
         _ => panic!("TODO"),
       },
@@ -157,7 +157,7 @@ pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[Stri
   let with_selector = write_selector(cd_buf, sig);
   let size_constraints = Expr::BufLength(Box::new(with_selector))
     .ge(Expr::Lit((calldatas.len() as u32 * 32 + 4).try_into().unwrap()))
-    .and(Expr::BufLength(&with_selector).lt(Expr::Lit(2_i64.pow(64))));
+    .and(Expr::BufLength(Box::new(with_selector)).lt(Expr::Lit(2_i64.pow(64))));
   (with_selector, vec![size_constraints].into_iter().chain(props).collect())
 }
 

@@ -138,3 +138,18 @@ fn abi_value_type(v: &AbiValue) -> AbiType {
     AbiValue::AbiFunction(_) => AbiType::AbiFunctionType,
   }
 }
+
+pub fn make_abi_value(typ: &AbiType, str: &String) -> AbiValue {
+  todo!()
+}
+
+/*
+makeAbiValue :: AbiType -> String -> AbiValue
+makeAbiValue typ str = case readP_to_S (parseAbiValue typ) (padStr str) of
+  [(val,"")] -> val
+  _ -> internalError $ "could not parse abi argument: " ++ str ++ " : " ++ show typ
+  where
+    padStr = case typ of
+      (AbiBytesType n) -> padRight' (2 * n + 2) -- +2 is for the 0x prefix
+      _ -> id
+*/
