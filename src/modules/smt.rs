@@ -8,10 +8,13 @@ use futures::Future;
 
 use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
+use crate::modules::evm::buf_length;
 use crate::modules::expr::{add, conc_keccak_props, in_range, sub, write_byte};
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};
 use crate::modules::traversals::{map_prop_m, TraversableTerm};
-use crate::modules::types::{Addr, Block, Expr, Frame, FrameContext, GVar, Prop, W256};
+use crate::modules::types::{Addr, Block, Expr, Frame, FrameContext, GVar, Prop, W256W256Map, W256};
+
+use super::etypes::Buf;
 
 // Type aliases for convenience
 type Text = String;
@@ -354,12 +357,12 @@ fn abstract_away(conf: &Config, prop: &Prop, state: &mut AbstState) -> Prop {
   todo!()
 }
 
-fn abstr_expr(prop: &Prop, state: &mut AbstState) -> Expr {
-  let v = match state.words.get(&prop) {
+fn abstr_expr(e: &Expr, state: &mut AbstState) -> Expr {
+  let v = match state.words.get(e) {
     Some(&v) => v,
     None => {
       let next = state.count;
-      state.words.insert(prop.clone(), next);
+      state.words.insert(e.clone(), next);
       state.count += 1;
       next
     }
@@ -446,95 +449,101 @@ fn referenced_waddrs<T: TraversableTerm>(term: &T) -> HashSet<Builder> {
 }
 
 fn referenced_bufs<T: TraversableTerm>(expr: &T) -> Vec<Builder> {
-  let mut buf_set = HashSet::new();
+  //let mut buf_set = HashSet::new();
   let bufs = expr.fold_term(
     |x| match x {
       Expr::AbstractBuf(s) => {
-        buf_set.insert(s);
-        vec![s]
+        //buf_set.insert(s);
+        vec![s.clone()]
       }
       _ => vec![],
     },
     vec![],
   );
 
-  buf_set.iter().map(|s| (*s).clone()).collect()
+  bufs.iter().map(|s| (*s).clone()).collect()
 }
 
 fn referenced_vars<T: TraversableTerm>(expr: &T) -> Vec<Builder> {
-  let mut var_set = HashSet::new();
+  //let mut var_set = HashSet::new();
   let vars = expr.fold_term(
     |x| match x {
       Expr::Var(s) => {
-        var_set.insert(s);
-        vec![s]
+        // var_set.insert(s);
+        vec![s.clone()]
       }
       _ => vec![],
     },
     vec![],
   );
 
-  var_set.iter().map(|s| (*s).clone()).collect()
+  vars.iter().map(|s| (*s).clone()).collect()
 }
 
 fn referenced_frame_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<Prop>)> {
-  let mut context_set = HashSet::new();
+  // let mut context_set = HashSet::new();
   let context = expr.fold_term(
     |x| match x {
-      TxValue => {
-        context_set.insert((("txvalue"), vec![]));
+      Expr::TxValue => {
+        // context_set.insert((("txvalue"), vec![]));
         vec![(("txvalue"), vec![])]
       }
-      v @ Expr::Balance(a) => {
-        context_set.insert(((&format!("balance_{}", format_e_addr(a))), vec![format!("PLT {}", v)]));
-        vec![((&format!("balance_{}", format_e_addr(a))), vec![format!("PLT {}", v)])]
+      Expr::Balance(a) => {
+        /*[(fromString "balance_" <> formatEAddr a, [PLT v (Lit $ 2 ^ (96 :: Int))])] */
+        //context_set.insert((
+        //  (&format!("balance_{}", format_e_addr(**a))),
+        // vec![Prop::PLT(v.clone(), Expr::Lit(2 ^ 96))],
+        //));
+        vec![(
+          (&format!("balance_{}", format_e_addr(unbox(a)))),
+          vec![Prop::PLT(x.clone(), Expr::Lit(2 ^ 96))],
+        )]
       }
-      Gas {} => {
+      Expr::Gas { .. } => {
         panic!("TODO: GAS");
-        vec![]
       }
       _ => vec![],
     },
     vec![],
   );
 
-  context_set.into_iter().map(|(b, p)| (b, p)).collect()
+  context.into_iter().map(|(b, p)| (b.to_string(), p)).collect()
 }
 
 fn referenced_block_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<Prop>)> {
-  let mut context_set = HashSet::new();
+  //let mut context_set = HashSet::new();
   let context = expr.fold_term(
     |x| match x {
-      Origin => {
-        context_set.insert((("origin"), vec![in_range(160, Origin.clone())]));
-        vec![(("origin"), vec![in_range(160, Origin.clone())])]
+      Expr::Origin => {
+        //context_set.insert((("origin"), vec![in_range(160, Origin.clone())]));
+        vec![(("origin"), vec![in_range(160, Expr::Origin)])]
       }
-      Coinbase => {
-        context_set.insert((("coinbase"), vec![in_range(160, Coinbase.clone())]));
-        vec![(("coinbase"), vec![in_range(160, Coinbase.clone())])]
+      Expr::Coinbase => {
+        //context_set.insert((("coinbase"), vec![in_range(160, Coinbase.clone())]));
+        vec![(("coinbase"), vec![in_range(160, Expr::Coinbase)])]
       }
-      Timestamp => {
-        context_set.insert((("timestamp"), vec![]));
+      Expr::Timestamp => {
+        //context_set.insert((("timestamp"), vec![]));
         vec![(("timestamp"), vec![])]
       }
-      BlockNumber => {
-        context_set.insert((("blocknumber"), vec![]));
+      Expr::BlockNumber => {
+        //context_set.insert((("blocknumber"), vec![]));
         vec![(("blocknumber"), vec![])]
       }
-      PrevRandao => {
-        context_set.insert((("prevrandao"), vec![]));
+      Expr::PrevRandao => {
+        //context_set.insert((("prevrandao"), vec![]));
         vec![(("prevrandao"), vec![])]
       }
-      GasLimit => {
-        context_set.insert((("gaslimit"), vec![]));
+      Expr::GasLimit => {
+        //context_set.insert((("gaslimit"), vec![]));
         vec![(("gaslimit"), vec![])]
       }
-      ChainId => {
-        context_set.insert((("chainid"), vec![]));
+      Expr::ChainId => {
+        //context_set.insert((("chainid"), vec![]));
         vec![(("chainid"), vec![])]
       }
-      BaseFee => {
-        context_set.insert((("basefee"), vec![]));
+      Expr::BaseFee => {
+        //context_set.insert((("basefee"), vec![]));
         vec![(("basefee"), vec![])]
       }
       _ => vec![],
@@ -542,7 +551,7 @@ fn referenced_block_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<P
     vec![],
   );
 
-  context_set.into_iter().map(|(b, p)| (b, p)).collect()
+  context.into_iter().map(|(b, p)| (b.to_string(), p)).collect()
 }
 
 fn gather_all_vars(
@@ -550,7 +559,7 @@ fn gather_all_vars(
   buf_vals: &Vec<Expr>,
   store_vals: &Vec<Expr>,
   abst: &AbstState,
-) -> Vec<Expr> {
+) -> Vec<Builder> {
   to_declare_ps_elim
     .iter()
     .flat_map(|p| referenced_vars(p))
@@ -564,7 +573,7 @@ fn gather_frame_context(
   to_declare_ps_elim: &[Prop],
   buf_vals: &Vec<Expr>,
   store_vals: &Vec<Expr>,
-) -> Vec<FrameContext> {
+) -> Vec<(Builder, Vec<Prop>)> {
   to_declare_ps_elim
     .iter()
     .flat_map(|p| referenced_frame_context(p))
@@ -573,7 +582,11 @@ fn gather_frame_context(
     .collect()
 }
 
-fn gather_block_context(to_declare_ps_elim: &[Prop], buf_vals: &Vec<Expr>, store_vals: &Vec<Expr>) -> Vec<Expr> {
+fn gather_block_context(
+  to_declare_ps_elim: &[Prop],
+  buf_vals: &Vec<Expr>,
+  store_vals: &Vec<Expr>,
+) -> Vec<(String, Vec<Prop>)> {
   to_declare_ps_elim
     .iter()
     .flat_map(|p| referenced_block_context(p))
@@ -601,7 +614,37 @@ fn create_keccak_assertions(kecc_assump: &[Prop], kecc_comp: &[Prop]) -> Vec<SMT
   assertions
 }
 
-fn create_read_assumptions(ps_elim: &[Prop], bufs: &Bufs, stores: &Stores) -> Vec<SMT2> {
+/*
+-- | Asserts that buffer reads beyond the size of the buffer are equal
+-- to zero. Looks for buffer reads in the a list of given predicates
+-- and the buffer and storage environments.
+assertReads :: [Prop] -> BufEnv -> StoreEnv -> [Prop]
+assertReads props benv senv = concatMap assertRead allReads
+  where
+    assertRead :: (Expr EWord, Expr EWord, Expr Buf) -> [Prop]
+    assertRead (idx, Lit 32, buf) = [PImpl (PGEq idx (bufLength buf)) (PEq (ReadWord idx buf) (Lit 0))]
+    assertRead (idx, Lit sz, buf) =
+      fmap
+        -- TODO: unsafeInto instead fromIntegral here makes symbolic tests fail
+        (PImpl (PGEq idx (bufLength buf)) . PEq (ReadByte idx buf) . LitByte . fromIntegral)
+        [(0::Int)..unsafeInto sz-1]
+    assertRead (_, _, _) = internalError "Cannot generate assertions for accesses of symbolic size"
+
+    allReads = filter keepRead $ nubOrd $ findBufferAccess props <> findBufferAccess (Map.elems benv) <> findBufferAccess (Map.elems senv)
+
+    -- discard constraints if we can statically determine that read is less than the buffer length
+    keepRead (Lit idx, Lit size, buf) =
+      case minLength benv buf of
+        Just l | into (idx + size) <= l -> False
+        _ -> True
+    keepRead _ = True
+*/
+
+fn assert_reads(prop: &[Prop], benv: &BufEnv, senv: &StoreEnv) -> Vec<Prop> {
+  todo!()
+}
+
+fn create_read_assumptions(ps_elim: &[Prop], bufs: &BufEnv, stores: &StoreEnv) -> Vec<SMT2> {
   let assumptions = assert_reads(ps_elim, bufs, stores);
   let mut result = Vec::new();
   result.push(smt2_line("; read assumptions".to_string()));
@@ -673,20 +716,26 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
     + (smt2_line("".to_owned()))
     + (declare_bufs(to_declare_ps_elim, bufs, stores))
     + (smt2_line("".to_owned()))
-    + (declare_vars(nub_ord(all_vars.iter().fold(Vec::new(), |mut acc, x| {
-      acc.extend(x.clone());
-      acc
-    }))))
+    + (declare_vars(
+      (all_vars.iter().fold(Vec::new(), |mut acc, x| {
+        acc.extend(x.clone());
+        acc
+      })),
+    ))
     + (smt2_line("".to_owned()))
-    + (declare_frame_context(nub_ord(frame_ctx.iter().fold(Vec::new(), |mut acc, x| {
-      acc.extend(x.clone());
-      acc
-    }))))
+    + (declare_frame_context(
+      (frame_ctx.iter().fold(Vec::new(), |mut acc, x| {
+        acc.extend(x.clone());
+        acc
+      })),
+    ))
     + (smt2_line("".to_owned()))
-    + (declare_block_context(nub_ord(block_ctx.iter().fold(Vec::new(), |mut acc, x| {
-      acc.extend(x.clone());
-      acc
-    }))))
+    + (declare_block_context(
+      (block_ctx.iter().fold(Vec::new(), |mut acc, x| {
+        acc.extend(x.clone());
+        acc
+      })),
+    ))
     + (smt2_line("".to_owned()))
     + (intermediates)
     + (smt2_line("".to_owned()))
@@ -861,12 +910,15 @@ fn expr_to_smt(expr: Expr) -> String {
     },
     Expr::ReadByte(idx, src) => op2("select", *src, *idx),
     Expr::ConcreteBuf("") => "((as const Buf) #b00000000)".to_string(),
-    Expr::ConcreteBuf(bs) => write_bytes(&bs, Expr::Mempty()),
+    Expr::ConcreteBuf(bs) => write_bytes(&bs, Expr::Mempty),
     Expr::AbstractBuf(s) => s,
     Expr::ReadWord(idx, prev) => op2("readWord", *idx, *prev),
-    Expr::BufLength(Box::new(Expr::AbstractBuf(b))) => format!("{}_length", b),
-    Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(n)))) => format!("buf{}_length", n),
-    Expr::BufLength(b) => expr_to_smt(buf_length(*b)),
+
+    Expr::BufLength(b) => match *b {
+      Expr::AbstractBuf(ab) => format!("{}_length", ab),
+      Expr::GVar(GVar::BufVar(n)) => format!("buf{}_length", n),
+      _ => expr_to_smt(buf_length(*b)),
+    },
     Expr::WriteByte(idx, val, prev) => {
       let enc_idx = expr_to_smt(*idx);
       let enc_val = expr_to_smt(*val);
@@ -883,7 +935,7 @@ fn expr_to_smt(expr: Expr) -> String {
       copy_slice(*src_idx, *dst_idx, *size, expr_to_smt(*src), expr_to_smt(*dst))
     }
     Expr::ConcreteStore(s) => encode_concrete_store(&s),
-    Expr::AbstractStore(a, idx) => store_name(a, *idx),
+    Expr::AbstractStore(a, idx) => store_name(*a, idx),
     Expr::SStore(idx, val, prev) => {
       let enc_idx = expr_to_smt(*idx);
       let enc_val = expr_to_smt(*val);
@@ -977,8 +1029,8 @@ fn internal(size: Expr, src_offset: Expr, dst_offset: Expr, dst: Builder) -> Bui
     Expr::Lit(0) => dst,
     _ => {
       let size_prime = sub(size, Expr::Lit(1));
-      let enc_dst_off = expr_to_smt(add(dst_offset, size_prime.clone()));
-      let enc_src_off = expr_to_smt(add(src_offset, size_prime.clone()));
+      let enc_dst_off = expr_to_smt(add(dst_offset.clone(), size_prime.clone()));
+      let enc_src_off = expr_to_smt(add(src_offset.clone(), size_prime.clone()));
       let child = internal(size_prime, src_offset.clone(), dst_offset.clone(), dst);
       format!("(store {} {} (select src {}))", child, enc_dst_off, enc_src_off)
     }
@@ -1014,7 +1066,7 @@ fn write_bytes(bytes: &[u8], buf: Expr) -> Builder {
   inner
 }
 
-fn encode_concrete_store(s: &HashMap<W256, W256>) -> Builder {
+fn encode_concrete_store(s: &W256W256Map) -> Builder {
   s.iter().fold(
     "((as const Storage) #x0000000000000000000000000000000000000000000000000000000000000000)".to_string(),
     |prev, (key, val)| {
@@ -1108,7 +1160,7 @@ fn parse_tx_ctx(name: &str) -> Expr {
   if name == "txvalue" {
     Expr::TxValue
   } else if let Some(a) = name.strip_prefix("balance_") {
-    Expr::Balance(parse_e_addr(a))
+    Expr::Balance(Box::new(parse_e_addr(&Box::new(a))))
   } else {
     panic!("cannot parse {} into an Expr", name)
   }

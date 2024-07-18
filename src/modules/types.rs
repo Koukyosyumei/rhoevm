@@ -174,7 +174,7 @@ pub enum Expr {
   AbstractStore(Box<Expr>, Option<W256>),
 
   SLoad(Box<Expr>, Box<Expr>),
-  SStore(Box<Expr>, Box<Expr>, Box<Expr>, Box<Expr>),
+  SStore(Box<Expr>, Box<Expr>, Box<Expr>),
 
   // Buffers
   ConcreteBuf(Vec<u8>),
@@ -268,8 +268,8 @@ impl fmt::Display for Expr {
       Expr::ConcreteStore(store) => write!(f, "ConcreteStore({:?})", store),
       Expr::AbstractStore(addr, key) => write!(f, "AbstractStore({}, {:?})", addr, key),
       Expr::SLoad(key, storage) => write!(f, "SLoad({}, {})", key, storage),
-      Expr::SStore(key, value, old_storage, new_storage) => {
-        write!(f, "SStore({}, {}, {}, {})", key, value, old_storage, new_storage)
+      Expr::SStore(key, value, old_storage) => {
+        write!(f, "SStore({}, {}, {})", key, value, old_storage)
       }
       Expr::ConcreteBuf(buf) => write!(f, "ConcreteBuf({:?})", buf),
       Expr::AbstractBuf(name) => write!(f, "AbstractBuf({})", name),
@@ -387,8 +387,8 @@ impl PartialEq for Expr {
       (ConcreteStore(map1), ConcreteStore(map2)) => map1 == map2,
       (AbstractStore(expr1, opt1), AbstractStore(expr2, opt2)) => expr1 == expr2 && opt1 == opt2,
       (SLoad(expr1a, expr1b), SLoad(expr2a, expr2b)) => expr1a == expr2a && expr1b == expr2b,
-      (SStore(expr1a, expr1b, expr1c, expr1d), SStore(expr2a, expr2b, expr2c, expr2d)) => {
-        expr1a == expr2a && expr1b == expr2b && expr1c == expr2c && expr1d == expr2d
+      (SStore(expr1a, expr1b, expr1c), SStore(expr2a, expr2b, expr2c)) => {
+        expr1a == expr2a && expr1b == expr2b && expr1c == expr2c
       }
       (ConcreteBuf(buf1), ConcreteBuf(buf2)) => buf1 == buf2,
       (AbstractBuf(str1), AbstractBuf(str2)) => str1 == str2,
@@ -712,12 +712,11 @@ impl Hash for Expr {
         expr1.hash(state);
         expr2.hash(state);
       }
-      SStore(expr1, expr2, expr3, expr4) => {
+      SStore(expr1, expr2, expr3) => {
         "SStore".hash(state);
         expr1.hash(state);
         expr2.hash(state);
         expr3.hash(state);
-        expr4.hash(state);
       }
       ConcreteBuf(buf) => {
         "ConcreteBuf".hash(state);

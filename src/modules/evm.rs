@@ -1005,7 +1005,7 @@ fn add(a: Expr, b: Expr) -> Expr {
   Expr::Add(Box::new(a), Box::new(b))
 }
 
-fn buf_length(buf: Expr) -> Expr {
+pub fn buf_length(buf: Expr) -> Expr {
   buf_length_env(HashMap::new(), false, buf)
 }
 
