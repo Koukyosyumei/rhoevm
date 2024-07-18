@@ -10,7 +10,7 @@ use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::types::{
-  from_list, len_buf, Addr, Block, Cache, CodeLocation, Contract, ContractCode, Env, Expr, ExprSet, ForkState,
+  from_list, len_buf, unbox, Addr, Block, Cache, CodeLocation, Contract, ContractCode, Env, Expr, ExprSet, ForkState,
   FrameState, GVar, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts,
   W256W256Map, Word64, Word8, VM,
 };
@@ -211,10 +211,6 @@ fn is_creation(code: &ContractCode) -> bool {
     ContractCode::InitCode(_, _) => true,
     _ => false,
   }
-}
-
-fn unbox<T>(value: Box<T>) -> T {
-  *value
 }
 
 impl VM {

@@ -8,9 +8,10 @@ use futures::Future;
 
 use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
-use crate::modules::expr::{conc_keccak_props, write_byte};
-use crate::modules::traversals::map_prop_m;
-use crate::modules::types::{Addr, Expr, Frame, GVar, Prop, W256};
+use crate::modules::expr::{add, conc_keccak_props, in_range, sub, write_byte};
+use crate::modules::keccak::{keccak_assumptions, keccak_compute};
+use crate::modules::traversals::{map_prop_m, TraversableTerm};
+use crate::modules::types::{Addr, Block, Expr, Frame, FrameContext, GVar, Prop, W256};
 
 // Type aliases for convenience
 type Text = String;
@@ -415,9 +416,134 @@ fn concatenate_props(a: &[Prop], b: &[Prop], c: &[Prop]) -> Vec<Prop> {
   a.iter().cloned().chain(b.iter().cloned()).chain(c.iter().cloned()).collect()
 }
 
-/*
-allVars = fmap referencedVars toDeclarePsElim <> fmap referencedVars bufVals <> fmap referencedVars storeVals <> [abstrVars abst]
-*/
+// Function implementations
+fn referenced_abstract_stores<T: TraversableTerm>(term: &T) -> HashSet<Builder> {
+  term.fold_term(
+    |x| match x {
+      Expr::AbstractStore(s, idx) => {
+        let mut set = HashSet::new();
+        set.insert(store_name(unbox(s.clone()), *idx));
+        set
+      }
+      _ => HashSet::new(),
+    },
+    HashSet::new(),
+  )
+}
+
+fn referenced_waddrs<T: TraversableTerm>(term: &T) -> HashSet<Builder> {
+  term.fold_term(
+    |x| match x {
+      Expr::WAddr(a) => {
+        let mut set = HashSet::new();
+        set.insert(format_e_addr(unbox(a.clone())));
+        set
+      }
+      _ => HashSet::new(),
+    },
+    HashSet::new(),
+  )
+}
+
+fn referenced_bufs<T: TraversableTerm>(expr: &T) -> Vec<Builder> {
+  let mut buf_set = HashSet::new();
+  let bufs = expr.fold_term(
+    |x| match x {
+      Expr::AbstractBuf(s) => {
+        buf_set.insert(s);
+        vec![s]
+      }
+      _ => vec![],
+    },
+    vec![],
+  );
+
+  buf_set.iter().map(|s| (*s).clone()).collect()
+}
+
+fn referenced_vars<T: TraversableTerm>(expr: &T) -> Vec<Builder> {
+  let mut var_set = HashSet::new();
+  let vars = expr.fold_term(
+    |x| match x {
+      Expr::Var(s) => {
+        var_set.insert(s);
+        vec![s]
+      }
+      _ => vec![],
+    },
+    vec![],
+  );
+
+  var_set.iter().map(|s| (*s).clone()).collect()
+}
+
+fn referenced_frame_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<Prop>)> {
+  let mut context_set = HashSet::new();
+  let context = expr.fold_term(
+    |x| match x {
+      TxValue => {
+        context_set.insert((("txvalue"), vec![]));
+        vec![(("txvalue"), vec![])]
+      }
+      v @ Expr::Balance(a) => {
+        context_set.insert(((&format!("balance_{}", format_e_addr(a))), vec![format!("PLT {}", v)]));
+        vec![((&format!("balance_{}", format_e_addr(a))), vec![format!("PLT {}", v)])]
+      }
+      Gas {} => {
+        panic!("TODO: GAS");
+        vec![]
+      }
+      _ => vec![],
+    },
+    vec![],
+  );
+
+  context_set.into_iter().map(|(b, p)| (b, p)).collect()
+}
+
+fn referenced_block_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<Prop>)> {
+  let mut context_set = HashSet::new();
+  let context = expr.fold_term(
+    |x| match x {
+      Origin => {
+        context_set.insert((("origin"), vec![in_range(160, Origin.clone())]));
+        vec![(("origin"), vec![in_range(160, Origin.clone())])]
+      }
+      Coinbase => {
+        context_set.insert((("coinbase"), vec![in_range(160, Coinbase.clone())]));
+        vec![(("coinbase"), vec![in_range(160, Coinbase.clone())])]
+      }
+      Timestamp => {
+        context_set.insert((("timestamp"), vec![]));
+        vec![(("timestamp"), vec![])]
+      }
+      BlockNumber => {
+        context_set.insert((("blocknumber"), vec![]));
+        vec![(("blocknumber"), vec![])]
+      }
+      PrevRandao => {
+        context_set.insert((("prevrandao"), vec![]));
+        vec![(("prevrandao"), vec![])]
+      }
+      GasLimit => {
+        context_set.insert((("gaslimit"), vec![]));
+        vec![(("gaslimit"), vec![])]
+      }
+      ChainId => {
+        context_set.insert((("chainid"), vec![]));
+        vec![(("chainid"), vec![])]
+      }
+      BaseFee => {
+        context_set.insert((("basefee"), vec![]));
+        vec![(("basefee"), vec![])]
+      }
+      _ => vec![],
+    },
+    vec![],
+  );
+
+  context_set.into_iter().map(|(b, p)| (b, p)).collect()
+}
 
 fn gather_all_vars(
   to_declare_ps_elim: &[Prop],
@@ -427,9 +553,9 @@ fn gather_all_vars(
 ) -> Vec<Expr> {
   to_declare_ps_elim
     .iter()
-    .flat_map(|p| p.referenced_vars())
-    .chain(buf_vals.iter().flat_map(|v| v.referenced_vars()))
-    .chain(store_vals.iter().flat_map(|v| v.referenced_vars()))
+    .flat_map(|p| referenced_vars(p))
+    .chain(buf_vals.iter().flat_map(|v| referenced_vars(v)))
+    .chain(store_vals.iter().flat_map(|v| referenced_vars(v)))
     .chain(abstract_vars(abst).into_iter())
     .collect()
 }
@@ -441,34 +567,36 @@ fn gather_frame_context(
 ) -> Vec<FrameContext> {
   to_declare_ps_elim
     .iter()
-    .flat_map(|p| p.referenced_frame_context())
-    .chain(buf_vals.iter().flat_map(|v| v.referenced_frame_context()))
-    .chain(store_vals.iter().flat_map(|v| v.referenced_frame_context()))
+    .flat_map(|p| referenced_frame_context(p))
+    .chain(buf_vals.iter().flat_map(|v| referenced_frame_context(v)))
+    .chain(store_vals.iter().flat_map(|v| referenced_frame_context(v)))
     .collect()
 }
 
-fn gather_block_context(
-  to_declare_ps_elim: &[Prop],
-  buf_vals: &Vec<Expr>,
-  store_vals: &Vec<Expr>,
-) -> Vec<BlockContext> {
+fn gather_block_context(to_declare_ps_elim: &[Prop], buf_vals: &Vec<Expr>, store_vals: &Vec<Expr>) -> Vec<Expr> {
   to_declare_ps_elim
     .iter()
-    .flat_map(|p| p.referenced_block_context())
-    .chain(buf_vals.iter().flat_map(|v| v.referenced_block_context()))
-    .chain(store_vals.iter().flat_map(|v| v.referenced_block_context()))
+    .flat_map(|p| referenced_block_context(p))
+    .chain(buf_vals.iter().flat_map(|v| referenced_block_context(v)))
+    .chain(store_vals.iter().flat_map(|v| referenced_block_context(v)))
     .collect()
 }
 
 fn create_keccak_assertions(kecc_assump: &[Prop], kecc_comp: &[Prop]) -> Vec<SMT2> {
   let mut assertions = Vec::new();
-  assertions.push(SMT2::line("; keccak assumptions"));
-  assertions.push(SMT2::new(
-    kecc_assump.iter().map(|p| format!("(assert {})", p.to_smt())).collect(),
+  assertions.push(smt2_line("; keccak assumptions".to_owned()));
+  assertions.push(SMT2(
+    kecc_assump.iter().map(|p| format!("(assert {})", prop_to_smt(p.clone()))).collect(),
+    RefinementEqs::new(),
+    CexVars::new(),
+    vec![],
   ));
-  assertions.push(SMT2::line("; keccak computations"));
-  assertions.push(SMT2::new(
-    kecc_comp.iter().map(|p| format!("(assert {})", p.to_smt())).collect(),
+  assertions.push(smt2_line("; keccak computations".to_owned()));
+  assertions.push(SMT2(
+    kecc_comp.iter().map(|p| format!("(assert {})", prop_to_smt(p.clone()))).collect(),
+    RefinementEqs::new(),
+    CexVars::new(),
+    vec![],
   ));
   assertions
 }
@@ -476,9 +604,12 @@ fn create_keccak_assertions(kecc_assump: &[Prop], kecc_comp: &[Prop]) -> Vec<SMT
 fn create_read_assumptions(ps_elim: &[Prop], bufs: &Bufs, stores: &Stores) -> Vec<SMT2> {
   let assumptions = assert_reads(ps_elim, bufs, stores);
   let mut result = Vec::new();
-  result.push(SMT2::line("; read assumptions"));
-  result.push(SMT2::new(
-    assumptions.iter().map(|p| format!("(assert {})", p.to_smt())).collect(),
+  result.push(smt2_line("; read assumptions".to_string()));
+  result.push(SMT2(
+    assumptions.iter().map(|p| format!("(assert {})", prop_to_smt(p))).collect(),
+    RefinementEqs::new(),
+    CexVars::new(),
+    vec![],
   ));
   result
 }
@@ -522,6 +653,8 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   let addresses = find_addresses(&to_declare_ps);
 
   let read_assumes = create_read_assumptions(&ps_elim, &bufs, &stores);
+
+  let intermediates = declare_intermediates(&bufs, &stores);
 
   /*
       ps = Expr.concKeccakProps psPreConc
@@ -728,11 +861,11 @@ fn expr_to_smt(expr: Expr) -> String {
     },
     Expr::ReadByte(idx, src) => op2("select", *src, *idx),
     Expr::ConcreteBuf("") => "((as const Buf) #b00000000)".to_string(),
-    Expr::ConcreteBuf(bs) => write_bytes(&bs, Expr::mempty()),
+    Expr::ConcreteBuf(bs) => write_bytes(&bs, Expr::Mempty()),
     Expr::AbstractBuf(s) => s,
     Expr::ReadWord(idx, prev) => op2("readWord", *idx, *prev),
-    Expr::BufLength(Expr::AbstractBuf(b)) => format!("{}_length", b),
-    Expr::BufLength(Expr::GVar(GVar::BufVar(n))) => format!("buf{}_length", n),
+    Expr::BufLength(Box::new(Expr::AbstractBuf(b))) => format!("{}_length", b),
+    Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(n)))) => format!("buf{}_length", n),
     Expr::BufLength(b) => expr_to_smt(buf_length(*b)),
     Expr::WriteByte(idx, val, prev) => {
       let enc_idx = expr_to_smt(*idx);
@@ -832,21 +965,21 @@ fn prop_to_smt(prop: Prop) -> String {
 // Stores a region of src into dst
 fn copy_slice(src_offset: Expr, dst_offset: Expr, size0: Expr, src: Builder, dst: Builder) -> Builder {
   if let Expr::Lit(_) = size0 {
-    let src_repr = format!("(let ((src {})) {})", src, internal(size0));
+    let src_repr = format!("(let ((src {})) {})", src, internal(size0, src_offset, dst_offset, dst));
     src_repr
   } else {
     panic!("TODO: implement copy_slice with a symbolically sized region");
   }
 }
 
-fn internal(size: Expr) -> Builder {
+fn internal(size: Expr, src_offset: Expr, dst_offset: Expr, dst: Builder) -> Builder {
   match size {
     Expr::Lit(0) => dst,
     _ => {
-      let size_prime = Expr::sub(size, Expr::Lit(1));
-      let enc_dst_off = expr_to_smt(Expr::add(dst_offset, size_prime));
-      let enc_src_off = expr_to_smt(Expr::add(src_offset, size_prime));
-      let child = internal(size_prime);
+      let size_prime = sub(size, Expr::Lit(1));
+      let enc_dst_off = expr_to_smt(add(dst_offset, size_prime.clone()));
+      let enc_src_off = expr_to_smt(add(src_offset, size_prime.clone()));
+      let child = internal(size_prime, src_offset.clone(), dst_offset.clone(), dst);
       format!("(store {} {} (select src {}))", child, enc_dst_off, enc_src_off)
     }
   }
@@ -857,7 +990,7 @@ fn expand_exp(base: Expr, expnt: W256) -> Builder {
   if expnt == 1 {
     expr_to_smt(base)
   } else {
-    let b = expr_to_smt(base);
+    let b = expr_to_smt(base.clone());
     let n = expand_exp(base, expnt - 1);
     format!("(bvmul {} {})", b, n)
   }
@@ -865,7 +998,7 @@ fn expand_exp(base: Expr, expnt: W256) -> Builder {
 
 // Concatenates a list of bytes into a larger bitvector
 fn write_bytes(bytes: &[u8], buf: Expr) -> Builder {
-  let skip_zeros = buf == Expr::Mempty();
+  let skip_zeros = buf == Expr::Mempty;
   let mut idx = 0;
   let mut inner = expr_to_smt(buf);
   for &byte in bytes {
@@ -983,7 +1116,7 @@ fn parse_tx_ctx(name: &str) -> Expr {
 
 async fn get_addrs(
   parse_name: impl Fn(&str) -> Expr,
-  get_val: impl Fn(&str) -> Future<Output = String>,
+  get_val: impl Fn(&str) -> dyn Future<Output = String>,
   names: &[&str],
 ) -> HashMap<Expr, Addr> {
   let mut map = HashMap::new();

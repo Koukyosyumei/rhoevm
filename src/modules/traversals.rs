@@ -816,14 +816,14 @@ where
 }
 
 // Define the TraversableTerm trait and its implementations
-trait TraversableTerm {
+pub trait TraversableTerm {
   fn map_term<F>(&self, f: F) -> Self
   where
     F: Fn(&Expr) -> Expr;
 
-  fn fold_term<C>(&self, f: &dyn Fn(&Expr) -> C, acc: C) -> C
+  fn fold_term<F, C>(&self, f: F, acc: C) -> C
   where
-    C: std::iter::Sum;
+    F: Fn(&Expr) -> C;
 }
 
 impl TraversableTerm for Expr {
@@ -835,9 +835,9 @@ impl TraversableTerm for Expr {
     todo!()
   }
 
-  fn fold_term<C>(&self, f: &dyn Fn(&Expr) -> C, acc: C) -> C
+  fn fold_term<F, C>(&self, f: F, acc: C) -> C
   where
-    C: std::iter::Sum,
+    F: Fn(&Expr) -> C,
   {
     // Implement fold_term for Expr
     todo!()
@@ -853,11 +853,11 @@ impl TraversableTerm for Prop {
     todo!()
   }
 
-  fn fold_term<C>(&self, f: &dyn Fn(&Expr) -> C, acc: C) -> C
+  fn fold_term<F, C>(&self, f: F, acc: C) -> C
   where
-    C: std::iter::Sum,
+    F: Fn(&Expr) -> C,
   {
-    // Implement fold_term for Prop
+    // Implement fold_term for Expr
     todo!()
   }
 }

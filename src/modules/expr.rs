@@ -6,7 +6,7 @@ const MAX_LIT: W256 = 0xffffffffffffffffffffffffffffffff;
 
 // ** Stack Ops ** ---------------------------------------------------------------------------------
 
-fn op1<F1, F2>(symbolic: F1, concrete: F2, x: &Expr) -> Expr
+pub fn op1<F1, F2>(symbolic: F1, concrete: F2, x: &Expr) -> Expr
 where
   F1: Fn(Box<Expr>) -> Expr,
   F2: Fn(W256) -> W256,
@@ -17,7 +17,7 @@ where
   }
 }
 
-fn op2<F1, F2>(symbolic: F1, concrete: F2, x: &Expr, y: &Expr) -> Expr
+pub fn op2<F1, F2>(symbolic: F1, concrete: F2, x: &Expr, y: &Expr) -> Expr
 where
   F1: Fn(Box<Expr>, Box<Expr>) -> Expr,
   F2: Fn(W256, W256) -> W256,
@@ -28,7 +28,7 @@ where
   }
 }
 
-fn op3<F1, F2>(symbolic: F1, concrete: F2, x: &Expr, y: &Expr, z: &Expr) -> Expr
+pub fn op3<F1, F2>(symbolic: F1, concrete: F2, x: &Expr, y: &Expr, z: &Expr) -> Expr
 where
   F1: Fn(Box<Expr>, Box<Expr>, Box<Expr>) -> Expr,
   F2: Fn(W256, W256, W256) -> W256,
@@ -39,7 +39,7 @@ where
   }
 }
 
-fn norm_args<F1, F2>(symbolic: F1, concrete: F2, l: &Expr, r: &Expr) -> Expr
+pub fn norm_args<F1, F2>(symbolic: F1, concrete: F2, l: &Expr, r: &Expr) -> Expr
 where
   F1: Fn(Box<Expr>, Box<Expr>) -> Expr,
   F2: Fn(W256, W256) -> W256,
@@ -53,23 +53,23 @@ where
 
 // Integers
 
-fn add(l: Expr, r: Expr) -> Expr {
+pub fn add(l: Expr, r: Expr) -> Expr {
   norm_args(Expr::Add, |x: W256, y: W256| x + y, &l, &r)
 }
 
-fn sub(l: Expr, r: Expr) -> Expr {
+pub fn sub(l: Expr, r: Expr) -> Expr {
   op2(Expr::Sub, |x, y| x - y, &l, &r)
 }
 
-fn mul(l: Expr, r: Expr) -> Expr {
+pub fn mul(l: Expr, r: Expr) -> Expr {
   norm_args(Expr::Mul, |x, y| x * y, &l, &r)
 }
 
-fn div(l: Expr, r: Expr) -> Expr {
+pub fn div(l: Expr, r: Expr) -> Expr {
   op2(Expr::Div, |x, y| if y == 0 { 0 } else { x / y }, &l, &r)
 }
 
-fn sdiv(l: Expr, r: Expr) -> Expr {
+pub fn sdiv(l: Expr, r: Expr) -> Expr {
   op2(
     Expr::SDiv,
     |x, y| {
@@ -86,11 +86,11 @@ fn sdiv(l: Expr, r: Expr) -> Expr {
   )
 }
 
-fn r#mod(l: Expr, r: Expr) -> Expr {
+pub fn r#mod(l: Expr, r: Expr) -> Expr {
   op2(Expr::Mod, |x, y| if y == 0 { 0 } else { x % y }, &l, &r)
 }
 
-fn smod(l: Expr, r: Expr) -> Expr {
+pub fn smod(l: Expr, r: Expr) -> Expr {
   op2(
     Expr::SMod,
     |x, y| {
@@ -107,7 +107,7 @@ fn smod(l: Expr, r: Expr) -> Expr {
   )
 }
 
-fn addmod(x: Expr, y: Expr, z: Expr) -> Expr {
+pub fn addmod(x: Expr, y: Expr, z: Expr) -> Expr {
   op3(
     Expr::AddMod,
     |x, y, z| {
@@ -123,7 +123,7 @@ fn addmod(x: Expr, y: Expr, z: Expr) -> Expr {
   )
 }
 
-fn mulmod(x: Expr, y: Expr, z: Expr) -> Expr {
+pub fn mulmod(x: Expr, y: Expr, z: Expr) -> Expr {
   op3(
     Expr::MulMod,
     |x, y, z| {
@@ -139,11 +139,11 @@ fn mulmod(x: Expr, y: Expr, z: Expr) -> Expr {
   )
 }
 
-fn exp(x: Expr, y: Expr) -> Expr {
+pub fn exp(x: Expr, y: Expr) -> Expr {
   op2(Expr::Exp, |x, y| x.pow(y as u32), &x, &y)
 }
 
-fn sex(bytes: Expr, x: Expr) -> Expr {
+pub fn sex(bytes: Expr, x: Expr) -> Expr {
   op2(
     Expr::SEx,
     |bytes, x| {
@@ -165,23 +165,23 @@ fn sex(bytes: Expr, x: Expr) -> Expr {
 
 // Booleans
 
-fn lt(x: Expr, y: Expr) -> Expr {
+pub fn lt(x: Expr, y: Expr) -> Expr {
   op2(Expr::LT, |x, y| if x < y { 1 } else { 0 }, &x, &y)
 }
 
-fn gt(x: Expr, y: Expr) -> Expr {
+pub fn gt(x: Expr, y: Expr) -> Expr {
   op2(Expr::GT, |x, y| if x > y { 1 } else { 0 }, &x, &y)
 }
 
-fn leq(x: Expr, y: Expr) -> Expr {
+pub fn leq(x: Expr, y: Expr) -> Expr {
   op2(Expr::LEq, |x, y| if x <= y { 1 } else { 0 }, &x, &y)
 }
 
-fn geq(x: Expr, y: Expr) -> Expr {
+pub fn geq(x: Expr, y: Expr) -> Expr {
   op2(Expr::GEq, |x, y| if x >= y { 1 } else { 0 }, &x, &y)
 }
 
-fn slt(x: Expr, y: Expr) -> Expr {
+pub fn slt(x: Expr, y: Expr) -> Expr {
   op2(
     Expr::SLT,
     |x, y| {
@@ -198,7 +198,7 @@ fn slt(x: Expr, y: Expr) -> Expr {
   )
 }
 
-fn sgt(x: Expr, y: Expr) -> Expr {
+pub fn sgt(x: Expr, y: Expr) -> Expr {
   op2(
     Expr::SGT,
     |x, y| {
@@ -215,41 +215,41 @@ fn sgt(x: Expr, y: Expr) -> Expr {
   )
 }
 
-fn eq(x: Expr, y: Expr) -> Expr {
+pub fn eq(x: Expr, y: Expr) -> Expr {
   norm_args(Expr::Eq, |x, y| if x == y { 1 } else { 0 }, &x, &y)
 }
 
-fn iszero(x: Expr) -> Expr {
+pub fn iszero(x: Expr) -> Expr {
   op1(Expr::IsZero, |x| if x == 0 { 1 } else { 0 }, &x)
 }
 
 // Bits
 
-fn and(x: Expr, y: Expr) -> Expr {
+pub fn and(x: Expr, y: Expr) -> Expr {
   norm_args(Expr::And, |x, y| x & y, &x, &y)
 }
 
-fn or(x: Expr, y: Expr) -> Expr {
+pub fn or(x: Expr, y: Expr) -> Expr {
   norm_args(Expr::Or, |x, y| x | y, &x, &y)
 }
 
-fn xor(x: Expr, y: Expr) -> Expr {
+pub fn xor(x: Expr, y: Expr) -> Expr {
   norm_args(Expr::Xor, |x, y| x ^ y, &x, &y)
 }
 
-fn not(x: Expr) -> Expr {
+pub fn not(x: Expr) -> Expr {
   op1(Expr::Not, |x| !x, &x)
 }
 
-fn shl(x: Expr, y: Expr) -> Expr {
+pub fn shl(x: Expr, y: Expr) -> Expr {
   op2(Expr::SHL, |x, y| if x > 256 { 0 } else { y << x }, &x, &y)
 }
 
-fn shr(x: Expr, y: Expr) -> Expr {
+pub fn shr(x: Expr, y: Expr) -> Expr {
   op2(Expr::SHR, |x, y| if x > 256 { 0 } else { y >> x }, &x, &y)
 }
 
-fn sar(x: Expr, y: Expr) -> Expr {
+pub fn sar(x: Expr, y: Expr) -> Expr {
   op2(
     Expr::SAR,
     |x, y| {

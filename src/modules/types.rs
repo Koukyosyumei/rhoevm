@@ -1444,3 +1444,7 @@ impl_hashmap_traits!(ExprContractMap, Expr, Contract);
 impl_hashmap_traits!(AddrStringMap, Addr, String);
 impl_hashmap_traits!(ExprExprMap, Expr, Expr);
 impl_hashmap_traits!(W256W256Map, W256, W256);
+
+pub fn unbox<T>(value: Box<T>) -> T {
+  *value
+}
