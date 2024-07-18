@@ -649,7 +649,7 @@ fn create_read_assumptions(ps_elim: &[Prop], bufs: &BufEnv, stores: &StoreEnv) -
   let mut result = Vec::new();
   result.push(smt2_line("; read assumptions".to_string()));
   result.push(SMT2(
-    assumptions.iter().map(|p| format!("(assert {})", prop_to_smt(p))).collect(),
+    assumptions.iter().map(|p| format!("(assert {})", prop_to_smt(p.clone()))).collect(),
     RefinementEqs::new(),
     CexVars::new(),
     vec![],
@@ -894,14 +894,14 @@ fn expr_to_smt(expr: Expr) -> String {
     Expr::GasLimit => "gaslimit".to_string(),
     Expr::ChainId => "chainid".to_string(),
     Expr::BaseFee => "basefee".to_string(),
-    Expr::SymAddr(a) => format_e_addr(*a),
+    Expr::SymAddr(a) => format_e_addr(expr),
     Expr::WAddr(a) => format!("(concat (_ bv0 96) {})", expr_to_smt(*a)),
     Expr::LitByte(b) => format!("(_ bv{} 8)", b),
     Expr::IndexWord(idx, w) => match *idx {
       Expr::Lit(n) => {
         if n >= 0 && n < 32 {
           let enc = expr_to_smt(*w);
-          format!("(indexWord{})", n, enc)
+          format!("(indexWord{})", n)
         } else {
           expr_to_smt(Expr::LitByte(0))
         }
@@ -934,7 +934,7 @@ fn expr_to_smt(expr: Expr) -> String {
     Expr::CopySlice(src_idx, dst_idx, size, src, dst) => {
       copy_slice(*src_idx, *dst_idx, *size, expr_to_smt(*src), expr_to_smt(*dst))
     }
-    Expr::ConcreteStore(s) => encode_concrete_store(&s),
+    Expr::ConcreteStore(s) => encode_concrete_store(&mut &s),
     Expr::AbstractStore(a, idx) => store_name(*a, idx),
     Expr::SStore(idx, val, prev) => {
       let enc_idx = expr_to_smt(*idx);
@@ -1066,7 +1066,7 @@ fn write_bytes(bytes: &[u8], buf: Expr) -> Builder {
   inner
 }
 
-fn encode_concrete_store(s: &W256W256Map) -> Builder {
+fn encode_concrete_store(s: &mut W256W256Map) -> Builder {
   s.iter().fold(
     "((as const Storage) #x0000000000000000000000000000000000000000000000000000000000000000)".to_string(),
     |prev, (key, val)| {
@@ -1117,15 +1117,19 @@ fn parse_w8(sc: SpecConstant) -> u8 {
 }
 
 fn parse_sc<T: FromStr + Default>(sc: SpecConstant) -> T {
+  todo!()
+  /*
   match sc {
     SpecConstant::Hexadecimal(a) => i64::from_str_radix(&a[2..], 16).unwrap_or_default(),
     SpecConstant::Binary(a) => i64::from_str_radix(&a[2..], 2).unwrap_or_default(),
     _ => panic!("cannot parse: {:?}", sc),
   }
+  */
 }
 
 fn parse_err<T>(res: T) -> ! {
-  panic!("cannot parse solver response: {:?}", res)
+  todo!()
+  // panic!("cannot parse solver response: {:?}", res)
 }
 
 fn parse_var(name: &str) -> Expr {
@@ -1171,6 +1175,8 @@ fn get_addrs(
   get_val: impl Fn(&str) -> String,
   names: &[&str],
 ) -> HashMap<Expr, Addr> {
+  todo!()
+  /*
   let mut map = HashMap::new();
   for &name in names {
     let raw = get_val(name);
@@ -1178,6 +1184,7 @@ fn get_addrs(
     map.insert(parse_name(name), val);
   }
   map
+  */
 }
 
 fn get_vars(
@@ -1185,6 +1192,8 @@ fn get_vars(
   get_val: impl Fn(&str) -> String,
   names: &[&str],
 ) -> HashMap<Expr, W256> {
+  todo!()
+  /*
   let mut map = HashMap::new();
   for &name in names {
     let raw = get_val(name);
@@ -1192,8 +1201,10 @@ fn get_vars(
     map.insert(parse_name(name), val);
   }
   map
+  */
 }
 
+/*
 fn get_one<T>(
   parse_val: impl Fn(SpecConstant) -> T,
   get_val: impl Fn(&str) -> String,
@@ -1202,7 +1213,7 @@ fn get_one<T>(
 ) -> HashMap<String, T> {
   let raw = get_val(name);
   let parsed = match parse_comment_free_file_msg(&raw) {
-    Ok(ResSpecific(val_parsed)) if val_parsed.len() == 1 => val_parsed[0].clone(),
+    Ok(String(val_parsed)) if val_parsed.len() == 1 => val_parsed[0].clone(),
     res => parse_err(res),
   };
   let val = match parsed {
@@ -1240,14 +1251,17 @@ fn get_length(get_val: impl Fn(&str) -> String, name: &str) -> W256 {
   parse_w256(parse_comment_free_file_msg(&raw))
 }
 
-fn parse_comment_free_file_msg(raw: &str) -> Result<ResSpecific, ()> {
+fn parse_comment_free_file_msg(raw: &str) -> SpecConstant {
+  /*
   let parsed = parse_z3_response(raw).map_err(|e| eprintln!("{}", e))?;
-  Ok(ResSpecific(parsed))
+  Ok(String(parsed))
+  */
+  todo!()
 }
 
-fn parse_buf(len: W256, res: Result<ResSpecific, ()>) -> BufModel {
+fn parse_buf(len: W256, res: SpecConstant) -> BufModel {
   match res {
-    Ok(ResSpecific(model)) => {
+    Ok(String(model)) => {
       let buf = model
         .iter()
         .map(|term| match term {
@@ -1264,6 +1278,7 @@ fn parse_buf(len: W256, res: Result<ResSpecific, ()>) -> BufModel {
     Err(_) => panic!("cannot parse buf model"),
   }
 }
+*/
 
 fn smt2_line(txt: Builder) -> SMT2 {
   SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])

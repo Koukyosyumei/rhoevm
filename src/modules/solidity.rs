@@ -164,15 +164,24 @@ fn line_subrange(xs: &Vec<Vec<u8>>, (s1, n1): (usize, usize), i: usize) -> Optio
   }
 }
 
+/*makeSourceCache :: FilePath -> Sources -> Asts -> IO SourceCache */
+
+fn make_source_cache(root: &str, sources: &Sources, asts: &Asts) -> SourceCache {
+  todo!()
+}
+
 fn read_solc(pt: ProjectType, root: &str, fp: &str) -> Result<BuildOutput, String> {
   let file_contents = fs::read_to_string(fp).map_err(|e| format!("Failed to read file: {}", e))?;
   let contract_name = fp.rsplit('/').next().unwrap_or("").to_string();
 
   match read_json(pt, &contract_name, &file_contents) {
-    None => Err(format!("Unable to parse {} project JSON: {}", pt, fp)),
+    None => Err(format!("Unable to parse project JSON: {}", fp)),
     Some((contracts, asts, sources)) => {
       let source_cache = make_source_cache(root, &sources, &asts);
-      Ok(BuildOutput::Success(contracts, source_cache))
+      Ok(BuildOutput {
+        contracts: contracts,
+        sources: source_cache,
+      })
     }
   }
 }
@@ -188,31 +197,36 @@ fn yul_runtime(contract_name: &str, src: &str) -> Option<Vec<u8>> {
   let json: Value = from_str(&solc(Language::Yul, src).unwrap()).unwrap();
   let f = json["contracts"]["hevm.sol"][contract_name];
   let bytecode = f["evm"]["deployedBytecode"]["object"].as_str()?.as_bytes().to_vec();
-  Some(to_code(contract_name, &bytecode))
+  Some(to_code(contract_name, bytecode).unwrap())
 }
 
 fn solidity(contract: &str, src: &str) -> Option<Vec<u8>> {
   let json = solc(Language::Solidity, src).unwrap();
   let (contracts, _, _) = read_std_json(&json)?;
-  contracts.get(&format!("hevm.sol:{}", contract)).map(|contract| contract.creation_code.clone())
+  contracts.0.get(&format!("hevm.sol:{}", contract)).map(|contract| contract.creation_code.clone())
 }
 
 fn solc_runtime(contract: &str, src: &str) -> Option<Vec<u8>> {
   let json = solc(Language::Solidity, src).unwrap();
   let (contracts, _, _) = read_std_json(&json)?;
-  contracts.get(&format!("hevm.sol:{}", contract)).map(|contract| contract.runtime_code.clone())
+  contracts.0.get(&format!("hevm.sol:{}", contract)).map(|contract| contract.runtime_code.clone())
 }
 
 fn function_abi(f: &str) -> Result<Method, String> {
   let json = solc(
     Language::Solidity,
     &format!("contract ABI {{ function {} public {{}}}}", f),
-  )?;
-  let (contracts, _, _) = read_std_json(&json)?;
-  contracts
-    .get("hevm.sol:ABI")
-    .and_then(|contract| contract.abi_map.get(f).cloned())
-    .ok_or_else(|| "Unexpected abi format".to_string())
+  );
+  let rsj = read_std_json(&json.unwrap());
+  if let Some((contracts, _, _)) = rsj {
+    contracts
+      .0
+      .get("hevm.sol:ABI")
+      .and_then(|contract| contract.abi_map.get(f))
+      .ok_or_else(|| "Unexpected abi format".to_string())
+  } else {
+    panic!("Invalid Value Encountered!")
+  }
 }
 
 fn force<T>(s: &str, maybe_a: Option<T>) -> T {
