@@ -1166,41 +1166,41 @@ fn parse_tx_ctx(name: &str) -> Expr {
   }
 }
 
-async fn get_addrs(
+fn get_addrs(
   parse_name: impl Fn(&str) -> Expr,
-  get_val: impl Fn(&str) -> dyn Future<Output = String>,
+  get_val: impl Fn(&str) -> String,
   names: &[&str],
 ) -> HashMap<Expr, Addr> {
   let mut map = HashMap::new();
   for &name in names {
-    let raw = get_val(name).await;
+    let raw = get_val(name);
     let val = parse_addr(parse_comment_free_file_msg(&raw));
     map.insert(parse_name(name), val);
   }
   map
 }
 
-async fn get_vars(
+fn get_vars(
   parse_name: impl Fn(&str) -> Expr,
-  get_val: impl Fn(&str) -> dyn Future<Output = String>,
+  get_val: impl Fn(&str) -> String,
   names: &[&str],
 ) -> HashMap<Expr, W256> {
   let mut map = HashMap::new();
   for &name in names {
-    let raw = get_val(name).await;
+    let raw = get_val(name);
     let val = parse_w256(parse_comment_free_file_msg(&raw));
     map.insert(parse_name(name), val);
   }
   map
 }
 
-async fn get_one<T>(
+fn get_one<T>(
   parse_val: impl Fn(SpecConstant) -> T,
-  get_val: impl Fn(&str) -> dyn Future<Output = String>,
+  get_val: impl Fn(&str) -> String,
   mut acc: HashMap<String, T>,
   name: &str,
 ) -> HashMap<String, T> {
-  let raw = get_val(name).await;
+  let raw = get_val(name);
   let parsed = match parse_comment_free_file_msg(&raw) {
     Ok(ResSpecific(val_parsed)) if val_parsed.len() == 1 => val_parsed[0].clone(),
     res => parse_err(res),
@@ -1214,32 +1214,29 @@ async fn get_one<T>(
 }
 
 // Queries the solver for models for each of the expressions representing the max read index for a given buffer
-async fn query_max_reads(
-  get_val: impl Fn(&str) -> dyn Future<Output = String>,
-  max_reads: &HashMap<String, Expr>,
-) -> HashMap<String, W256> {
+fn query_max_reads(get_val: impl Fn(&str) -> String, max_reads: &HashMap<String, Expr>) -> HashMap<String, W256> {
   let mut map = HashMap::new();
   for (key, val) in max_reads {
-    let result = query_value(&get_val, val).await;
+    let result = query_value(&get_val, val);
     map.insert(key.clone(), result);
   }
   map
 }
 
 // Gets the initial model for each buffer, these will often be much too large for our purposes
-async fn get_bufs(get_val: impl Fn(&str) -> dyn Future<Output = String>, bufs: &[&str]) -> HashMap<Expr, BufModel> {
+fn get_bufs(get_val: impl Fn(&str) -> String, bufs: &[&str]) -> HashMap<Expr, BufModel> {
   let mut map = HashMap::new();
   for &name in bufs {
-    let len = get_length(&get_val, name).await;
-    let raw = get_val(name).await;
+    let len = get_length(&get_val, name);
+    let raw = get_val(name);
     let buf = parse_buf(len, parse_comment_free_file_msg(&raw));
     map.insert(Expr::AbstractBuf(name.to_string()), buf);
   }
   map
 }
 
-async fn get_length(get_val: impl Fn(&str) -> dyn Future<Output = String>, name: &str) -> W256 {
-  let raw = get_val(&format!("len_{}", name)).await;
+fn get_length(get_val: impl Fn(&str) -> String, name: &str) -> W256 {
+  let raw = get_val(&format!("len_{}", name));
   parse_w256(parse_comment_free_file_msg(&raw))
 }
 
