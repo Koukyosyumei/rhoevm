@@ -6,7 +6,9 @@ use std::hash::Hash;
 use std::iter;
 use tiny_keccak::{Hasher, Keccak};
 
-use crate::modules::expr::min;
+use crate::modules::expr::{
+  emin, index_word, read_bytes, read_word, read_word_from_bytes, word256_bytes, write_byte, write_word,
+};
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, Op};
 use crate::modules::types::{
@@ -219,7 +221,8 @@ impl VM {
   pub fn exec1(&mut self) {
     // let mut vm.state.stack = &vm.state.stack;
     let self_contract = self.state.contract.clone();
-    let this_contract = self.env.contracts.get(&self_contract).unwrap();
+    let binding = self.env.clone();
+    let this_contract = binding.contracts.get(&self_contract).unwrap();
     let fees = self.block.schedule.clone();
 
     if let Some(lit_self) = maybe_lit_addr(&self_contract) {
@@ -338,7 +341,7 @@ impl VM {
         Op::Log(n) => {
           not_static(self, || {});
           if let Some((x_offset, x_size, xs)) =
-            self.state.stack.split_first().clone().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
+            self.state.stack.clone().split_first().clone().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
           {
             if xs.len() < n as usize {
               underrun();
@@ -351,7 +354,7 @@ impl VM {
                 topics.to_vec(),
               )];
               burn_log(x_size, op, || {});
-              access_memory_range(self, **x_offset, **x_size, || {});
+              access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
               trace_top_log(logs.clone());
               self.state.stack = xs.to_vec();
               self.logs = logs;
@@ -391,17 +394,18 @@ impl VM {
           if let Some((x_offset, x_size, xs)) =
             self.state.stack.clone().split_first().and_then(|(a, b)| b.split_first().map(|(c, d)| (a, c, d)))
           {
-            burn_sha3(self, unbox(x_size.clone()), self.block.schedule.clone(), || {});
-            access_memory_range(self, **x_offset, **x_size, || {
-              let buffer = read_memory(x_offset, x_size);
-              let hash = match buffer {
-                orig @ Expr::ConcreteBuf(_) => Expr::Keccak(Box::new(orig)),
-                // orig @ Expr::ConcreteBuf(bs) => Expr::Lit(word32(&keccak_prime(&bs.to_vec()))),
-                _ => keccak(buffer).unwrap(),
-              };
-              next(self);
-              self.state.stack = std::iter::once(Box::new(hash)).chain(xs.iter().cloned()).collect();
-            });
+            //burn_sha3(self, unbox(x_size.clone()), self.block.schedule.clone(), || {
+            //  access_memory_range(self, **x_offset, **x_size, || {
+            let buffer = read_memory(x_offset, x_size);
+            let hash = match buffer {
+              orig @ Expr::ConcreteBuf(_) => Expr::Keccak(Box::new(orig)),
+              // orig @ Expr::ConcreteBuf(bs) => Expr::Lit(word32(&keccak_prime(&bs.to_vec()))),
+              _ => keccak(buffer).unwrap(),
+            };
+            next(self);
+            self.state.stack = std::iter::once(Box::new(hash)).chain(xs.iter().cloned()).collect();
+            //  });
+            //});
           } else {
             underrun();
           }
@@ -414,7 +418,7 @@ impl VM {
           });
         }
         Op::Balance => {
-          if let Some(x) = self.state.stack.first() {
+          if let Some(x) = self.state.stack.clone().first() {
             force_addr(x, "BALANCE", |a| {
               access_and_burn(&a, || {
                 fetch_account(&a, |c| {
@@ -477,7 +481,7 @@ impl VM {
             if let Some((x_from, rest)) = rest.split_first() {
               if let Some((x_size, xs)) = rest.split_first() {
                 burn_calldatacopy(self, unbox(x_size.clone()), self.block.schedule.clone(), || {});
-                access_memory_range(self, **x_to, **x_size, || {});
+                access_memory_range(self, *x_to.clone(), *x_size.clone(), || {});
                 self.state.stack = xs.to_vec();
                 copy_bytes_to_memory(
                   self.state.calldata.clone(),
@@ -510,11 +514,10 @@ impl VM {
             let rest1 = rest1.to_vec();
             if let Some((code_offset, rest)) = rest1.split_first().clone() {
               if let Some((n, xs)) = rest.split_first().clone() {
+                next(self);
+                self.state.stack = xs.to_vec();
                 burn_codecopy(self, unbox(n.clone()), self.block.schedule.clone(), || {});
-                access_memory_range(self, *mem_offset.clone(), *n.clone(), || {
-                  next(self);
-                  self.state.stack = xs.to_vec();
-                });
+                access_memory_range(self, *mem_offset.clone(), *n.clone(), || {});
                 if let Some(b) = to_buf(&self.state.code) {
                   copy_bytes_to_memory(
                     Expr::ConcreteBuf(b.to_vec()),
@@ -544,7 +547,7 @@ impl VM {
           });
         }
         Op::Extcodesize => {
-          if let Some(x) = self.state.stack.first().clone() {
+          if let Some(x) = self.state.stack.clone().first().clone() {
             force_addr(x, "EXTCODESIZE", |a| {
               access_and_burn(&a, || {
                 fetch_account(&a, |c| {
@@ -579,23 +582,22 @@ impl VM {
                       self.block.schedule.clone(),
                       || {},
                     );
-                    access_memory_range(self, *mem_offset, **code_size, || {
-                      fetch_account(&a, |c| {
-                        next(self);
-                        self.state.stack = xs.to_vec();
-                        if let Some(b) = &c.bytecode() {
-                          copy_bytes_to_memory(
-                            b.clone(),
-                            unbox(code_size.clone()),
-                            unbox(code_offset.clone()),
-                            unbox(mem_offset.clone()),
-                            self,
-                          );
-                        } else {
-                          internal_error("Cannot copy from unknown code");
-                        }
-                      });
+                    fetch_account(&a, |c| {
+                      next(self);
+                      self.state.stack = xs.to_vec();
+                      if let Some(b) = &c.bytecode() {
+                        copy_bytes_to_memory(
+                          b.clone(),
+                          unbox(code_size.clone()),
+                          unbox(code_offset.clone()),
+                          unbox(mem_offset.clone()),
+                          self,
+                        );
+                      } else {
+                        internal_error("Cannot copy from unknown code");
+                      }
                     });
+                    access_memory_range(self, *mem_offset, *code_size.clone(), || {});
                   });
                 } else {
                   underrun();
@@ -664,7 +666,7 @@ impl VM {
           });
         }
         Op::Selfbalance => {
-          limit_stack(1, self.state.stack.len(), || {
+          limit_stack(1, self.state.stack.clone().len(), || {
             burn(self, fees.g_base, || {});
             next(self);
             push_sym(self, Box::new(this_contract.balance.clone()))
@@ -693,24 +695,21 @@ impl VM {
         }
         Op::Pop => {
           if let Some((_, xs)) = self.state.stack.split_first() {
-            burn(self, fees.g_base, || {
-              next(self);
-              self.state.stack = xs.to_vec();
-            });
+            self.state.stack = xs.to_vec();
+            next(self);
+            burn(self, fees.g_base, || {});
           } else {
             underrun();
           }
         }
         Op::Mload => {
-          if let Some((x, xs)) = self.state.stack.split_first() {
-            burn(self, fees.g_verylow, || {
-              access_memory_word(self, **x, || {
-                next(self);
-                let buf = read_memory(x, &Expr::Lit(32));
-                let w = Expr::read_word_from_bytes(&Expr::Lit(0), &buf);
-                self.state.stack = std::iter::once(Box::new(w)).chain(xs.iter().cloned()).collect();
-              });
-            });
+          if let Some((x, xs)) = self.state.stack.clone().split_first() {
+            let buf = read_memory(x, &Expr::Lit(32));
+            let w = read_word_from_bytes(Expr::Lit(0), buf);
+            self.state.stack = std::iter::once(Box::new(w)).chain(xs.iter().cloned()).collect();
+            next(self);
+            access_memory_word(self, *x.clone(), || {});
+            burn(self, fees.g_verylow, || {});
           } else {
             underrun();
           }
@@ -721,34 +720,32 @@ impl VM {
           - offset: offset in the memory in bytes.
           - value: 32-byte value to write in the memory.
           */
-          if let Some((x, rest)) = self.state.stack.split_first() {
+          if let Some((x, rest)) = self.state.stack.clone().split_first() {
             if let Some((y, xs)) = rest.split_first() {
-              burn(self, fees.g_verylow, || {
-                access_memory_word(self, **x, || {
-                  next(self);
-                  match &self.state.memory {
-                    &Memory::ConcreteMemory(mem) => match y {
-                      Expr::Lit(w) => {
-                        copy_bytes_to_memory(
-                          Expr::ConcreteBuf(word256_bytes(*w)),
-                          &Expr::Lit(32),
-                          &Expr::Lit(0),
-                          x,
-                          self,
-                        );
-                      }
-                      _ => {
-                        let buf = freeze_memory(mem);
-                        self.state.memory = Memory::SymbolicMemory(write_word(x, y, &buf));
-                      }
-                    },
-                    &Memory::SymbolicMemory(mem) => {
-                      self.state.memory = Memory::SymbolicMemory(write_word(x, y, mem));
-                    }
+              next(self);
+              match &self.state.memory {
+                Memory::ConcreteMemory(mem) => match **y {
+                  Expr::Lit(w) => {
+                    copy_bytes_to_memory(
+                      Expr::ConcreteBuf(word256_bytes(w.into())),
+                      Expr::Lit(32),
+                      Expr::Lit(0),
+                      *x.clone(),
+                      self,
+                    );
                   }
-                  self.state.stack = xs.to_vec();
-                });
-              });
+                  _ => {
+                    let buf = freeze_memory(&mem);
+                    self.state.memory = Memory::SymbolicMemory(write_word(*x.clone(), *y.clone(), buf));
+                  }
+                },
+                Memory::SymbolicMemory(mem) => {
+                  self.state.memory = Memory::SymbolicMemory(write_word(*x.clone(), *y.clone(), mem.clone()));
+                }
+              }
+              self.state.stack = xs.to_vec();
+              access_memory_word(self, *x.clone(), || {});
+              burn(self, fees.g_verylow, || {});
             } else {
               underrun();
             }
@@ -757,29 +754,33 @@ impl VM {
           }
         }
         Op::Mstore8 => {
-          if let Some((x, rest)) = self.state.stack.split_first() {
+          if let Some((x, rest)) = self.state.stack.clone().split_first() {
             if let Some((y, xs)) = rest.split_first() {
-              burn(self, fees.g_verylow, || {
-                access_memory_range(self, **x, Expr::Lit(1), || {
-                  let y_byte = index_word(&Expr::Lit(31), y);
-                  next(self);
-                  match &self.state.memory {
-                    &Memory::ConcreteMemory(mem) => match y_byte {
-                      Expr::LitByte(byte) => {
-                        copy_bytes_to_memory(Expr::ConcreteBuf(vec![byte]), &Expr::Lit(1), &Expr::Lit(0), x, self);
-                      }
-                      _ => {
-                        let buf = freeze_memory(&mem);
-                        self.state.memory = Memory::SymbolicMemory(write_byte(x, y_byte, &buf));
-                      }
-                    },
-                    &Memory::SymbolicMemory(mem) => {
-                      self.state.memory = Memory::SymbolicMemory(write_byte(x, y_byte, mem));
-                    }
+              let y_byte = index_word(Expr::Lit(31), *y.clone());
+              next(self);
+              match &self.state.memory {
+                Memory::ConcreteMemory(mem) => match y_byte {
+                  Expr::LitByte(byte) => {
+                    copy_bytes_to_memory(
+                      Expr::ConcreteBuf(vec![byte]),
+                      Expr::Lit(1),
+                      Expr::Lit(0),
+                      *x.clone(),
+                      self,
+                    );
                   }
-                  self.state.stack = xs.to_vec();
-                });
-              });
+                  _ => {
+                    let buf = freeze_memory(&mem);
+                    self.state.memory = Memory::SymbolicMemory(write_byte(*x.clone(), y_byte, buf));
+                  }
+                },
+                Memory::SymbolicMemory(mem) => {
+                  self.state.memory = Memory::SymbolicMemory(write_byte(*x.clone(), y_byte, mem.clone()));
+                }
+              }
+              self.state.stack = xs.to_vec();
+              access_memory_range(self, *x.clone(), Expr::Lit(1), || {});
+              burn(self, fees.g_verylow, || {});
             } else {
               underrun();
             }
@@ -787,6 +788,8 @@ impl VM {
             underrun();
           }
         }
+        _ => panic!("unsupported op"),
+        /*
         Op::Sload => {
           if let Some((x, xs)) = self.state.stack.split_first() {
             let acc = access_storage_for_gas(self, x);
@@ -843,6 +846,7 @@ impl VM {
             underrun();
           }
         }
+        */
       }
     }
   }
@@ -879,8 +883,8 @@ fn expand_memory(memory: &mut MutableMemory, target_size: usize) {
   }
 }
 
-fn freeze_memory(memory: &MutableMemory) -> MutableMemory {
-  memory.clone() // Clone the memory vector to freeze it
+fn freeze_memory(memory: &MutableMemory) -> Expr {
+  Expr::ConcreteBuf(memory.clone()) // Clone the memory vector to freeze it
 }
 
 fn copy_bytes_to_memory(bs: Expr, size: Expr, src_offset: Expr, mem_offset: Expr, vm: &mut VM) {
@@ -1115,7 +1119,7 @@ fn access_memory_word(vm: &mut VM, x: Expr, continue_fn: impl Fn()) {
 }
 
 fn copy_call_bytes_to_memory(vm: &mut VM, bs: Expr, size: Expr, y_offset: Expr) {
-  let size_min = min(size, buf_length(bs.clone()));
+  let size_min = emin(size, buf_length(bs.clone()));
   copy_bytes_to_memory(bs, size_min, Expr::Lit(0), y_offset, vm);
 }
 
@@ -1187,6 +1191,12 @@ fn stack_op1(vm: &mut VM, gas: u64, op: &str) {
 
 fn force_addr<F: FnOnce(Expr)>(n: &Expr, msg: &str, f: F) {
   // Implement address forcing logic
+  todo!()
+}
+
+fn force_concrete<F: FnOnce(Expr)>(n: &Expr, msg: &str, f: F) {
+  // Implement address forcing logic
+  todo!()
 }
 
 fn access_and_burn(addr: &Expr, f: impl FnOnce()) {
