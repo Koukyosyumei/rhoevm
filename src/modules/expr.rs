@@ -313,7 +313,7 @@ pub const MAX_BYTES: u32 = (u32::MAX) / 8;
 
 pub fn write_byte(offset: Expr, byte: Expr, src: Expr) -> Expr {
   match (offset, byte, src) {
-    (Expr::Lit(offset), Expr::LitByte(val), Expr::ConcreteBuf(src)) if offset < MAX_BYTES => {
+    (Expr::Lit(offset), Expr::LitByte(val), Expr::ConcreteBuf(src)) if src.len() == 0 && offset < MAX_BYTES => {
       let mut buffer = vec![0; offset as usize];
       buffer.push(val);
       buffer.extend(vec![0; MAX_BYTES as usize - offset as usize - 1]);

@@ -1,4 +1,4 @@
-use rhoevm::modules::expr::{add, addmod, div, geq, gt, leq, lt, mul, mulmod, sub};
+use rhoevm::modules::expr::{add, addmod, div, geq, gt, leq, lt, mul, mulmod, sub, write_byte};
 use rhoevm::modules::types::Expr;
 
 #[test]
@@ -135,4 +135,14 @@ fn test_mulmod_concrete_zero() {
   let y = Expr::Lit(4);
   let z = Expr::Lit(0);
   assert_eq!(mulmod(x, y, z), Expr::Lit(0));
+}
+
+#[test]
+fn test_write_byte_concrete() {
+  let offset = Expr::Lit(1);
+  let byte = Expr::LitByte(0xAB);
+  let src = Expr::ConcreteBuf(vec![0x00, 0x00, 0x00]);
+
+  let expected = Expr::ConcreteBuf(vec![0x00, 0xAB, 0x00]);
+  assert_eq!(write_byte(offset, byte, src), expected);
 }
