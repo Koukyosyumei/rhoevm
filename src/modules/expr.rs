@@ -330,15 +330,15 @@ pub fn write_byte(offset: Expr, byte: Expr, src: Expr) -> Expr {
   }
 }
 
-fn is_power_of_two(n: u64) -> bool {
+pub fn is_power_of_two(n: u64) -> bool {
   n != 0 && (n & (n - 1)) == 0
 }
 
-fn count_leading_zeros(n: u64) -> u32 {
+pub fn count_leading_zeros(n: u64) -> u32 {
   n.leading_zeros()
 }
 
-fn is_byte_aligned(m: u64) -> bool {
+pub fn is_byte_aligned(m: u64) -> bool {
   count_leading_zeros(m) % 8 == 0
 }
 
