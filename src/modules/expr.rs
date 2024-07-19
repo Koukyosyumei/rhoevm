@@ -69,6 +69,43 @@ pub fn div(l: Expr, r: Expr) -> Expr {
   op2(Expr::Div, |x, y| if y == 0 { 0 } else { x / y }, &l, &r)
 }
 
+pub fn min(l: Expr, r: Expr) -> Expr {
+  norm_args(
+    Expr::Min,
+    |x, y| {
+      if x <= y {
+        x
+      } else {
+        y
+      }
+    },
+    &l,
+    &r,
+  )
+}
+
+pub fn max(l: Expr, r: Expr) -> Expr {
+  norm_args(
+    Expr::Min,
+    |x, y| {
+      if x >= y {
+        x
+      } else {
+        y
+      }
+    },
+    &l,
+    &r,
+  )
+}
+
+/*
+/*
+min :: Expr EWord -> Expr EWord -> Expr EWord
+min x y = normArgs Min Prelude.min x y
+*/
+*/
+
 pub fn sdiv(l: Expr, r: Expr) -> Expr {
   op2(
     Expr::SDiv,
@@ -296,6 +333,10 @@ pub fn write_byte(offset: Expr, byte: Expr, src: Expr) -> Expr {
     }
     (offset, byte, src) => Expr::WriteByte(Box::new(offset), Box::new(byte), Box::new(src)),
   }
+}
+
+pub fn read_byte(i: Expr, buf: Expr) -> Expr {
+  todo!()
 }
 
 pub fn conc_keccak_props(props: Vec<Prop>) -> Vec<Prop> {

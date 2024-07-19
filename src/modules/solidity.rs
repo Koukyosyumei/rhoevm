@@ -5,12 +5,13 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::fs;
+use std::hash::Hash;
 use std::io::{self, Read};
 use std::process::Command;
 use std::str;
 
 use crate::modules::abi::AbiType;
-use crate::modules::evm::{abi_keccak, hashcode, keccak, keccak_prime};
+use crate::modules::evm::{abi_keccak, hashcode, keccak, keccak_prime, FunctionSelector};
 use crate::modules::types::{
   Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
 };
@@ -48,7 +49,7 @@ struct SolcContract {
   creation_code: Vec<u8>,
   contract_name: String,
   constructor_inputs: Vec<(String, AbiType)>,
-  abi_map: HashMap<String, Method>,
+  abi_map: HashMap<FunctionSelector, Method>,
   event_map: HashMap<W256, Event>,
   error_map: HashMap<W256, SolError>,
   immutable_references: HashMap<W256, Vec<Reference>>,
@@ -195,9 +196,9 @@ fn yul(contract_name: &str, src: &str) -> Option<Vec<u8>> {
 
 fn yul_runtime(contract_name: &str, src: &str) -> Option<Vec<u8>> {
   let json: Value = from_str(&solc(Language::Yul, src).unwrap()).unwrap();
-  let f = json["contracts"]["hevm.sol"][contract_name];
+  let f = json["contracts"]["hevm.sol"][contract_name].clone();
   let bytecode = f["evm"]["deployedBytecode"]["object"].as_str()?.as_bytes().to_vec();
-  Some(to_code(contract_name, bytecode).unwrap())
+  Some(to_code(contract_name, str::from_utf8(&bytecode).unwrap()).unwrap())
 }
 
 fn solidity(contract: &str, src: &str) -> Option<Vec<u8>> {
@@ -241,14 +242,31 @@ fn read_json(pt: ProjectType, contract_name: &str, json: &str) -> Option<(Contra
   }
 }
 
+fn vec_u8_to_u32(vec: Vec<u8>) -> Result<u32, &'static str> {
+  if vec.len() == 4 {
+    let bytes: [u8; 4] = vec.as_slice().try_into().map_err(|_| "Failed to convert Vec<u8> to [u8; 4]")?;
+    Ok(u32::from_le_bytes(bytes))
+  } else {
+    Err("Vec<u8> length is not 4")
+  }
+}
+
 fn read_foundry_json(contract_name: &str, json: &str) -> Option<(Contracts, Asts, Sources)> {
   let json: Value = serde_json::from_str(json).ok()?;
   let runtime = json["deployedBytecode"].to_owned();
-  let runtime_code = to_code(contract_name, &runtime["object"].as_str()?.as_bytes().to_vec());
+  let runtime_code = to_code(
+    contract_name,
+    std::str::from_utf8(&runtime["object"].as_str()?.as_bytes().to_vec()).unwrap(),
+  )
+  .unwrap();
   let runtime_src_map = make_src_maps(runtime["sourceMap"].as_str()?);
 
   let creation = json["bytecode"].to_owned();
-  let creation_code = to_code(contract_name, &creation["object"].as_str()?.as_bytes().to_vec());
+  let creation_code = to_code(
+    contract_name,
+    std::str::from_utf8(&creation["object"].as_str()?.as_bytes().to_vec()).unwrap(),
+  )
+  .unwrap();
   let creation_src_map = make_src_maps(creation["sourceMap"].as_str()?);
 
   let ast = json["ast"].to_owned();
@@ -258,24 +276,34 @@ fn read_foundry_json(contract_name: &str, json: &str) -> Option<(Contracts, Asts
   let id = json["id"].as_u64()? as u32;
 
   let contract = SolcContract {
-    runtime_code,
-    creation_code,
-    runtime_codehash: keccak(strip_bytecode_metadata(&runtime_code)),
-    creation_codehash: keccak(strip_bytecode_metadata(&creation_code)),
-    runtime_srcmap: runtime_src_map,
-    creation_srcmap: creation_src_map,
+    runtime_code: runtime_code.clone(),
+    creation_code: creation_code.clone(),
+    runtime_codehash: vec_u8_to_u32(keccak_prime(strip_bytecode_metadata(&runtime_code))).unwrap(),
+    creation_codehash: vec_u8_to_u32(keccak_prime(strip_bytecode_metadata(&creation_code))).unwrap(),
+    runtime_srcmap: runtime_src_map.unwrap(),
+    creation_srcmap: creation_src_map.unwrap(),
     contract_name: format!("{}:{}", path, contract_name),
-    constructor_inputs: mk_constructor(&abi),
-    abi_map: mk_abi_map(&abi),
-    event_map: mk_event_map(&abi),
-    error_map: mk_error_map(&abi),
+    constructor_inputs: mk_constructor(&abi).unwrap(),
+    abi_map: mk_abi_map(&abi).unwrap(),
+    event_map: mk_event_map(&abi).unwrap(),
+    error_map: mk_error_map(&abi).unwrap(),
     storage_layout: mk_storage_layout(ast["storageLayout"].as_str()?),
-    immutable_references: None, // TODO: foundry doesn't expose this?
+    immutable_references: HashMap::new(), // TODO: foundry doesn't expose this?
   };
 
-  let contracts = Contracts(vec![(format!("{}:{}", path, contract_name), contract)].into_iter().collect());
-  let asts = Asts(vec![(path, ast)].into_iter().collect());
-  let sources = Sources(vec![(SrcFile { id: id, filepath: path }, None)].into_iter().collect());
+  let contracts = Contracts(vec![(format!("{}:{}", path.clone(), contract_name), contract)].into_iter().collect());
+  let asts = Asts(vec![(path.clone(), ast)].into_iter().collect());
+  let sources = Sources(
+    vec![(
+      SrcFile {
+        id: id as i32,
+        filepath: path.clone(),
+      },
+      None,
+    )]
+    .into_iter()
+    .collect(),
+  );
 
   Some((contracts, asts, sources))
 }
@@ -294,34 +322,34 @@ fn read_std_json(json: &str) -> Option<(Contracts, Asts, Sources)> {
       let sc = format!("{}:{}", s, x.keys().next().unwrap());
       let runtime_code = to_code(
         &sc,
-        &evm_stuff["deployedBytecode"]["object"].as_str()?.as_bytes().to_vec(),
+        &std::str::from_utf8(evm_stuff["deployedBytecode"]["object"].as_str()?.as_bytes()).unwrap(),
       );
-      let creation_code = to_code(&sc, &evm_stuff["bytecode"]["object"].as_str()?.as_bytes().to_vec());
+      let creation_code = to_code(
+        &sc,
+        &std::str::from_utf8(evm_stuff["bytecode"]["object"].as_str()?.as_bytes()).unwrap(),
+      );
       let src_contents = x["metadata"]["sources"].as_object().map(|srcs| {
-        srcs.iter().map(|(src, content)| (src.clone(), content["content"].as_str()?.to_string())).collect()
+        srcs.iter().map(|(src, content)| (src.clone(), content["content"].as_str().unwrap().to_string())).collect()
       });
       let abis = x["abi"].as_array()?.to_vec();
 
       Some((
         sc.clone(),
-        (
-          SolcContract {
-            runtime_code: Some(runtime_code.clone()),
-            creation_code: Some(creation_code.clone()),
-            runtime_codehash: Some(keccak(&strip_bytecode_metadata(&runtime_code))),
-            creation_codehash: Some(keccak(&strip_bytecode_metadata(&creation_code))),
-            runtime_srcmap: make_src_maps(evm_stuff["sourceMap"].as_str()?),
-            creation_srcmap: make_src_maps(evm_stuff["sourceMap"].as_str()?),
-            contract_name: sc,
-            constructor_inputs: mk_constructor(&abis),
-            abi_map: mk_abi_map(&abis),
-            event_map: mk_event_map(&abis),
-            error_map: mk_error_map(&abis),
-            storage_layout: mk_storage_layout(x["storageLayout"].as_str()?),
-            immutable_references: None,
-          },
-          src_contents,
-        ),
+        SolcContract {
+          runtime_code: runtime_code.unwrap(),
+          creation_code: creation_code.unwrap(),
+          runtime_codehash: vec_u8_to_u32(keccak_prime(strip_bytecode_metadata(&runtime_code.unwrap()))).unwrap(),
+          creation_codehash: vec_u8_to_u32(keccak_prime(strip_bytecode_metadata(&creation_code.unwrap()))).unwrap(),
+          runtime_srcmap: make_src_maps(evm_stuff["sourceMap"].as_str()?).unwrap(),
+          creation_srcmap: make_src_maps(evm_stuff["sourceMap"].as_str()?).unwrap(),
+          contract_name: sc,
+          constructor_inputs: mk_constructor(&abis).unwrap(),
+          abi_map: mk_abi_map(&abis).unwrap(),
+          event_map: mk_event_map(&abis).unwrap(),
+          error_map: mk_error_map(&abis).unwrap(),
+          storage_layout: mk_storage_layout(x["storageLayout"].as_str()?),
+          immutable_references: HashMap::new(),
+        },
       ))
     })
     .collect();
@@ -342,26 +370,26 @@ fn read_combined_json(json: &str) -> Option<(Contracts, Asts, Sources)> {
   let contract_map = contracts
     .iter()
     .map(|(s, x)| {
-      let runtime_code = to_code(s, &x["bin-runtime"].as_str()?.as_bytes().to_vec());
-      let creation_code = to_code(s, &x["bin"].as_str()?.as_bytes().to_vec());
-      let abis = x["abi"].as_array()?.to_vec();
+      let runtime_code = to_code(s, (&x["bin-runtime"].as_str()).unwrap());
+      let creation_code = to_code(s, &x["bin"].as_str().unwrap());
+      let abis = x["abi"].as_array().unwrap().to_vec();
 
       (
         s.clone(),
         SolcContract {
-          runtime_code: Some(runtime_code.clone()),
-          creation_code: Some(creation_code.clone()),
-          runtime_codehash: Some(keccak(&strip_bytecode_metadata(&runtime_code))),
-          creation_codehash: Some(keccak(&strip_bytecode_metadata(&creation_code))),
-          runtime_srcmap: make_src_maps(x["srcmap-runtime"].as_str()?),
-          creation_srcmap: make_src_maps(x["srcmap"].as_str()?),
+          runtime_code: runtime_code.unwrap(),
+          creation_code: creation_code.unwrap(),
+          runtime_codehash: vec_u8_to_u32(keccak_prime(strip_bytecode_metadata(&runtime_code.unwrap()))).unwrap(),
+          creation_codehash: vec_u8_to_u32(keccak_prime(strip_bytecode_metadata(&creation_code.unwrap()))).unwrap(),
+          runtime_srcmap: make_src_maps(x["srcmap-runtime"].as_str().unwrap()).unwrap(),
+          creation_srcmap: make_src_maps(x["srcmap"].as_str().unwrap()).unwrap(),
           contract_name: s.clone(),
-          constructor_inputs: mk_constructor(&abis),
-          abi_map: mk_abi_map(&abis),
-          event_map: mk_event_map(&abis),
-          error_map: mk_error_map(&abis),
-          storage_layout: mk_storage_layout(x["storage-layout"].as_str()?),
-          immutable_references: None,
+          constructor_inputs: mk_constructor(&abis).unwrap(),
+          abi_map: mk_abi_map(&abis).unwrap(),
+          event_map: mk_event_map(&abis).unwrap(),
+          error_map: mk_error_map(&abis).unwrap(),
+          storage_layout: mk_storage_layout(x["storage-layout"].as_str().unwrap()),
+          immutable_references: HashMap::new(),
         },
       )
     })
@@ -383,7 +411,7 @@ fn solc(lang: Language, src: &str) -> io::Result<String> {
   let stdjson = stdjson(lang, src)?;
   let output = Command::new("solc").arg("--standard-json").arg(&stdjson).output()?;
 
-  let stdout = String::from_utf8(output.stdout)?;
+  let stdout = String::from_utf8(output.stdout).unwrap();
   Ok(stdout)
 }
 
@@ -467,7 +495,7 @@ fn contains_linker_hole(t: &str) -> bool {
   false
 }
 
-fn make_src_maps(source_map: &str) -> Option<HashMap<String, String>> {
+fn make_src_maps(source_map: &str) -> Option<Vec<SrcMap>> {
   // Implementation of your make_src_maps function
   unimplemented!();
 }
@@ -477,27 +505,27 @@ fn strip_bytecode_metadata(bytecode: &[u8]) -> &[u8] {
   unimplemented!();
 }
 
-fn mk_constructor(abis: &[Value]) -> Option<Vec<Method>> {
+fn mk_constructor(abis: &[Value]) -> Option<Vec<(String, AbiType)>> {
   // Implementation of your mk_constructor function
   unimplemented!();
 }
 
-fn mk_abi_map(abis: &[Value]) -> Option<HashMap<String, Method>> {
+fn mk_abi_map(abis: &[Value]) -> Option<HashMap<FunctionSelector, Method>> {
   // Implementation of your mk_abi_map function
   unimplemented!();
 }
 
-fn mk_event_map(abis: &[Value]) -> Option<HashMap<String, Method>> {
+fn mk_event_map(abis: &[Value]) -> Option<HashMap<W256, Event>> {
   // Implementation of your mk_event_map function
   unimplemented!();
 }
 
-fn mk_error_map(abis: &[Value]) -> Option<HashMap<String, Method>> {
+fn mk_error_map(abis: &[Value]) -> Option<HashMap<W256, SolError>> {
   // Implementation of your mk_error_map function
   unimplemented!();
 }
 
-fn mk_storage_layout(storage_layout: &str) -> Option<StorageLayout> {
+fn mk_storage_layout(storage_layout: &str) -> Option<HashMap<String, StorageItem>> {
   // Implementation of your mk_storage_layout function
   unimplemented!();
 }

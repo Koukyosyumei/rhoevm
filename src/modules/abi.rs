@@ -5,6 +5,8 @@ use std::fmt::Display;
 
 use crate::modules::types::Addr;
 
+use super::types::ByteString;
+
 #[derive(Debug, Clone)]
 pub struct Sig {
   method_signature: String,
@@ -143,6 +145,10 @@ pub fn make_abi_value(typ: &AbiType, str: &String) -> AbiValue {
   todo!()
 }
 
+pub fn selector(s: &String) -> ByteString {
+  todo!()
+}
+
 /*
 makeAbiValue :: AbiType -> String -> AbiValue
 makeAbiValue typ str = case readP_to_S (parseAbiValue typ) (padStr str) of
@@ -152,4 +158,8 @@ makeAbiValue typ str = case readP_to_S (parseAbiValue typ) (padStr str) of
     padStr = case typ of
       (AbiBytesType n) -> padRight' (2 * n + 2) -- +2 is for the 0x prefix
       _ -> id
+
+selector :: Text -> BS.ByteString
+selector s = BSLazy.toStrict . runPut $
+  putWord32be (abiKeccak (encodeUtf8 s)).unFunctionSelector
 */

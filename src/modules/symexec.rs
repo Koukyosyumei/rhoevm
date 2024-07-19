@@ -1,10 +1,13 @@
 use derive_more::From;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
+use std::hash::Hash;
 
-use crate::modules::abi::{make_abi_value, AbiType, AbiValue};
+use crate::modules::abi::{make_abi_value, selector, AbiType, AbiValue};
 use crate::modules::evm::{abstract_contract, get_code_location, initial_contract};
-use crate::modules::expr::in_range;
+use crate::modules::exec::exec;
+use crate::modules::expr::{add, geq, in_range, lt, read_byte, write_byte};
 use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{BlockNumber, Fetcher, RpcInfo};
 use crate::modules::solvers::SMTCex;
@@ -13,7 +16,8 @@ use crate::modules::stepper::{Action, Stepper};
 use crate::modules::types::{BaseState, ByteString, ContractCode, Expr, Prop, VMOpts};
 
 use super::evm::make_vm;
-use super::types::VM;
+use super::stepper;
+use super::types::{VMResult, VM};
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum LoopHeuristic {
@@ -133,6 +137,12 @@ pub enum CalldataFragment {
   Comp(Vec<CalldataFragment>),
 }
 
+/*
+-- | Generates calldata matching given type signature, optionally specialized
+-- with concrete arguments.
+-- Any argument given as "<symbolic>" or omitted at the tail of the list are
+-- kept symbolic.
+*/
 pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[String], base: Expr) -> (Expr, Vec<Prop>) {
   let args = concrete_args
     .iter()
@@ -155,9 +165,13 @@ pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[Stri
     type_signature.iter().zip(args.iter()).enumerate().map(|(i, (typ, arg))| mk_arg(typ, arg, i + 1)).collect();
   let (cd_buf, props) = combine_fragments(&calldatas, base);
   let with_selector = write_selector(cd_buf, sig);
-  let size_constraints = Expr::BufLength(Box::new(with_selector))
-    .ge(Expr::Lit((calldatas.len() as u32 * 32 + 4).try_into().unwrap()))
-    .and(Expr::BufLength(Box::new(with_selector)).lt(Expr::Lit(2_i64.pow(64))));
+  let size_constraints = add(
+    geq(
+      Expr::BufLength(Box::new(with_selector)),
+      Expr::Lit((calldatas.len() as u32 * 32 + 4).try_into().unwrap()),
+    ),
+    lt(Expr::BufLength(Box::new(with_selector)), Expr::Lit(2_u32.pow(64))),
+  );
   (with_selector, vec![size_constraints].into_iter().chain(props).collect())
 }
 
@@ -185,11 +199,12 @@ fn combine_fragments(fragments: &[CalldataFragment], base: Expr) -> (Expr, Vec<P
 }
 
 fn write_selector(buf: Expr, sig: &str) -> Expr {
-  let selector = selector(sig);
+  let selector = selector(&(sig.to_string()));
   (0..4).fold(buf, |buf, idx| {
-    buf.write_byte(
+    write_byte(
+      buf,
       Expr::Lit(idx),
-      Expr::read_byte(Expr::Lit(idx), Expr::ConcreteBuf(selector.clone())),
+      read_byte(Expr::Lit(idx), Expr::ConcreteBuf(selector.clone())),
     )
   })
 }
@@ -224,94 +239,22 @@ fn load_sym_vm(x: ContractCode, callvalue: Expr, cd: (Expr, Vec<Prop>), create: 
     schedule: FEE_SCHEDULE,
     chain_id: 1,
     create,
-    tx_access_list: vec![],
+    tx_access_list: HashMap::new(),
     allow_ffi: false,
   };
 
   make_vm(opts)
 }
 
-async fn interpret(
+fn interpret(
   fetcher: Fetcher,
   max_iter: Option<u64>,
   ask_smt_iters: u64,
   heuristic: LoopHeuristic,
-  vm: VM,
+  vm: &mut VM,
   stepper: Stepper<Expr>,
 ) -> Expr {
-  match stepper.view() {
-    Action::Return(x) => x,
-    Action::Exec(k) => {
-      let (r, vm) = run_state(exec(vm)).await;
-      interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-    }
-    Action::IOAct(q, k) => {
-      let r = q.await;
-      interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-    }
-    Action::Ask(cond, continue_fn, k) => {
-      let eval_left = async {
-        let (ra, vma) = run_state(continue_fn(true, vm.clone())).await;
-        interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vma, k(ra)).await
-      };
-
-      let eval_right = async {
-        let (rb, vmb) = run_state(continue_fn(false, vm.clone())).await;
-        interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vmb, k(rb)).await
-      };
-
-      let (a, b) = join_all(vec![eval_left, eval_right]).await;
-      ITE(cond, a[0], b[0])
-    }
-    Action::Wait(q, k) => {
-      let perform_query = async {
-        let m = fetcher.fetch(q.clone()).await;
-        let (r, vm) = run_state(m(vm.clone())).await;
-        interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-      };
-
-      match q {
-        PleaseAskSMT(cond, preconds, continue_fn) => {
-          let simp_props = simplify_props(&[(cond != 0) as Prop, &preconds]);
-          if let Some(c) = conc_keccak_simp_expr(cond) {
-            if let (Some(_), Some(true)) = (max_iterations_reached(&vm, max_iter), is_loop_head(heuristic, &vm)) {
-              Partial(
-                vec![],
-                TraceContext {
-                  traces: zipper_to_forest(&vm.traces),
-                  contracts: vm.env.contracts.clone(),
-                  labels: vm.labels.clone(),
-                },
-                MaxIterationsReached(vm.state.pc, vm.state.contract.clone()),
-              )
-            } else {
-              let (r, vm) = run_state(continue_fn(c > 0, vm.clone())).await;
-              interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-            }
-          } else {
-            if let (Some(true), true, _) = (
-              is_loop_head(heuristic, &vm),
-              ask_smt_iters_reached(&vm, ask_smt_iters),
-              max_iterations_reached(&vm, max_iter),
-            ) {
-              perform_query.await
-            } else {
-              let (r, vm) = match simp_props {
-                [false] => run_state(continue_fn(false, vm.clone())).await,
-                _ => run_state(continue_fn(Unknown, vm.clone())).await,
-              };
-              interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-            }
-          }
-        }
-        _ => perform_query.await,
-      }
-    }
-    Action::EVM(m, k) => {
-      let (r, vm) = run_state(m(vm.clone())).await;
-      interpret(fetcher.clone(), max_iter, ask_smt_iters, heuristic, vm, k(r)).await
-    }
-  }
+  todo!()
 }
 
 fn max_iterations_reached(vm: &VM, max_iter: Option<u64>) -> Option<bool> {
@@ -412,7 +355,7 @@ fn all_panic_codes() -> Vec<u64> {
 }
 
 fn panic_msg(err: u64) -> ByteString {
-  let mut msg = selector("Panic(uint256)");
+  let mut msg = selector(&"Panic(uint256)".to_string());
   msg.extend_from_slice(&encode_abi_value(AbiUInt(256, err)));
   msg
 }

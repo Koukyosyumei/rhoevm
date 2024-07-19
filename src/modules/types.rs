@@ -1,14 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::fmt::{self, write};
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::ops::Add;
+use std::fmt::{self};
+use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
-use std::path::Display;
 use std::sync::Arc;
 use std::vec::Vec; // Assuming state crate is used for the State monad
 
-use crate::modules::etypes::{Buf, Byte, EAddr, EContract, ETypeTrait, EWord, End, Log, Storage};
+use crate::modules::etypes::Buf;
 use crate::modules::feeschedule::FeeSchedule;
 
 pub type Addr = u32;
@@ -24,10 +22,6 @@ pub type ByteString = Vec<u8>;
 pub type FunctionSelector = u32;
 pub type Word160 = u32;
 pub type Word512 = u32;
-
-fn truncate_to_addr(w: W256) -> Addr {
-  w as Addr
-}
 
 // Symbolic IR -------------------------------------------------------------------------------------
 
@@ -1107,7 +1101,7 @@ pub struct Frame {
   state: FrameState,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum BaseState {
   EmptyBase,
   AbstractBase,
@@ -1120,6 +1114,7 @@ pub struct RuntimeConfig {
   pub base_state: BaseState,
 }
 
+#[derive(Debug, Clone)]
 pub enum VMResult {
   Unfinished,
   VMFailure(EvmError),
@@ -1158,17 +1153,21 @@ pub enum BranchCondition {
 // Implement Display for Query
 impl fmt::Display for Query {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    todo!()
+    /*
     match self {
       Query::PleaseFetchContract(addr, base, _) => write!(f, "<EVM.Query: fetch contract {} {}>", addr, base),
       Query::PleaseFetchSlot(addr, slot, _) => write!(f, "<EVM.Query: fetch slot {} for {}>", slot, addr),
-      Query::PleaseAskSMT(condition, constraints, _) => write!(
+      Query::PleaseAskSMT(condition, constraints, _) => todo!(),
+      Query::PleaseDoFFI(cmd, _) => write!(f, "<EVM.Query: do ffi: {}>", cmd.join(", ")),
+      /*write!(
         f,
         "<EVM.Query: ask SMT about {} in context {}>",
         condition,
         constraints.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", ")
-      ),
-      Query::PleaseDoFFI(cmd, _) => write!(f, "<EVM.Query: do ffi: {}>", cmd.join(", ")),
+      ), */
     }
+    */
   }
 }
 
@@ -1244,6 +1243,7 @@ pub struct SubState {
   pub refunds: Vec<(Expr, Word64)>,
 }
 
+#[derive(Debug, Clone)]
 pub struct VMOpts {
   pub contract: Contract,
   pub other_contracts: Vec<(Expr, Contract)>,
