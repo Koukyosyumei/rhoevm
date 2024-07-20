@@ -214,6 +214,13 @@ fn is_creation(code: &ContractCode) -> bool {
   }
 }
 
+fn is_precompile(expr: &Expr) -> bool {
+  if let Some(lit_self) = maybe_lit_addr(expr) {
+    return lit_self > W256(0x0, 0) && lit_self <= W256(0x9, 0);
+  }
+  return false;
+}
+
 impl VM {
   pub fn exec1(&mut self) {
     // let mut vm.state.stack = &vm.state.stack;
@@ -222,9 +229,9 @@ impl VM {
     let this_contract = binding.contracts.get(&self_contract).unwrap();
     let fees = self.block.schedule.clone();
 
-    if let Some(lit_self) = maybe_lit_addr(&self_contract) {
-      // call to precompile
-      if lit_self > W256(0x0, 0) && lit_self <= W256(0x9, 0) {
+    if is_precompile(&self_contract) {
+      if let Some(lit_self) = maybe_lit_addr(&self_contract) {
+        // call to precompile
         let calldatasize = len_buf(&self.state.calldata);
         copy_bytes_to_memory(
           self.state.calldata.clone(),
