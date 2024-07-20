@@ -7,7 +7,7 @@ use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::expr::{emin, index_word, read_word_from_bytes, word256_bytes, write_byte, write_word};
 use crate::modules::feeschedule::FeeSchedule;
-use crate::modules::op::{get_op, Op};
+use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::types::{
   from_list, len_buf, unbox, Addr, Block, Cache, CodeLocation, Contract, ContractCode, Env, Expr, ExprSet, ForkState,
   FrameState, GVar, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts,
@@ -156,6 +156,7 @@ pub fn make_vm(opts: VMOpts) -> VM {
     }],
     current_fork: 0,
     labels: HashMap::new(),
+    decoded_opcodes: Vec::new(),
   }
 }
 
@@ -286,13 +287,16 @@ impl VM {
         }
       };
 
-      match get_op(op) {
+      let decoded_op = get_op(op);
+      self.decoded_opcodes.push(op_string(self.state.pc as u64, decoded_op.clone()).to_string());
+
+      match decoded_op {
         Op::Push0 => {
           // stack output
           // - value: pushed value, equal to 0.
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_sym(self, Box::new(Expr::Lit(W256(0, 0))));
           });
         }
@@ -317,17 +321,19 @@ impl VM {
               from_list(padded_bytes)
             }
           };
+          self.decoded_opcodes.push(xs.to_string());
+
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_verylow, || {});
-            next(self);
-            push_sym(self, Box::new(xs));
+            next(self, op);
+            push_sym(self, Box::new(xs.clone()));
           });
         }
         Op::Dup(i) => {
           if let Some(y) = self.state.stack.get(i as usize - 1).cloned() {
             limit_stack(1, self.state.stack.len(), || {
               burn(self, fees.g_verylow, || {});
-              next(self);
+              next(self, op);
               push_sym(self, y.clone());
             });
           } else {
@@ -339,7 +345,7 @@ impl VM {
             underrun();
           } else {
             burn(self, fees.g_verylow, || {});
-            next(self);
+            next(self, op);
             let a = self.state.stack[0].clone();
             let b = self.state.stack[i as usize].clone();
             self.state.stack[0] = b;
@@ -366,7 +372,7 @@ impl VM {
               trace_top_log(logs.clone());
               self.state.stack = xs.to_vec();
               self.logs = logs;
-              next(self);
+              next(self, op);
             }
           } else {
             underrun();
@@ -410,7 +416,7 @@ impl VM {
               // orig @ Expr::ConcreteBuf(bs) => Expr::Lit(word32(&keccak_prime(&bs.to_vec()))),
               _ => keccak(buffer).unwrap(),
             };
-            next(self);
+            next(self, op);
             self.state.stack = std::iter::once(Box::new(hash)).chain(xs.iter().cloned()).collect();
             //  });
             //});
@@ -421,7 +427,7 @@ impl VM {
         Op::Address => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_addr(self, self_contract.clone());
           });
         }
@@ -430,7 +436,7 @@ impl VM {
             force_addr(x, "BALANCE", |a| {
               access_and_burn(&a, || {
                 fetch_account(&a, |c| {
-                  next(self);
+                  next(self, op);
                   self.state.stack = self.state.stack[1..].to_vec();
                   push_sym(self, Box::new(c.balance.clone()));
                 });
@@ -447,7 +453,7 @@ impl VM {
           */
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_addr(self, self.tx.origin.clone());
           });
         }
@@ -458,7 +464,7 @@ impl VM {
            */
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_addr(self, self.state.caller.clone());
           });
         }
@@ -469,7 +475,7 @@ impl VM {
            */
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_sym(self, Box::new(self.state.callvalue.clone()));
           });
         }
@@ -480,7 +486,7 @@ impl VM {
            */
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_sym(
               self,
               Box::new(Expr::Lit(W256(len_buf(&self.state.calldata) as u128, 0))),
@@ -501,7 +507,7 @@ impl VM {
                   unbox(x_to.clone()),
                   self,
                 );
-                next(self);
+                next(self, op);
               } else {
                 underrun();
               }
@@ -515,7 +521,7 @@ impl VM {
         Op::Codesize => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_sym(self, Box::new(codelen(&self.state.code)));
           });
         }
@@ -525,7 +531,7 @@ impl VM {
             let rest1 = rest1.to_vec();
             if let Some((code_offset, rest)) = rest1.split_first().clone() {
               if let Some((n, xs)) = rest.split_first().clone() {
-                next(self);
+                next(self, op);
                 self.state.stack = xs.to_vec();
                 burn_codecopy(self, unbox(n.clone()), self.block.schedule.clone(), || {});
                 access_memory_range(self, *mem_offset.clone(), *n.clone(), || {});
@@ -553,7 +559,7 @@ impl VM {
         Op::Gasprice => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_sym(self, Box::new(Expr::Lit(self.tx.gasprice.clone())));
           });
         }
@@ -562,7 +568,7 @@ impl VM {
             force_addr(x, "EXTCODESIZE", |a| {
               access_and_burn(&a, || {
                 fetch_account(&a, |c| {
-                  next(self);
+                  next(self, op);
                   self.state.stack = self.state.stack[1..].to_vec();
                   if let Some(b) = &c.bytecode() {
                     push_sym(self, Box::new(buf_length(b.clone())));
@@ -594,7 +600,7 @@ impl VM {
                       || {},
                     );
                     fetch_account(&a, |c| {
-                      next(self);
+                      next(self, op);
                       self.state.stack = xs.to_vec();
                       if let Some(b) = &c.bytecode() {
                         copy_bytes_to_memory(
@@ -626,7 +632,7 @@ impl VM {
         Op::Returndatasize => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_sym(
               self,
               Box::new(Expr::Lit(W256(len_buf(&self.state.returndata) as u128, 0))),
@@ -640,77 +646,77 @@ impl VM {
            */
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_addr(self, self.block.coinbase.clone())
           });
         }
         Op::Timestamp => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_sym(self, Box::new(self.block.time_stamp.clone()))
           });
         }
         Op::Number => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push(self, self.block.number.clone())
           });
         }
         Op::PrevRandao => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push(self, self.block.prev_randao.clone())
           });
         }
         Op::Gaslimit => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push(self, W256(self.block.gaslimit as u128, 0))
           });
         }
         Op::Chainid => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push(self, self.env.chain_id.clone())
           });
         }
         Op::Selfbalance => {
           limit_stack(1, self.state.stack.clone().len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push_sym(self, Box::new(this_contract.balance.clone()))
           });
         }
         Op::BaseFee => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push(self, self.block.base_fee.clone())
           });
         }
         Op::Pc => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push(self, W256(self.state.pc as u128, 0))
           });
         }
         Op::Msize => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self);
+            next(self, op);
             push(self, W256(self.state.memory_size as u128, 0))
           });
         }
         Op::Pop => {
           if let Some((_, xs)) = self.state.stack.split_first() {
             self.state.stack = xs.to_vec();
-            next(self);
+            next(self, op);
             burn(self, fees.g_base, || {});
           } else {
             underrun();
@@ -721,7 +727,7 @@ impl VM {
             let buf = read_memory(x, &Expr::Lit(W256(32, 0)));
             let w = read_word_from_bytes(Expr::Lit(W256(0, 0)), buf);
             self.state.stack = std::iter::once(Box::new(w)).chain(xs.iter().cloned()).collect();
-            next(self);
+            next(self, op);
             access_memory_word(self, *x.clone(), || {});
             burn(self, fees.g_verylow, || {});
           } else {
@@ -736,7 +742,7 @@ impl VM {
           */
           if let Some((x, rest)) = self.state.stack.clone().split_first() {
             if let Some((y, xs)) = rest.clone().split_first() {
-              next(self);
+              next(self, op);
               match &self.state.memory {
                 Memory::ConcreteMemory(mem) => match *y.clone() {
                   Expr::Lit(w) => {
@@ -771,7 +777,7 @@ impl VM {
           if let Some((x, rest)) = self.state.stack.clone().split_first() {
             if let Some((y, xs)) = rest.split_first() {
               let y_byte = index_word(Expr::Lit(W256(31, 0)), *y.clone());
-              next(self);
+              next(self, op);
               match &self.state.memory {
                 Memory::ConcreteMemory(mem) => match y_byte {
                   Expr::LitByte(byte) => {
@@ -814,7 +820,7 @@ impl VM {
             };
             burn(self, cost, || {
               access_storage(self, x, |y| {
-                next(self);
+                next(self, op);
                 self.state.stack = std::iter::once(Box::new(y)).chain(xs.iter().cloned()).collect();
               });
             });
@@ -847,7 +853,7 @@ impl VM {
                       }
                     } else {
                       self.state.stack = xs.to_vec();
-                      next(self);
+                      next(self, op);
                     }
                   };
                   branch(y, jump);
@@ -1077,8 +1083,8 @@ fn access_account_for_gas(vm: &mut VM, addr: Expr) -> bool {
 
 */
 
-fn next(vm: &mut VM) {
-  vm.state.pc += 1;
+fn next(vm: &mut VM, op: u8) {
+  vm.state.pc += op_size(op);
 }
 
 fn push(vm: &mut VM, val: W256) {
@@ -1157,7 +1163,7 @@ fn stack_op2(vm: &mut VM, gas: u64, op: &str) {
       "add" => Box::new(Expr::Add(a.clone(), b.clone())),
       _ => Box::new(Expr::Mempty),
     };
-    next(vm);
+    next(vm, 1);
     vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(2).cloned()).collect();
   } else {
     underrun();
@@ -1174,7 +1180,7 @@ fn stack_op3(vm: &mut VM, gas: u64, op: &str) {
           "mulmod" => Box::new(Expr::MulMod(a.clone(), b.clone(), c.clone())),
           _ => Box::new(Expr::Mempty),
         };
-        next(vm);
+        next(vm, 1);
         vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(3).cloned()).collect();
       } else {
         underrun();
@@ -1196,7 +1202,7 @@ fn stack_op1(vm: &mut VM, gas: u64, op: &str) {
       "calldataload" => Box::new(Expr::Mempty),
       _ => Box::new(Expr::Mempty),
     };
-    next(vm);
+    next(vm, 1);
     vm.state.stack[0] = res;
   } else {
     underrun();

@@ -62,5 +62,18 @@ fn test_vm_exec_1() {
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
 
-  vm.exec1()
+  assert_eq!(vm.state.pc, 0);
+  vm.exec1();
+  assert_eq!(vm.decoded_opcodes.len(), 2);
+  assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)"]);
+  assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x80)");
+  assert_eq!(vm.state.pc, 2);
+
+  vm.exec1();
+  assert_eq!(vm.state.pc, 4);
+  assert_eq!(vm.decoded_opcodes.len(), 4);
+  assert_eq!(
+    vm.decoded_opcodes,
+    vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)"]
+  );
 }

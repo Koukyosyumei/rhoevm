@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use crate::modules::types::Expr;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Op {
   Stop,
   Add,
@@ -84,6 +84,13 @@ pub enum Op {
   PushExpr(Expr),
   Revert,
   Unknown(u8),
+}
+
+pub fn op_size(x: u8) -> usize {
+  match x {
+    0x60..=0x7f => x as usize - 0x60 + 2,
+    _ => 1,
+  }
 }
 
 pub fn get_op(x: u8) -> Op {
@@ -183,7 +190,7 @@ fn show_hex(x: u64, prefix: &str) -> String {
   format!("{}{:x}", prefix, x)
 }
 
-pub fn op_string<T>(i: u64, o: Op) -> String {
+pub fn op_string(i: u64, o: Op) -> String {
   let show_pc = |x| show_pc(x);
   let pc = show_pc(i);
   let op = match o {
@@ -263,7 +270,7 @@ pub fn op_string<T>(i: u64, o: Op) -> String {
     Op::Swap(x) => &format!("{} {}", &&"SWAP {}", (x)).to_string(),
     Op::Log(x) => &format!("{} {}", &&"LOG {}", (x)).to_string(),
     Op::Push0 => "PUSH0",
-    Op::Push(x) => &format!("{} {}", &&"PUSH {}", (x)).to_string(),
+    Op::Push(x) => &format!("{}{}", &&"PUSH", (x)).to_string(),
     Op::PushExpr(x) => match x {
       Expr::Lit(v) => &format!("{} {}", &&"PUSH 0x{}", show_hex(v.0 as u64, "")).to_string(),
       _ => panic!("invalid expr"),

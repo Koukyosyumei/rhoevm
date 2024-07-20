@@ -39,7 +39,7 @@ pub type FunctionSelector = u32;
 impl fmt::Display for W256 {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     // Format as hexadecimal string
-    write!(f, "{:032x}{:032x}", self.0, self.1)
+    write!(f, "{:032x}{:032x}", self.1, self.0)
   }
 }
 
@@ -85,6 +85,11 @@ impl W256 {
   // Maximum value for W256 (2^256 - 1)
   pub const fn max_value() -> W256 {
     W256(u128::MAX, u128::MAX)
+  }
+
+  pub fn to_hex(&self) -> String {
+    let s = format!("{:032x}{:032x}", self.1, self.0);
+    s.trim_start_matches('0').to_string()
   }
 }
 
@@ -558,7 +563,7 @@ impl fmt::Display for Expr {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Expr::Mempty => write!(f, "Mempty"),
-      Expr::Lit(val) => write!(f, "Lit({})", val),
+      Expr::Lit(val) => write!(f, "Lit(0x{})", val.to_hex()),
       Expr::Var(name) => write!(f, "Var({})", name),
       Expr::GVar(gvar) => write!(f, "GVar({})", gvar),
       Expr::LitByte(val) => write!(f, "LitByte({})", val),
@@ -1442,6 +1447,8 @@ pub struct VM {
   pub forks: Vec<ForkState>,
   pub current_fork: i32,
   pub labels: HashMap<Addr, String>,
+  // log
+  pub decoded_opcodes: Vec<String>,
 }
 
 pub type CodeLocation = (Expr, i64);
