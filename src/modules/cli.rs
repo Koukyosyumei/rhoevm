@@ -19,7 +19,7 @@ use crate::modules::evm::{abstract_contract, initial_contract, make_vm};
 use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};
 use crate::modules::format::{hex_byte_string, strip_0x};
-use crate::modules::solvers::{with_solvers, Solver};
+//use crate::modules::solvers::{with_solvers, Solver};
 use crate::modules::transactions::init_tx;
 use crate::modules::types::{
   Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
@@ -29,7 +29,7 @@ use super::types::Block;
 
 type URL = String;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InitialStorage {
   Empty,
   Abstract,
@@ -86,6 +86,7 @@ pub struct SymbolicCommand {
   no_decompose: bool,        // Don't decompose storage slots into separate arrays
 }
 
+/*
 async fn assert(cmd: SymbolicCommand) -> Result<(), Box<dyn std::error::Error>> {
   let block = if let Some(b) = cmd.block {
     BlockNumber::BlockNumber(b)
@@ -168,13 +169,13 @@ async fn assert(cmd: SymbolicCommand) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
   })
   .await
-}
+}*/
 
 pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
   let (miner, block_num, base_fee, prev_ran) = match &cmd.rpc {
-    None => (Expr::SymAddr("miner".to_string()), 0, 0, 0),
+    None => (Expr::SymAddr("miner".to_string()), W256(0, 0), W256(0, 0), W256(0, 0)),
     Some(url) => {
-      let block = if let Some(block_number) = cmd.block {
+      let block = if let Some(block_number) = cmd.block.clone() {
         BlockNumber::BlockNumber(block_number)
       } else {
         BlockNumber::Latest
@@ -188,13 +189,13 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop
   };
 
   let caller = Expr::SymAddr("caller".to_string());
-  let ts = if let Some(t) = cmd.timestamp {
+  let ts = if let Some(t) = cmd.timestamp.clone() {
     Expr::Lit(t)
   } else {
     Expr::Timestamp
   };
 
-  let callvalue = if let Some(v) = cmd.value {
+  let callvalue = if let Some(v) = cmd.value.clone() {
     Expr::Lit(v)
   } else {
     Expr::TxValue
@@ -202,12 +203,12 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop
 
   let contract = match (&cmd.rpc, &cmd.address, &cmd.code) {
     (Some(url), Some(addr), _) => {
-      let block = if let Some(block_number) = cmd.block {
+      let block = if let Some(block_number) = cmd.block.clone() {
         BlockNumber::BlockNumber(block_number)
       } else {
         BlockNumber::Latest
       };
-      let res = fetch_contract_from(block, url, *addr).await;
+      let res = fetch_contract_from(block, url, addr.clone()).await;
       match res {
         None => return Err("Error: contract not found".into()),
         Some(contract_) => match &cmd.code {
@@ -236,7 +237,7 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop
       } else {
         ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs))
       };
-      let address = if let Some(a) = cmd.origin {
+      let address = if let Some(a) = cmd.origin.clone() {
         Expr::LitAddr(a)
       } else {
         Expr::SymAddr("origin".to_string())
@@ -254,29 +255,29 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop
 }
 
 fn vm0(
-  base_fee: u32,
+  base_fee: W256,
   miner: Expr,
   ts: Expr,
-  block_num: u32,
-  prev_ran: u32,
+  block_num: W256,
+  prev_ran: W256,
   calldata: (Expr, Vec<Prop>),
   callvalue: Expr,
   caller: Expr,
   c: Contract,
-  cmd: SymbolicCommand,
+  cmd: &SymbolicCommand,
 ) -> VM {
   let opts = VMOpts {
     contract: c,
     other_contracts: Vec::new(),
     calldata: calldata,
     value: callvalue,
-    address: if let Some(a) = cmd.address {
+    address: if let Some(a) = cmd.address.clone() {
       Expr::LitAddr(a)
     } else {
       Expr::SymAddr("entrypoint".to_string())
     },
     caller: caller,
-    origin: if let Some(a) = cmd.origin {
+    origin: if let Some(a) = cmd.origin.clone() {
       Expr::LitAddr(a)
     } else {
       Expr::SymAddr("origin".to_string())
@@ -288,27 +289,47 @@ fn vm0(
       0xffffffffffffffff
     },
     base_fee: base_fee,
-    priority_fee: if let Some(pf) = cmd.priority_fee { pf } else { 0 },
-    coinbase: if let Some(c) = cmd.coinbase {
+    priority_fee: if let Some(pf) = cmd.priority_fee.clone() {
+      pf
+    } else {
+      W256(0, 0)
+    },
+    coinbase: if let Some(c) = cmd.coinbase.clone() {
       Expr::LitAddr(c)
     } else {
       miner
     },
-    number: if let Some(n) = cmd.number { n } else { block_num },
+    number: if let Some(n) = cmd.number.clone() { n } else { block_num },
     time_stamp: ts,
     block_gaslimit: if let Some(b) = cmd.gaslimit {
       b
     } else {
       0xffffffffffffffff
     },
-    gasprice: if let Some(g) = cmd.gasprice { g } else { 0 },
-    max_code_size: if let Some(m) = cmd.max_code_size { m } else { 0xffffffff },
-    prev_randao: if let Some(p) = cmd.prev_randao { p } else { prev_ran },
+    gasprice: if let Some(g) = cmd.gasprice.clone() {
+      g
+    } else {
+      W256(0, 0)
+    },
+    max_code_size: if let Some(m) = cmd.max_code_size.clone() {
+      m
+    } else {
+      W256(0xffffffff, 0)
+    },
+    prev_randao: if let Some(p) = cmd.prev_randao.clone() {
+      p
+    } else {
+      prev_ran
+    },
     schedule: FEE_SCHEDULE,
-    chain_id: if let Some(i) = cmd.chainid { i } else { 1 },
+    chain_id: if let Some(i) = cmd.chainid.clone() {
+      i
+    } else {
+      W256(1, 0)
+    },
     create: cmd.create,
-    base_state: if let Some(is) = cmd.initial_storage {
-      parseInitialStorage(is)
+    base_state: if let Some(is) = &cmd.initial_storage {
+      parseInitialStorage(is.clone())
     } else {
       BaseState::AbstractBase
     },

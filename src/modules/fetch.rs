@@ -7,8 +7,7 @@ use std::pin::Pin;
 use std::str::FromStr;
 
 use crate::modules::effects::App;
-use crate::modules::types::{Addr, Block, Contract, Expr, Query, EVM, W256};
-use async_trait::async_trait;
+use crate::modules::types::{Addr, Block, Contract, Expr, Query, W256};
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub enum BlockNumber {
@@ -163,7 +162,7 @@ fn parse_block(json: serde_json::Map<String, Value>) -> Option<Block> {
     number,
     gaslimit,
     base_fee: base_fee.unwrap_or_default(),
-    prev_randao: prd,
+    prev_randao: W256(prd as u128, 0),
     max_code_size: todo!(),
     schedule: todo!(),
   })

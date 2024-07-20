@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::modules::evm::initial_contract;
-use crate::modules::types::{update_balance, Contract, ContractCode, Expr, ExprContractMap, RuntimeCodeStruct, VM};
+use crate::modules::types::{
+  update_balance, Contract, ContractCode, Expr, ExprContractMap, RuntimeCodeStruct, VM, W256,
+};
 
 fn touch_account(pre_state: &mut ExprContractMap, addr: &Expr) {
   let new_account = new_account(); // Create new account using newAccount function
@@ -22,8 +24,8 @@ fn setup_tx(origin: &Expr, coinbase: &Expr, gas_price: u64, gas_limit: u64, pre_
     if let Some(n) = account.nonce {
       account.nonce = Some(n + 1)
     };
-    if let Expr::Lit(b) = account.balance {
-      account.balance = Expr::Lit(b - gas_cost as u32)
+    if let Expr::Lit(b) = account.balance.clone() {
+      account.balance = Expr::Lit(b - W256(gas_cost as u128, 0))
     };
   }
 
@@ -35,16 +37,16 @@ fn setup_tx(origin: &Expr, coinbase: &Expr, gas_price: u64, gas_limit: u64, pre_
 pub fn init_tx(vm: &mut VM) -> &mut VM {
   let to_addr = vm.state.contract.clone();
   let origin = vm.tx.origin.clone();
-  let gas_price = vm.tx.gasprice;
+  let gas_price = vm.tx.gasprice.clone();
   let gas_limit = vm.tx.gaslimit;
   let coinbase = vm.block.coinbase.clone();
   let value = vm.state.callvalue.clone();
   let to_contract = initial_contract(vm.state.code.clone());
 
   let pre_state = &mut vm.env.contracts.clone();
-  setup_tx(&origin, &coinbase, gas_price as u64, gas_limit, pre_state);
+  setup_tx(&origin, &coinbase, gas_price.0 as u64, gas_limit, pre_state);
 
-  let old_balance = pre_state.get(&to_addr).map_or(Expr::Lit(0), |account| account.balance.clone());
+  let old_balance = pre_state.get(&to_addr).map_or(Expr::Lit(W256(0, 0)), |account| account.balance.clone());
 
   let creation = vm.tx.is_create;
 
@@ -57,16 +59,16 @@ pub fn init_tx(vm: &mut VM) -> &mut VM {
   }
 
   if let Some(is) = init_state.get_mut(&origin) {
-    if let Expr::Lit(b) = is.balance {
-      if let Expr::Lit(v) = value {
+    if let Expr::Lit(b) = is.balance.clone() {
+      if let Expr::Lit(v) = value.clone() {
         is.balance = Expr::Lit(b - v)
       }
     }
   }
 
   if let Some(is) = init_state.get_mut(&to_addr) {
-    if let Expr::Lit(b) = is.balance {
-      if let Expr::Lit(v) = value {
+    if let Expr::Lit(b) = is.balance.clone() {
+      if let Expr::Lit(v) = value.clone() {
         is.balance = Expr::Lit(b + v)
       }
     }

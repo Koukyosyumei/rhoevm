@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -5,6 +6,7 @@ use std::fmt::{self};
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Rem, Shl, Shr, Sub};
 use std::ops::{Deref, DerefMut};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::vec::Vec; // Assuming state crate is used for the State monad
 use uint::construct_uint;
@@ -21,7 +23,7 @@ pub type Word32 = u32;
 pub type Word64 = u64;
 pub type W64 = u64;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct W256(pub u128, pub u128);
 pub type Word256 = W256;
 #[derive(Debug, Clone)]
@@ -41,7 +43,14 @@ impl fmt::Display for W256 {
   }
 }
 
-// Implement Hash for W256
+// Implement the Default trait
+impl Default for W256 {
+  fn default() -> Self {
+    W256(0, 0)
+  }
+}
+
+// Implement the Hash trait
 impl Hash for W256 {
   fn hash<H: Hasher>(&self, state: &mut H) {
     self.0.hash(state);
@@ -52,6 +61,23 @@ impl Hash for W256 {
 impl PartialEq for W256 {
   fn eq(&self, other: &Self) -> bool {
     self.0 == other.0 && self.1 == other.1
+  }
+}
+
+// Implement the FromStr trait
+impl FromStr for W256 {
+  type Err = String;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    let padded = format!("{:0>64}", s); // Pad with leading zeros to ensure length is 64
+    if padded.len() != 64 {
+      return Err("Input string must be exactly 64 hexadecimal characters long".to_string());
+    }
+    let high = u128::from_str_radix(&padded[0..32], 16)
+      .map_err(|_| "Failed to parse the first 32 characters as u128".to_string())?;
+    let low = u128::from_str_radix(&padded[32..64], 16)
+      .map_err(|_| "Failed to parse the last 32 characters as u128".to_string())?;
+    Ok(W256(high, low))
   }
 }
 
