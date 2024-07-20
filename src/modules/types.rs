@@ -88,6 +88,24 @@ impl W256 {
   }
 }
 
+impl W256 {
+  pub fn from_bytes(bytes: Vec<u8>) -> Self {
+    let padded_bytes = pad_left_prime(32, bytes);
+
+    let high = u128::from_be_bytes(padded_bytes[0..16].try_into().unwrap());
+    let low = u128::from_be_bytes(padded_bytes[16..32].try_into().unwrap());
+
+    W256(high, low)
+  }
+}
+
+pub fn pad_left_prime(size: usize, bytes: Vec<u8>) -> Vec<u8> {
+  let mut padded = vec![0; size];
+  let start = size.saturating_sub(bytes.len());
+  padded[start..].clone_from_slice(&bytes);
+  padded
+}
+
 impl Eq for W256 {}
 
 // Implement Display for W512

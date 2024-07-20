@@ -9,8 +9,8 @@ use super::types::ByteString;
 
 #[derive(Debug, Clone)]
 pub struct Sig {
-  method_signature: String,
-  inputs: Vec<String>,
+  pub method_signature: String,
+  pub inputs: Vec<String>,
 }
 
 impl Sig {

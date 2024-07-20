@@ -300,16 +300,20 @@ impl VM {
           let xs = match &self.state.code {
             ContractCode::UnKnownCode(_) => panic!("Cannot execute unknown code"),
             ContractCode::InitCode(conc, _) => {
-              let bytes = pad_right(n as usize, conc.clone());
+              let bytes = pad_right(n as usize, (&conc[(1 + self.state.pc)..]).to_vec());
               Expr::Lit(W256(word32(&bytes) as u128, 0))
             }
             ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => {
-              let bytes = bs.get((1 + self.state.pc)..).ok_or("Index out of bounds");
-              Expr::Lit(W256(word32(&bytes.unwrap()) as u128, 0))
+              let bytes = bs
+                .get((1 + self.state.pc)..(1 + self.state.pc + n as usize))
+                .unwrap_or_else(|| panic!("Index out of bounds"));
+              Expr::Lit(W256(word32(&bytes) as u128, 0))
             }
             ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
-              let bytes = ops.get((1 + self.state.pc)..(1 + self.state.pc + n as usize)).ok_or("Index out of bounds");
-              let padded_bytes = pad_left_prime(32, bytes.unwrap().to_vec());
+              let bytes = ops
+                .get((1 + self.state.pc)..(1 + self.state.pc + n as usize))
+                .unwrap_or_else(|| panic!("Index out of bounds"));
+              let padded_bytes = pad_left_prime(32, bytes.to_vec());
               from_list(padded_bytes)
             }
           };

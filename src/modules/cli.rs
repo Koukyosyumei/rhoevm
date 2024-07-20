@@ -25,7 +25,8 @@ use crate::modules::types::{
   Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
 };
 
-use super::types::Block;
+use super::evm::buf_length;
+use super::types::{self, Block};
 
 type URL = String;
 
@@ -38,28 +39,28 @@ pub enum InitialStorage {
 #[derive(Debug, Default)]
 pub struct SymbolicCommand {
   // VM opts
-  code: Option<Vec<u8>>,       // Program bytecode
-  calldata: Option<Vec<u8>>,   // Tx: calldata
-  address: Option<Addr>,       // Tx: address
-  caller: Option<Addr>,        // Tx: caller
-  origin: Option<Addr>,        // Tx: origin
-  coinbase: Option<Addr>,      // Block: coinbase
-  value: Option<W256>,         // Tx: Eth amount
-  nonce: Option<u64>,          // Nonce of origin
-  gas: Option<u64>,            // Tx: gas amount
-  number: Option<W256>,        // Block: number
-  timestamp: Option<W256>,     // Block: timestamp
-  basefee: Option<W256>,       // Block: base fee
-  priority_fee: Option<W256>,  // Tx: priority fee
-  gaslimit: Option<u64>,       // Tx: gas limit
-  gasprice: Option<W256>,      // Tx: gas price
-  create: bool,                // Tx: creation
-  max_code_size: Option<W256>, // Block: max code size
-  prev_randao: Option<W256>,   // Block: prevRandao
-  chainid: Option<W256>,       // Env: chainId
+  pub code: Option<Vec<u8>>,       // Program bytecode
+  pub calldata: Option<Vec<u8>>,   // Tx: calldata
+  pub address: Option<Addr>,       // Tx: address
+  pub caller: Option<Addr>,        // Tx: caller
+  pub origin: Option<Addr>,        // Tx: origin
+  pub coinbase: Option<Addr>,      // Block: coinbase
+  pub value: Option<W256>,         // Tx: Eth amount
+  pub nonce: Option<u64>,          // Nonce of origin
+  pub gas: Option<u64>,            // Tx: gas amount
+  pub number: Option<W256>,        // Block: number
+  pub timestamp: Option<W256>,     // Block: timestamp
+  pub basefee: Option<W256>,       // Block: base fee
+  pub priority_fee: Option<W256>,  // Tx: priority fee
+  pub gaslimit: Option<u64>,       // Tx: gas limit
+  pub gasprice: Option<W256>,      // Tx: gas price
+  pub create: bool,                // Tx: creation
+  pub max_code_size: Option<W256>, // Block: max code size
+  pub prev_randao: Option<W256>,   // Block: prevRandao
+  pub chainid: Option<W256>,       // Env: chainId
   // Remote state opts
-  rpc: Option<URL>,    // Fetch state from a remote node
-  block: Option<W256>, // Block state to be fetched from
+  pub rpc: Option<URL>,    // Fetch state from a remote node
+  pub block: Option<W256>, // Block state to be fetched from
 
   // Symbolic execution opts
   root: Option<String>, // Path to project root directory (default: .)
@@ -254,7 +255,7 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop
   Ok(vm)
 }
 
-fn vm0(
+pub fn vm0(
   base_fee: W256,
   miner: Expr,
   ts: Expr,
@@ -346,7 +347,7 @@ fn parseInitialStorage(is: InitialStorage) -> BaseState {
   }
 }
 
-fn build_calldata(cmd: &SymbolicCommand) -> Result<(Expr, Vec<Prop>), Box<dyn std::error::Error>> {
+pub fn build_calldata(cmd: &SymbolicCommand) -> Result<(Expr, Vec<Prop>), Box<dyn std::error::Error>> {
   match (&cmd.calldata, &cmd.sig) {
     // Fully abstract calldata
     (None, None) => Ok(mk_calldata(None, &[])),
@@ -376,9 +377,21 @@ fn build_calldata(cmd: &SymbolicCommand) -> Result<(Expr, Vec<Prop>), Box<dyn st
 }
 
 fn mk_calldata(sig: Option<Sig>, args: &[String]) -> (Expr, Vec<Prop>) {
-  // Implementation here
-  // (Expr::, vec![])
-  todo!()
+  match sig {
+    Some(Sig {
+      method_signature: name,
+      inputs: types,
+    }) => {
+      todo!()
+    }
+    None => (
+      Expr::AbstractBuf("txdata".to_string()),
+      vec![Prop::PLEq(
+        buf_length(Expr::AbstractBuf("txdata".to_string())),
+        Expr::Lit(W256(2 ^ 64, 0)),
+      )],
+    ),
+  }
 }
 
 fn function_abi(sig: &str) -> Result<AbiMethod, Box<dyn std::error::Error>> {
