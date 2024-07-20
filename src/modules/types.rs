@@ -163,22 +163,31 @@ impl Not for W256 {
 }
 
 impl W256 {
-  pub fn div_rem(self, other: W256) -> (W256, W256) {
-    let mut quotient = W256(0, 0); // Initialize the quotient to zero
-    let mut remainder = self.clone(); // Start with the remainder equal to the dividend
+  pub fn div_rem(self, b: W256) -> (W256, W256) {
+    let mut x = self.clone();
+    let mut ans = W256(0, 0);
+    let mut i = 0;
 
-    // Iterate from the highest bit (255) down to the lowest bit (0)
-    for i in (0..256).rev() {
-      remainder = remainder.shl(1); // Left shift the remainder by 1 bit
+    if b == W256(0, 0) {
+      return (W256(0, 0), W256(0, 0));
+    }
 
-      // Check if the remainder is greater than or equal to the divisor
-      if remainder >= other.clone() {
-        remainder = remainder - other.clone(); // Subtract the divisor from the remainder
-        quotient = quotient + W256::one().shl(i); // Set the current bit of the quotient to 1
+    loop {
+      if x < (b.clone().shl(i)) {
+        if i <= 0 {
+          break;
+        } else {
+          i = i - 1;
+          ans = ans + W256::one().shl(i);
+          x = x - b.clone().shl(i);
+          i = 0;
+        }
+      } else {
+        i = i + 1;
       }
     }
 
-    (quotient, remainder) // Return the quotient and remainder
+    (ans.clone(), self - ans.clone() * b) // Return the quotient and remainder
   }
 
   pub fn one() -> W256 {

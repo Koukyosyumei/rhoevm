@@ -356,15 +356,15 @@ pub fn write_byte(offset: Expr, byte: Expr, src: Expr) -> Expr {
   }
 }
 
-pub fn is_power_of_two_(n: u128) -> bool {
+fn is_power_of_two_(n: u128) -> bool {
   n != 0 && (n & (n - 1)) == 0
 }
 
-pub fn count_leading_zeros_(n: u128) -> u32 {
+fn count_leading_zeros_(n: u128) -> u32 {
   n.leading_zeros()
 }
 
-pub fn is_byte_aligned_(m: u128) -> bool {
+fn is_byte_aligned_(m: u128) -> bool {
   count_leading_zeros_(m) % 8 == 0
 }
 
@@ -374,8 +374,9 @@ fn unsafe_into_usize_(value: u128) -> usize {
 
 /// Checks if any part of the `W256` value is a power of two.
 pub fn is_power_of_two(n: W256) -> bool {
-  let W256(low, high) = n;
-  is_power_of_two_(low) && is_power_of_two_(high)
+  n.clone() != W256(0, 0) && (n.clone() & (n.clone() - W256(1, 0))) == W256(0, 0)
+  //let W256(low, high) = n;
+  // is_power_of_two_(low) && is_power_of_two_(high)
 }
 
 /// Counts the number of leading zeros in both parts of the `W256` value.
@@ -383,18 +384,16 @@ pub fn count_leading_zeros(n: W256) -> u32 {
   let W256(low, high) = n;
   let low_zeros = count_leading_zeros_(low);
   let high_zeros = count_leading_zeros_(high);
-  // Combine results: leading zeros in the high part plus 128 bits if high part is zero
   if high == 0 {
-    low_zeros
+    low_zeros + 128
   } else {
-    high_zeros + 128
+    high_zeros
   }
 }
 
 /// Determines if any part of the `W256` value is byte-aligned.
 pub fn is_byte_aligned(n: W256) -> bool {
-  let W256(low, high) = n;
-  is_byte_aligned_(low) || is_byte_aligned_(high)
+  count_leading_zeros(n) % 8 == 0
 }
 
 /// Converts the `W256` value into `usize` if possible.
@@ -414,7 +413,7 @@ pub fn index_word(i: Expr, w: Expr) -> Expr {
       if mask.clone() == full_word_mask {
         index_word(Expr::Lit(idx), *box_w)
       } else {
-        let unmasked_bytes = (count_leading_zeros(mask.clone()) / 8) as u64;
+        let unmasked_bytes = count_leading_zeros(mask.clone()) / 8;
         if idx <= W256(31, 0) && is_power_of_two(mask.clone() + W256(1, 0)) && is_byte_aligned(mask.clone()) {
           if idx >= W256(unmasked_bytes as u128, 0) {
             index_word(Expr::Lit(idx), *box_w)
@@ -433,7 +432,7 @@ pub fn index_word(i: Expr, w: Expr) -> Expr {
     }
     (Expr::Lit(idx), Expr::Lit(w)) => {
       if idx <= W256(31, 0) {
-        Expr::LitByte((w.0 >> (248 - unsafe_into_usize(idx) * 8)) as u8)
+        Expr::LitByte((w >> (unsafe_into_usize(idx) * 8) as u32).0 as u8)
       } else {
         Expr::LitByte(0)
       }

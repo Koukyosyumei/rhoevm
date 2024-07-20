@@ -12,6 +12,7 @@ fn test_add_concrete() {
 }
 
 #[test]
+
 fn test_add_symbolic() {
   let x = Expr::Lit(W256(3, 0));
   let y = Expr::Sub(Box::new(Expr::Lit(W256(4, 0))), Box::new(Expr::Lit(W256(2, 0))));
@@ -42,6 +43,7 @@ fn test_mul_concrete() {
 }
 
 #[test]
+
 fn test_div_concrete() {
   let x = Expr::Lit(W256(10, 0));
   let y = Expr::Lit(W256(2, 0));
@@ -176,8 +178,8 @@ fn test_is_power_of_two() {
 
 #[test]
 fn test_count_leading_zeros() {
-  assert_eq!(count_leading_zeros(W256(0b1000, 0)), 60);
-  assert_eq!(count_leading_zeros(W256(0b0100, 0)), 61);
+  assert_eq!(count_leading_zeros(W256(0b1000, 0)), 128 + 124);
+  assert_eq!(count_leading_zeros(W256(0b0100, 0)), 128 + 125);
 }
 
 #[test]
@@ -191,8 +193,91 @@ fn test_is_byte_aligned() {
 }
 
 #[test]
+fn test_index_word_literal_masked() {
+  // Test case where i and w are literals, and w is a masked word (Expr::And)
+  let idx = Expr::Lit(W256(5, 0));
+  let mask = Expr::Lit(W256(
+    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
+    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
+  ));
+  let word = Expr::Lit(W256(0x11223344556677889900AABBCCDDEEFF, 0));
+  let w = Expr::And(Box::new(mask.clone()), Box::new(word.clone()));
+
+  let result = index_word(idx, w);
+
+  assert_eq!(result, Expr::LitByte(0xAA));
+}
+
+#[test]
+fn test_index_word_join_bytes() {
+  // Test case where i is a literal and w is a joined byte array
+  let idx = Expr::Lit(W256(3, 0));
+  let bytes = vec![
+    Expr::LitByte(0x11),
+    Expr::LitByte(0x22),
+    Expr::LitByte(0x33),
+    Expr::LitByte(0x44),
+    Expr::LitByte(0x55),
+    Expr::LitByte(0x66),
+    Expr::LitByte(0x77),
+    Expr::LitByte(0x88),
+    Expr::LitByte(0x99),
+    Expr::LitByte(0xAA),
+    Expr::LitByte(0xBB),
+    Expr::LitByte(0xCC),
+    Expr::LitByte(0xDD),
+    Expr::LitByte(0xEE),
+    Expr::LitByte(0xFF),
+    Expr::LitByte(0x00),
+    Expr::LitByte(0x11),
+    Expr::LitByte(0x22),
+    Expr::LitByte(0x33),
+    Expr::LitByte(0x44),
+    Expr::LitByte(0x55),
+    Expr::LitByte(0x66),
+    Expr::LitByte(0x77),
+    Expr::LitByte(0x88),
+    Expr::LitByte(0x99),
+    Expr::LitByte(0xAA),
+    Expr::LitByte(0xBB),
+    Expr::LitByte(0xCC),
+    Expr::LitByte(0xDD),
+    Expr::LitByte(0xEE),
+    Expr::LitByte(0xFF),
+    Expr::LitByte(0x00),
+  ];
+  let w = Expr::JoinBytes(bytes);
+
+  let result = index_word(idx, w);
+
+  assert_eq!(result, Expr::LitByte(0x44));
+}
+
+#[test]
+fn test_index_word_non_literal() {
+  // Test case where i and w are non-literals
+  let idx = Expr::Var("i".to_string());
+  let word = Expr::Var("w".to_string());
+
+  let result = index_word(idx.clone(), word.clone());
+
+  assert_eq!(result, Expr::IndexWord(Box::new(idx), Box::new(word)));
+}
+
+#[test]
+fn test_index_word_literal() {
+  // Test case where i and w are literals
+  let idx = Expr::Lit(W256(3, 0));
+  let word = Expr::Lit(W256(0x11223344556677889900AABBCCDDEEFF, 0));
+
+  let result = index_word(idx, word);
+
+  assert_eq!(result, Expr::LitByte(0xCC));
+}
+
+#[test]
 fn test_index_word_concrete_lit() {
-  let i = Expr::Lit(W256(1, 0));
+  let i = Expr::Lit(W256(3, 0));
   let w = Expr::Lit(W256(0x12345678_9ABCDEF0, 0));
 
   let expected = Expr::LitByte(0x9A);
@@ -203,14 +288,14 @@ fn test_index_word_concrete_lit() {
 fn test_index_word_symbolic() {
   let i = Expr::Lit(W256(1, 0));
   let w = Expr::And(
-    Box::new(Expr::Lit(W256(0xFFFF_FFFF_FFFF_FFFF, 0))),
+    Box::new(Expr::Lit(W256(0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF))),
     Box::new(Expr::Lit(W256(0x12345678_9ABCDEF0, 0))),
   );
 
   let expected = Expr::IndexWord(
     Box::new(i.clone()),
     Box::new(Expr::And(
-      Box::new(Expr::Lit(W256(0xFFFF_FFFF_FFFF_FFFF, 0))),
+      Box::new(Expr::Lit(W256(0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF))),
       Box::new(Expr::Lit(W256(0x12345678_9ABCDEF0, 0))),
     )),
   );
