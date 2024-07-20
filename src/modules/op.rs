@@ -265,7 +265,7 @@ pub fn op_string<T>(i: u64, o: Op) -> String {
     Op::Push0 => "PUSH0",
     Op::Push(x) => &format!("{} {}", &&"PUSH {}", (x)).to_string(),
     Op::PushExpr(x) => match x {
-      Expr::Lit(v) => &format!("{} {}", &&"PUSH 0x{}", show_hex(v as u64, "")).to_string(),
+      Expr::Lit(v) => &format!("{} {}", &&"PUSH 0x{}", show_hex(v.0 as u64, "")).to_string(),
       _ => panic!("invalid expr"),
     },
     Op::Revert => "REVERT",

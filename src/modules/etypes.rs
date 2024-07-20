@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::fmt;
-
 // Define the phantom types
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct EWord;

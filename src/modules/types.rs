@@ -1,27 +1,344 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::fmt::{self};
 use std::hash::{Hash, Hasher};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Rem, Shl, Shr, Sub};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::vec::Vec; // Assuming state crate is used for the State monad
+use uint::construct_uint;
 
 use crate::modules::etypes::Buf;
 use crate::modules::feeschedule::FeeSchedule;
 
-pub type Addr = u32;
-pub type W64 = u8;
-pub type W256 = u32;
-pub type Int256 = i32;
-pub type Nibble = i32;
+construct_uint! {
+  pub struct U256(4);
+}
+
 pub type Word8 = u8;
 pub type Word32 = u32;
 pub type Word64 = u64;
-pub type Word256 = u32;
+pub type W64 = u64;
+
+#[derive(Debug, Clone)]
+pub struct W256(pub u128, pub u128);
+pub type Word256 = W256;
+#[derive(Debug, Clone)]
+pub struct W512(pub W256, pub W256);
+
+pub type Addr = W256;
+pub type Nibble = i32;
+
 pub type ByteString = Vec<u8>;
 pub type FunctionSelector = u32;
-pub type Word160 = u32;
-pub type Word512 = u32;
+
+// Implement Display for W256
+impl fmt::Display for W256 {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    // Format as hexadecimal string
+    write!(f, "{:032x}{:032x}", self.0, self.1)
+  }
+}
+
+// Implement Hash for W256
+impl Hash for W256 {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.0.hash(state);
+    self.1.hash(state);
+  }
+}
+
+impl PartialEq for W256 {
+  fn eq(&self, other: &Self) -> bool {
+    self.0 == other.0 && self.1 == other.1
+  }
+}
+
+impl W256 {
+  // Maximum value for W256 (2^256 - 1)
+  pub const fn max_value() -> W256 {
+    W256(u128::MAX, u128::MAX)
+  }
+}
+
+impl Eq for W256 {}
+
+// Implement Display for W512
+impl fmt::Display for W512 {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    // Format as concatenated hexadecimal strings of W256 parts
+    write!(f, "{}{}", self.0, self.1)
+  }
+}
+
+// Implement Hash for W512
+impl Hash for W512 {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.0.hash(state);
+    self.1.hash(state);
+  }
+}
+
+impl PartialEq for W512 {
+  fn eq(&self, other: &Self) -> bool {
+    self.0 == other.0 && self.1 == other.1
+  }
+}
+
+impl Eq for W512 {}
+
+// Implement basic operations for W256
+impl Add for W256 {
+  type Output = W256;
+
+  fn add(self, other: W256) -> W256 {
+    let (low, carry) = self.1.overflowing_add(other.1);
+    let (high, _) = self.0.overflowing_add(other.0 + if carry { 1 } else { 0 });
+    W256(high, low)
+  }
+}
+
+impl Sub for W256 {
+  type Output = W256;
+
+  fn sub(self, other: W256) -> W256 {
+    let (low, borrow) = self.1.overflowing_sub(other.1);
+    let (high, _) = self.0.overflowing_sub(other.0 + if borrow { 1 } else { 0 });
+    W256(high, low)
+  }
+}
+
+impl BitAnd for W256 {
+  type Output = W256;
+
+  fn bitand(self, other: W256) -> W256 {
+    W256(self.0 & other.0, self.1 & other.1)
+  }
+}
+
+impl Mul for W256 {
+  type Output = W256;
+
+  fn mul(self, other: W256) -> W256 {
+    let self_low = self.1;
+    let self_high = self.0;
+    let other_low = other.1;
+    let other_high = other.0;
+
+    let low_low = self_low.wrapping_mul(other_low);
+    let high_low = self_high.wrapping_mul(other_low);
+    let low_high = self_low.wrapping_mul(other_high);
+    let high_high = self_high.wrapping_mul(other_high);
+
+    let low = low_low;
+    let high = high_low.wrapping_add(low_high).wrapping_add(high_high);
+
+    W256(high, low)
+  }
+}
+
+impl BitXor for W256 {
+  type Output = W256;
+
+  fn bitxor(self, other: W256) -> W256 {
+    W256(self.0 ^ other.0, self.1 ^ other.1)
+  }
+}
+
+impl BitOr for W256 {
+  type Output = W256;
+
+  fn bitor(self, other: W256) -> W256 {
+    W256(self.0 | other.0, self.1 | other.1)
+  }
+}
+
+impl Not for W256 {
+  type Output = W256;
+
+  fn not(self) -> W256 {
+    W256(!self.0, !self.1)
+  }
+}
+
+impl W256 {
+  pub fn div_rem(self, other: W256) -> (W256, W256) {
+    let mut quotient = W256(0, 0); // Initialize the quotient to zero
+    let mut remainder = self.clone(); // Start with the remainder equal to the dividend
+
+    // Iterate from the highest bit (255) down to the lowest bit (0)
+    for i in (0..256).rev() {
+      remainder = remainder.shl(1); // Left shift the remainder by 1 bit
+
+      // Check if the remainder is greater than or equal to the divisor
+      if remainder >= other.clone() {
+        remainder = remainder - other.clone(); // Subtract the divisor from the remainder
+        quotient = quotient + W256::one().shl(i); // Set the current bit of the quotient to 1
+      }
+    }
+
+    (quotient, remainder) // Return the quotient and remainder
+  }
+
+  pub fn one() -> W256 {
+    W256(1, 0)
+  }
+
+  pub fn shl(self, shift: u32) -> W256 {
+    if shift == 0 {
+      self
+    } else if shift < 128 {
+      let low = self.0 << shift;
+      let high = (self.1 << shift) | (self.0 >> (128 - shift));
+      W256(low, high)
+    } else {
+      let low = 0;
+      let high = self.0 << (shift - 128);
+      W256(low, high)
+    }
+  }
+
+  pub fn shr(self, shift: u32) -> W256 {
+    if shift == 0 {
+      self
+    } else if shift < 128 {
+      let high = self.1 >> shift;
+      let low = (self.0 >> shift) | (self.1 << (128 - shift));
+      W256(low, high)
+    } else {
+      let high = 0;
+      let low = self.1 >> (shift - 128);
+      W256(low, high)
+    }
+  }
+}
+
+impl Div for W256 {
+  type Output = W256;
+
+  fn div(self, other: W256) -> W256 {
+    self.div_rem(other).0
+  }
+}
+
+impl Rem for W256 {
+  type Output = W256;
+
+  fn rem(self, other: W256) -> W256 {
+    self.div_rem(other).1
+  }
+}
+
+impl Shr<u32> for W256 {
+  type Output = W256;
+
+  fn shr(self, rhs: u32) -> W256 {
+    let (high_shifted, low_shifted) = if rhs >= 128 {
+      (self.1 >> (rhs - 128), 0)
+    } else {
+      (self.0 >> rhs | self.1 << (128 - rhs), self.1 >> rhs)
+    };
+    W256(high_shifted, low_shifted)
+  }
+}
+
+impl Shl<u32> for W256 {
+  type Output = W256;
+
+  fn shl(self, rhs: u32) -> W256 {
+    let (high_shifted, low_shifted) = if rhs >= 128 {
+      (self.1 << (rhs - 128), 0)
+    } else {
+      (self.0 << rhs | self.1 >> (128 - rhs), self.1 << rhs)
+    };
+    W256(high_shifted, low_shifted)
+  }
+}
+
+// Implement basic operations for W512
+impl Add for W512 {
+  type Output = W512;
+
+  fn add(self, other: W512) -> W512 {
+    let W512(left1, right1) = self;
+    let W512(left2, right2) = other;
+    W512(left1 + left2, right1 + right2)
+  }
+}
+
+impl Mul for W512 {
+  type Output = W512;
+
+  fn mul(self, other: W512) -> W512 {
+    // Implement multiplication for W512
+    let W512(left1, right1) = self;
+    let W512(left2, right2) = other;
+
+    let low1 = left1.clone() * right2.clone();
+    let low2 = right1.clone() * left2.clone();
+    let high1 = left1 * left2;
+    let high2 = right1 * right2;
+
+    W512(high1 + low1 + low2, high2)
+  }
+}
+
+impl Div for W512 {
+  type Output = W512;
+
+  fn div(self, other: W512) -> W512 {
+    // Implement division for W512 (using arbitrary precision arithmetic)
+    unimplemented!()
+  }
+}
+
+impl Rem for W512 {
+  type Output = W512;
+
+  fn rem(self, other: W512) -> W512 {
+    // Implement modulus for W512 (using arbitrary precision arithmetic)
+    unimplemented!()
+  }
+}
+
+impl Shr<u32> for W512 {
+  type Output = W512;
+
+  fn shr(self, rhs: u32) -> W512 {
+    // Implement right shift for W512
+    unimplemented!()
+  }
+}
+
+impl Shl<u32> for W512 {
+  type Output = W512;
+
+  fn shl(self, rhs: u32) -> W512 {
+    // Implement left shift for W512
+    unimplemented!()
+  }
+}
+
+// Implement comparison operations for W256
+impl PartialOrd for W256 {
+  fn partial_cmp(&self, other: &W256) -> Option<Ordering> {
+    match self.0.cmp(&other.0) {
+      Ordering::Equal => self.1.partial_cmp(&other.1),
+      ordering => Some(ordering),
+    }
+  }
+}
+
+impl W256 {
+  pub fn max(self, other: W256) -> W256 {
+    if self.1 > other.1 || (self.1 == other.1 && self.0 > other.0) {
+      self
+    } else {
+      other
+    }
+  }
+}
 
 // Symbolic IR -------------------------------------------------------------------------------------
 
@@ -1309,7 +1626,13 @@ pub fn from_list(bs: Vec<Expr>) -> Expr {
     for (idx, expr) in bs.into_iter().enumerate() {
       match expr {
         Expr::LitByte(_) => continue,
-        _ => buf_expr = Expr::WriteByte(Box::new(Expr::Lit(idx as u32)), Box::new(expr), Box::new(buf_expr)),
+        _ => {
+          buf_expr = Expr::WriteByte(
+            Box::new(Expr::Lit(W256(0, idx as u128))),
+            Box::new(expr),
+            Box::new(buf_expr),
+          )
+        }
       }
     }
     buf_expr

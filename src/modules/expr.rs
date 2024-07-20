@@ -4,7 +4,7 @@ use std::cmp::min;
 
 // ** Constants **
 
-const MAX_LIT: W256 = 0xffffffff;
+const MAX_LIT: W256 = W256(0xffffffffffffffffffffffffffffffff, 0xffffffffffffffffffffffffffffffff);
 
 // ** Stack Ops ** ---------------------------------------------------------------------------------
 
@@ -14,7 +14,7 @@ where
   F2: Fn(W256) -> W256,
 {
   match x {
-    Expr::Lit(x) => Expr::Lit(concrete(*x)),
+    Expr::Lit(x) => Expr::Lit(concrete(x.clone())),
     _ => symbolic(Box::new(x.clone())),
   }
 }
@@ -68,7 +68,12 @@ pub fn mul(l: Expr, r: Expr) -> Expr {
 }
 
 pub fn div(l: Expr, r: Expr) -> Expr {
-  op2(Expr::Div, |x, y| if y == 0 { 0 } else { x / y }, &l, &r)
+  op2(
+    Expr::Div,
+    |x, y| if y == W256(0, 0) { W256(0, 0) } else { x / y },
+    &l,
+    &r,
+  )
 }
 
 pub fn emin(l: Expr, r: Expr) -> Expr {
@@ -106,9 +111,9 @@ pub fn sdiv(l: Expr, r: Expr) -> Expr {
     Expr::SDiv,
     |x, y| {
       let sx = x as W256;
-      let sy = y as W256;
-      if y == 0 {
-        0
+      let sy = y.clone() as W256;
+      if y == W256(0, 0) {
+        W256(0, 0)
       } else {
         (sx / sy) as W256
       }
@@ -119,7 +124,12 @@ pub fn sdiv(l: Expr, r: Expr) -> Expr {
 }
 
 pub fn r#mod(l: Expr, r: Expr) -> Expr {
-  op2(Expr::Mod, |x, y| if y == 0 { 0 } else { x % y }, &l, &r)
+  op2(
+    Expr::Mod,
+    |x, y| if y == W256(0, 0) { W256(0, 0) } else { x % y },
+    &l,
+    &r,
+  )
 }
 
 pub fn smod(l: Expr, r: Expr) -> Expr {
@@ -127,9 +137,9 @@ pub fn smod(l: Expr, r: Expr) -> Expr {
     Expr::SMod,
     |x, y| {
       let sx = x as W256;
-      let sy = y as W256;
-      if y == 0 {
-        0
+      let sy = y.clone() as W256;
+      if y == W256(0, 0) {
+        W256(0, 0)
       } else {
         (sx % sy) as W256
       }
@@ -143,8 +153,8 @@ pub fn addmod(x: Expr, y: Expr, z: Expr) -> Expr {
   op3(
     Expr::AddMod,
     |x, y, z| {
-      if z == 0 {
-        0
+      if z == W256(0, 0) {
+        W256(0, 0)
       } else {
         ((x as W256 + y as W256) % z as W256) as W256
       }
@@ -159,8 +169,8 @@ pub fn mulmod(x: Expr, y: Expr, z: Expr) -> Expr {
   op3(
     Expr::MulMod,
     |x, y, z| {
-      if z == 0 {
-        0
+      if z == W256(0, 0) {
+        W256(0, 0)
       } else {
         ((x as W256 * y as W256) % z as W256) as W256
       }
@@ -172,21 +182,22 @@ pub fn mulmod(x: Expr, y: Expr, z: Expr) -> Expr {
 }
 
 pub fn exp(x: Expr, y: Expr) -> Expr {
-  op2(Expr::Exp, |x, y| x.pow(y as u32), &x, &y)
+  // TODO: support W256.pow(W256)
+  op2(Expr::Exp, |x, y| W256(0, x.0.pow(y.0 as u32)), &x, &y)
 }
 
 pub fn sex(bytes: Expr, x: Expr) -> Expr {
   op2(
     Expr::SEx,
     |bytes, x| {
-      if bytes >= 32 {
+      if bytes >= W256(32, 0) {
         x
       } else {
-        let n = bytes * 8 + 7;
-        if x & (1 << n) != 0 {
-          x | (!(1 << n) + 1)
+        let n = bytes * W256(8, 0) + W256(7, 0);
+        if x.clone() & (W256(1, 0) << n.0 as u32) != W256(0, 0) {
+          x | (!(W256(1, 0) << n.0 as u32) + W256(1, 0))
         } else {
-          x & ((1 << n) - 1)
+          x & ((W256(1, 0) << n.0 as u32) - W256(1, 0))
         }
       }
     },
@@ -198,19 +209,19 @@ pub fn sex(bytes: Expr, x: Expr) -> Expr {
 // Booleans
 
 pub fn lt(x: Expr, y: Expr) -> Expr {
-  op2(Expr::LT, |x, y| if x < y { 1 } else { 0 }, &x, &y)
+  op2(Expr::LT, |x, y| if x < y { W256(1, 0) } else { W256(0, 0) }, &x, &y)
 }
 
 pub fn gt(x: Expr, y: Expr) -> Expr {
-  op2(Expr::GT, |x, y| if x > y { 1 } else { 0 }, &x, &y)
+  op2(Expr::GT, |x, y| if x > y { W256(1, 0) } else { W256(0, 0) }, &x, &y)
 }
 
 pub fn leq(x: Expr, y: Expr) -> Expr {
-  op2(Expr::LEq, |x, y| if x <= y { 1 } else { 0 }, &x, &y)
+  op2(Expr::LEq, |x, y| if x <= y { W256(1, 0) } else { W256(0, 0) }, &x, &y)
 }
 
 pub fn geq(x: Expr, y: Expr) -> Expr {
-  op2(Expr::GEq, |x, y| if x >= y { 1 } else { 0 }, &x, &y)
+  op2(Expr::GEq, |x, y| if x >= y { W256(1, 0) } else { W256(0, 0) }, &x, &y)
 }
 
 pub fn slt(x: Expr, y: Expr) -> Expr {
@@ -220,9 +231,9 @@ pub fn slt(x: Expr, y: Expr) -> Expr {
       let sx = x as W256;
       let sy = y as W256;
       if sx < sy {
-        1
+        W256(1, 0)
       } else {
-        0
+        W256(0, 0)
       }
     },
     &x,
@@ -237,9 +248,9 @@ pub fn sgt(x: Expr, y: Expr) -> Expr {
       let sx = x as W256;
       let sy = y as W256;
       if sx > sy {
-        1
+        W256(1, 0)
       } else {
-        0
+        W256(0, 0)
       }
     },
     &x,
@@ -248,11 +259,15 @@ pub fn sgt(x: Expr, y: Expr) -> Expr {
 }
 
 pub fn eq(x: Expr, y: Expr) -> Expr {
-  norm_args(Expr::Eq, |x, y| if x == y { 1 } else { 0 }, &x, &y)
+  norm_args(Expr::Eq, |x, y| if x == y { W256(1, 0) } else { W256(0, 0) }, &x, &y)
 }
 
 pub fn iszero(x: Expr) -> Expr {
-  op1(Expr::IsZero, |x| if x == 0 { 1 } else { 0 }, &x)
+  op1(
+    Expr::IsZero,
+    |x| if x == W256(0, 0) { W256(1, 0) } else { W256(0, 0) },
+    &x,
+  )
 }
 
 // Bits
@@ -274,27 +289,37 @@ pub fn not(x: Expr) -> Expr {
 }
 
 pub fn shl(x: Expr, y: Expr) -> Expr {
-  op2(Expr::SHL, |x, y| if x > 256 { 0 } else { y << x }, &x, &y)
+  op2(
+    Expr::SHL,
+    |x, y| if x > W256(256, 0) { W256(0, 0) } else { y << x.0 as u32 },
+    &x,
+    &y,
+  )
 }
 
 pub fn shr(x: Expr, y: Expr) -> Expr {
-  op2(Expr::SHR, |x, y| if x > 256 { 0 } else { y >> x }, &x, &y)
+  op2(
+    Expr::SHR,
+    |x, y| if x > W256(256, 0) { W256(0, 0) } else { y >> x.0 as u32 },
+    &x,
+    &y,
+  )
 }
 
 pub fn sar(x: Expr, y: Expr) -> Expr {
   op2(
     Expr::SAR,
     |x, y| {
-      let msb = (y >> 31) & 1 != 0;
+      let msb = (y.clone() >> 31) & W256(1, 0) != W256(0, 0);
       let as_signed = y as W256;
-      if x > 256 {
+      if x > W256(256, 0) {
         if msb {
           W256::max_value()
         } else {
-          0
+          W256(0, 0)
         }
       } else {
-        (as_signed >> x) as W256
+        (as_signed >> x.0 as u32) as W256
       }
     },
     &x,
@@ -304,67 +329,99 @@ pub fn sar(x: Expr, y: Expr) -> Expr {
 
 pub fn in_range(sz: u32, e: Expr) -> Prop {
   Prop::PAnd(
-    Box::new(Prop::PGEq(e.clone(), Expr::Lit(0))),
-    Box::new(Prop::PLEq(e.clone(), Expr::Lit(2 ^ sz - 1))),
+    Box::new(Prop::PGEq(e.clone(), Expr::Lit(W256(0, 0)))),
+    Box::new(Prop::PLEq(e.clone(), Expr::Lit(W256((2 ^ (sz) - 1) as u128, 0)))),
   )
 }
 
-pub const MAX_BYTES: u32 = (u32::MAX) / 8;
+const MAX_WORD32: u32 = u32::MAX;
+const MAX_BYTES: W256 = W256(MAX_WORD32 as u128 / 8, 0);
 
 pub fn write_byte(offset: Expr, byte: Expr, src: Expr) -> Expr {
   match (offset, byte, src) {
     (Expr::Lit(offset), Expr::LitByte(val), Expr::ConcreteBuf(src)) if src.len() == 0 && offset < MAX_BYTES => {
-      let mut buffer = vec![0; offset as usize];
+      let mut buffer = vec![0; offset.0 as usize];
       buffer.push(val);
-      buffer.extend(vec![0; MAX_BYTES as usize - offset as usize - 1]);
+      buffer.extend(vec![0; (MAX_BYTES - offset - W256(1, 0)).0 as usize]);
       Expr::ConcreteBuf(buffer)
     }
     (Expr::Lit(offset), Expr::LitByte(byte), Expr::ConcreteBuf(src)) if offset < MAX_BYTES => {
       let mut buffer = src.clone();
-      buffer.truncate(offset as usize);
+      buffer.truncate(offset.0 as usize);
       buffer.push(byte);
-      buffer.extend(src[offset as usize + 1..].to_vec());
+      buffer.extend(src[offset.0 as usize + 1..].to_vec());
       Expr::ConcreteBuf(buffer)
     }
     (offset, byte, src) => Expr::WriteByte(Box::new(offset), Box::new(byte), Box::new(src)),
   }
 }
 
-pub fn is_power_of_two(n: u64) -> bool {
+pub fn is_power_of_two_(n: u128) -> bool {
   n != 0 && (n & (n - 1)) == 0
 }
 
-pub fn count_leading_zeros(n: u64) -> u32 {
+pub fn count_leading_zeros_(n: u128) -> u32 {
   n.leading_zeros()
 }
 
-pub fn is_byte_aligned(m: u64) -> bool {
-  count_leading_zeros(m) % 8 == 0
+pub fn is_byte_aligned_(m: u128) -> bool {
+  count_leading_zeros_(m) % 8 == 0
 }
 
-fn unsafe_into_usize(value: u64) -> usize {
+fn unsafe_into_usize_(value: u128) -> usize {
   value as usize
+}
+
+/// Checks if any part of the `W256` value is a power of two.
+pub fn is_power_of_two(n: W256) -> bool {
+  let W256(low, high) = n;
+  is_power_of_two_(low) && is_power_of_two_(high)
+}
+
+/// Counts the number of leading zeros in both parts of the `W256` value.
+pub fn count_leading_zeros(n: W256) -> u32 {
+  let W256(low, high) = n;
+  let low_zeros = count_leading_zeros_(low);
+  let high_zeros = count_leading_zeros_(high);
+  // Combine results: leading zeros in the high part plus 128 bits if high part is zero
+  if high == 0 {
+    low_zeros
+  } else {
+    high_zeros + 128
+  }
+}
+
+/// Determines if any part of the `W256` value is byte-aligned.
+pub fn is_byte_aligned(n: W256) -> bool {
+  let W256(low, high) = n;
+  is_byte_aligned_(low) || is_byte_aligned_(high)
+}
+
+/// Converts the `W256` value into `usize` if possible.
+pub fn unsafe_into_usize(n: W256) -> usize {
+  let W256(low, _) = n;
+  low as usize
 }
 
 pub fn index_word(i: Expr, w: Expr) -> Expr {
   match (i, w) {
     (Expr::Lit(idx), Expr::And(box_mask, box_w)) => {
-      let full_word_mask = (1u64 << 63u64) - 1;
+      let full_word_mask = MAX_LIT;
       let mask = match *box_mask {
         Expr::Lit(m) => m,
         _ => panic!("invalid expression"),
       };
-      if mask as u64 == full_word_mask as u64 {
+      if mask.clone() == full_word_mask {
         index_word(Expr::Lit(idx), *box_w)
       } else {
-        let unmasked_bytes = (count_leading_zeros(mask as u64) / 8) as u64;
-        if idx <= 31 && is_power_of_two(mask as u64 + 1) && is_byte_aligned(mask as u64) {
-          if idx as u64 >= unmasked_bytes {
+        let unmasked_bytes = (count_leading_zeros(mask.clone()) / 8) as u64;
+        if idx <= W256(31, 0) && is_power_of_two(mask.clone() + W256(1, 0)) && is_byte_aligned(mask.clone()) {
+          if idx >= W256(unmasked_bytes as u128, 0) {
             index_word(Expr::Lit(idx), *box_w)
           } else {
             Expr::LitByte(0)
           }
-        } else if idx <= 31 {
+        } else if idx <= W256(31, 0) {
           Expr::IndexWord(
             Box::new(Expr::Lit(idx)),
             Box::new(Expr::And(Box::new(Expr::Lit(mask)), Box::new(*box_w))),
@@ -375,15 +432,15 @@ pub fn index_word(i: Expr, w: Expr) -> Expr {
       }
     }
     (Expr::Lit(idx), Expr::Lit(w)) => {
-      if idx <= 31 {
-        Expr::LitByte((w >> (248 - unsafe_into_usize(idx as u64) * 8)) as u8)
+      if idx <= W256(31, 0) {
+        Expr::LitByte((w.0 >> (248 - unsafe_into_usize(idx) * 8)) as u8)
       } else {
         Expr::LitByte(0)
       }
     }
     (Expr::Lit(idx), Expr::JoinBytes(bytes)) => {
-      if idx <= 31 {
-        match idx {
+      if idx <= W256(31, 0) {
+        match idx.0 {
           0 => bytes[0].clone(),
           1 => bytes[1].clone(),
           2 => bytes[2].clone(),
@@ -429,24 +486,24 @@ pub fn index_word(i: Expr, w: Expr) -> Expr {
 pub fn read_byte(idx: Expr, buf: Expr) -> Expr {
   match (idx, buf) {
     (Expr::Lit(x), Expr::ConcreteBuf(b)) => {
-      let i = ((x as u64) as u32);
-      if x <= i {
+      let i = ((x.0 as u64) as u32);
+      if x.0 <= i as u128 {
         if (i as usize) < b.len() {
-          return Expr::Lit(b[i as usize] as u32);
+          return Expr::Lit(W256(b[i as usize] as u128, 0));
         }
       }
-      Expr::Lit(0)
+      Expr::Lit(W256(0, 0))
     }
-    (i @ Expr::Lit(x), Expr::WriteByte(idx, val, src)) => {
-      if i == *idx {
+    (Expr::Lit(x), Expr::WriteByte(idx, val, src)) => {
+      if Expr::Lit(x.clone()) == *idx {
         *val
       } else {
-        read_byte(i, *src)
+        read_byte(Expr::Lit(x.clone()), *src)
       }
     }
-    (i @ Expr::Lit(x), Expr::WriteWord(idx, val, src)) => {
+    (Expr::Lit(x), Expr::WriteWord(idx, val, src)) => {
       if let Expr::Lit(idx_val) = *idx {
-        if x >= idx_val && x < idx_val + 32 {
+        if x >= idx_val.clone() && x < idx_val.clone() + W256(32, 0) {
           if let Expr::Lit(_) = *val {
             index_word(Expr::Lit(x - idx_val), *val)
           } else {
@@ -456,20 +513,20 @@ pub fn read_byte(idx: Expr, buf: Expr) -> Expr {
             )
           }
         } else {
-          read_byte(i, *src)
+          read_byte(Expr::Lit(x), *src)
         }
       } else {
         Expr::ReadByte(Box::new(Expr::Lit(x)), Box::new(Expr::WriteWord(idx, val, src)))
       }
     }
-    (i @ Expr::Lit(x), Expr::CopySlice(src_offset, dst_offset, size, src, ref dst)) => {
+    (Expr::Lit(x), Expr::CopySlice(src_offset, dst_offset, size, src, ref dst)) => {
       if let (Expr::Lit(src_offset_val), Expr::Lit(dst_offset_val), Expr::Lit(size_val)) =
         (*src_offset.clone(), *dst_offset.clone(), *size.clone())
       {
-        if x >= dst_offset_val && x < dst_offset_val + size_val {
+        if x >= dst_offset_val.clone() && x < dst_offset_val.clone() + size_val {
           read_byte(Expr::Lit(x + src_offset_val - dst_offset_val), *src)
         } else {
-          read_byte(i, *dst.clone())
+          read_byte(Expr::Lit(x), *dst.clone())
         }
       } else {
         Expr::ReadByte(
@@ -484,24 +541,30 @@ pub fn read_byte(idx: Expr, buf: Expr) -> Expr {
 
 pub fn read_bytes(n: usize, idx: Expr, buf: Expr) -> Expr {
   let n = min(32, n);
-  let bytes: Vec<Expr> = (0..n).map(|i| read_byte(add(idx.clone(), Expr::Lit(i as u32)), buf.clone())).collect();
+  let bytes: Vec<Expr> =
+    (0..n).map(|i| read_byte(add(idx.clone(), Expr::Lit(W256(0, i as u128))), buf.clone())).collect();
   join_bytes(bytes)
 }
 
 fn pad_byte(b: Expr) -> Expr {
   match b {
-    Expr::LitByte(b) => Expr::Lit(bytes_to_w256(&[b]) as u32),
+    Expr::LitByte(b) => Expr::Lit(bytes_to_w256(&[b])),
     _ => join_bytes(vec![b]),
   }
 }
 
-fn bytes_to_w256(bytes: &[u8]) -> u64 {
-  // Assuming W256 is represented as u64 for simplicity; adjust as necessary
-  let mut result = 0u64;
-  for &byte in bytes.iter().rev() {
-    result = (result << 8) | byte as u64;
-  }
-  result
+fn bytes_to_w256(bytes: &[u8]) -> W256 {
+  /*
+  if bytes.len() != 32 {
+    return None; // Ensure the byte slice is exactly 32 bytes
+  }*/
+
+  // Convert the first 16 bytes to the low u128
+  let low = u128::from_be_bytes(bytes[0..16].try_into().unwrap());
+  // Convert the last 16 bytes to the high u128
+  let high = u128::from_be_bytes(bytes[16..32].try_into().unwrap());
+
+  W256(low, high)
 }
 
 fn pad_bytes_left(n: usize, mut bs: Vec<Expr>) -> Vec<Expr> {
@@ -528,7 +591,7 @@ fn join_bytes(bs: Vec<Expr>) -> Expr {
   }
 
   if is_all_lit {
-    Expr::Lit(bytes_to_w256(&lit_bytes) as u32)
+    Expr::Lit(bytes_to_w256(&lit_bytes))
   } else {
     let padded_bs = pad_bytes_left(32, bs);
     Expr::JoinBytes(
@@ -572,7 +635,7 @@ fn join_bytes(bs: Vec<Expr>) -> Expr {
 
 fn eq_byte(x: Expr, y: Expr) -> Expr {
   match (x, y) {
-    (Expr::LitByte(x), Expr::LitByte(y)) => Expr::Lit(if x == y { 1 } else { 0 }),
+    (Expr::LitByte(x), Expr::LitByte(y)) => Expr::Lit(if x == y { W256(1, 0) } else { W256(0, 0) }),
     (x, y) => Expr::EqByte(Box::new(x), Box::new(y)),
   }
 }
@@ -583,7 +646,7 @@ pub fn read_word(idx: Expr, buf: Expr) -> Expr {
       if let Expr::Lit(idx2_val) = *idx2 {
         if idx_val == idx2_val {
           return *val;
-        } else if idx2_val >= idx_val && idx2_val <= idx_val + 32 {
+        } else if idx2_val >= idx_val && idx2_val <= idx_val + W256(32, 0) {
           return read_word_from_bytes(idx.clone(), buf.clone());
         } else {
           return read_word(idx, *buf2);
@@ -594,9 +657,11 @@ pub fn read_word(idx: Expr, buf: Expr) -> Expr {
       if let (Expr::Lit(src_offset_val), Expr::Lit(dst_offset_val), Expr::Lit(size_val)) =
         (*src_offset.clone(), *dst_offset.clone(), *size.clone())
       {
-        if idx_val >= dst_offset_val && idx_val + 32 <= dst_offset_val + size_val {
+        if idx_val >= dst_offset_val.clone()
+          && idx_val.clone() + W256(32, 0) <= dst_offset_val.clone() + size_val.clone()
+        {
           return read_word(Expr::Lit(idx_val - dst_offset_val + src_offset_val), *src);
-        } else if idx_val >= dst_offset_val && idx_val <= dst_offset_val + size_val - 32 {
+        } else if idx_val >= dst_offset_val && idx_val <= dst_offset_val + size_val - W256(32, 0) {
           return read_word(Expr::Lit(idx_val), *dst);
         } else {
           return read_word_from_bytes(
@@ -614,24 +679,24 @@ pub fn read_word(idx: Expr, buf: Expr) -> Expr {
 pub fn read_word_from_bytes(idx: Expr, buf: Expr) -> Expr {
   if let (Expr::Lit(idx_val), Expr::ConcreteBuf(bs)) = (idx.clone(), buf.clone()) {
     if let i = idx_val {
-      let end = i + 32;
-      let slice = if (i as usize) < bs.len() {
-        if end as usize <= bs.len() {
-          &bs[(i as usize)..(end as usize)]
+      let end = i.clone() + W256(32, 0);
+      let slice = if (i.0 as usize) < bs.len() {
+        if end.0 as usize <= bs.len() {
+          &bs[(i.0 as usize)..(end.0 as usize)]
         } else {
-          &bs[(i as usize)..]
+          &bs[(i.0 as usize)..]
         }
       } else {
         &[]
       };
       let padded: Vec<u8> = slice.iter().cloned().chain(std::iter::repeat(0)).take(32).collect();
-      return Expr::Lit(u64::from_le_bytes(padded.try_into().unwrap()) as u32);
+      return Expr::Lit(W256(u64::from_le_bytes(padded.try_into().unwrap()) as u128, 0));
     }
   }
-  let bytes: Vec<Expr> = (0..32).map(|i| read_byte(add(idx.clone(), Expr::Lit(i as u32)), buf.clone())).collect();
+  let bytes: Vec<Expr> = (0..32).map(|i| read_byte(add(idx.clone(), Expr::Lit(W256(i, 0))), buf.clone())).collect();
   if bytes.iter().all(|b| matches!(b, Expr::Lit(_))) {
-    let result = bytes.into_iter().map(|b| if let Expr::Lit(byte) = b { byte as u8 } else { 0 }).collect::<Vec<u8>>();
-    Expr::Lit(u64::from_le_bytes(result.try_into().unwrap()) as u32)
+    let result = bytes.into_iter().map(|b| if let Expr::Lit(byte) = b { byte.0 as u8 } else { 0 }).collect::<Vec<u8>>();
+    Expr::Lit(W256(u64::from_le_bytes(result.try_into().unwrap()) as u128, 0))
   } else {
     Expr::ReadWord(Box::new(idx), Box::new(buf))
   }
@@ -640,7 +705,9 @@ pub fn read_word_from_bytes(idx: Expr, buf: Expr) -> Expr {
 pub fn write_word(offset: Expr, value: Expr, buf: Expr) -> Expr {
   let buf_clone = buf.clone();
   match (offset, value, buf) {
-    (Expr::Lit(offset), Expr::WAddr(addr), Expr::ConcreteBuf(_)) if offset < MAX_BYTES && offset + 32 < MAX_BYTES => {
+    (Expr::Lit(offset), Expr::WAddr(addr), Expr::ConcreteBuf(_))
+      if offset < MAX_BYTES && offset.clone() + W256(32, 0) < MAX_BYTES =>
+    {
       let val = match *addr {
         Expr::LitAddr(v) => v,
         _ => panic!("unsupported"),
@@ -649,28 +716,28 @@ pub fn write_word(offset: Expr, value: Expr, buf: Expr) -> Expr {
     }
 
     (Expr::Lit(offset), Expr::Lit(val), Expr::ConcreteBuf(ref src))
-      if offset < MAX_BYTES && offset + 32 < MAX_BYTES && src.is_empty() =>
+      if offset < MAX_BYTES && offset.clone() + W256(32, 0) < MAX_BYTES && src.is_empty() =>
     {
-      let mut new_buf = vec![0; offset as usize];
-      new_buf.extend_from_slice(&word256_bytes(val.into()));
+      let mut new_buf = vec![0; offset.0 as usize];
+      new_buf.extend_from_slice(&word256_bytes(val));
       Expr::ConcreteBuf(new_buf)
     }
 
     (Expr::Lit(offset), Expr::Lit(val), Expr::ConcreteBuf(mut src))
-      if offset < MAX_BYTES && offset + 32 < MAX_BYTES =>
+      if offset < MAX_BYTES && offset.clone() + W256(32, 0) < MAX_BYTES =>
     {
-      src.resize(offset as usize, 0);
-      src.extend_from_slice(&word256_bytes(val.into()));
+      src.resize(offset.0 as usize, 0);
+      src.extend_from_slice(&word256_bytes(val));
       Expr::ConcreteBuf(src)
     }
 
-    (Expr::Lit(idx), val, Expr::WriteWord(idx_, _, buf)) if Expr::Lit(idx) == *idx_ => {
+    (Expr::Lit(idx), val, Expr::WriteWord(idx_, _, buf)) if Expr::Lit(idx.clone()) == *idx_ => {
       Expr::WriteWord(Box::new(Expr::Lit(idx)), Box::new(val), (buf))
     }
 
     (Expr::Lit(idx), val, Expr::WriteWord(idx_, val_, buf_)) => {
-      if let Expr::Lit(i) = *idx_ {
-        if idx >= i + 32 {
+      if let Expr::Lit(i) = *idx_.clone() {
+        if idx >= i + W256(32, 0) {
           return Expr::WriteWord(idx_, val_, Box::new(write_word(Expr::Lit(idx), val, *buf_)));
         }
       }
@@ -687,9 +754,15 @@ pub fn write_word(offset: Expr, value: Expr, buf: Expr) -> Expr {
   }
 }
 
-pub fn word256_bytes(val: u64) -> Vec<u8> {
-  // Convert a 256-bit word (represented as u64 for simplicity) to bytes
-  val.to_be_bytes().to_vec() // Adjust as necessary for full 256-bit handling
+pub fn word256_bytes(val: W256) -> Vec<u8> {
+  let W256(low, high) = val;
+  let mut bytes = Vec::with_capacity(16); // Each u128 is 16 bytes
+
+  // Convert each u128 to bytes and extend the vector
+  bytes.extend_from_slice(&low.to_be_bytes());
+  bytes.extend_from_slice(&high.to_be_bytes());
+
+  bytes
 }
 
 pub fn conc_keccak_props(props: Vec<Prop>) -> Vec<Prop> {
