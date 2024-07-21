@@ -983,22 +983,27 @@ fn go_expr(expr: &Expr) -> Expr {
     Expr::Failure(a, b, c) => Expr::Failure(simplify_props(a.clone()), b.clone(), c.clone()),
     Expr::Partial(a, b, c) => Expr::Partial(simplify_props(a.clone()), b.clone(), c.clone()),
     Expr::Success(a, b, c, d) => Expr::Success(simplify_props(a.clone()), b.clone(), c.clone(), d.clone()),
-    Expr::CopySlice(box Expr::Lit(W256(0, 0)), box Expr::Lit(W256(0, 0)), box Expr::Lit(W256(0, 0)), _, dst) => {
-      *dst.clone()
-    }
+
     Expr::SLoad(slot, store) => read_storage(slot.clone(), store.clone()),
     Expr::SStore(slot, val, store) => write_storage(slot.clone(), val.clone(), store.clone()),
+
     Expr::ReadWord(box Expr::Lit(_), _) => simplify_reads(expr),
     Expr::ReadWord(idx, buf) => read_word(*idx.clone(), *buf.clone()),
     Expr::ReadByte(box Expr::Lit(_), _) => simplify_reads(expr),
     Expr::ReadByte(idx, buf) => read_byte(*idx.clone(), *buf.clone()),
+
     Expr::BufLength(buf) => buf_length(buf.clone()),
+
     Expr::WriteWord(box Expr::Lit(idx), val, box Expr::ConcreteBuf(b)) if *idx < max_bytes() => {
       let simplified_buf = pad_and_concat_buffers(*idx, &b);
-      write_word(Box::new(Expr::Lit(*idx)), val.clone(), Box::new(Expr::ConcreteBuf(simplified_buf)))
+      write_word((Expr::Lit(*idx)), *val.clone(), (Expr::ConcreteBuf(simplified_buf)))
     }
     Expr::WriteWord(a, b, c) => write_word(*a.clone(), *b.clone(), *c.clone()),
     Expr::WriteByte(a, b, c) => write_byte(*a.clone(), *b.clone(), *c.clone()),
+
+    Expr::CopySlice(box Expr::Lit(W256(0, 0)), box Expr::Lit(W256(0, 0)), box Expr::Lit(W256(0, 0)), _, dst) => {
+      *dst.clone()
+    }
     Expr::CopySlice(
       box Expr::Lit(W256(0, 0)),
       box Expr::Lit(W256(0, 0)),
@@ -1043,8 +1048,10 @@ fn go_expr(expr: &Expr) -> Expr {
 
     Expr::IsZero(a) => iszero(*a.clone()),
 
-    Expr::Xor(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a ^ b),
-    Expr::Xor(a, b) => xor(*a.clone(), *b.clone()),
+    Expr::Xor(a_, b_) => match (**a_, **b_) {
+      (Expr::Lit(a), Expr::Lit(b)) => Expr::Lit(a ^ b),
+      _ => xor(*a_.clone(), *b_.clone()),
+    },
 
     Expr::Eq(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(if a == b { 1 } else { 0 }),
     Expr::Eq(_, box Expr::Lit(W256(0, 0))) => iszero(expr.clone()),
@@ -1054,16 +1061,22 @@ fn go_expr(expr: &Expr) -> Expr {
     Expr::ITE(box Expr::Lit(W256(0, 0)), _, b) => *b.clone(),
     Expr::ITE(a, b, c) => ite(a.clone(), b.clone(), c.clone()),
 
-    Expr::And(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a & b),
-    Expr::And(box Expr::Lit(W256(0, 0)), _) => Expr::Lit(W256(0, 0)),
-    Expr::And(a, b) => and(*a.clone(), *b.clone()),
+    Expr::And(a_, b_) => match (**a_, **b_) {
+      (Expr::Lit(a), Expr::Lit(b)) => Expr::Lit(a & b),
+      (Expr::Lit(W256(0, 0)), _) => Expr::Lit(W256(0, 0)),
+      _ => and(*a_.clone(), *b_.clone()),
+    },
 
-    Expr::Or(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a | b),
-    Expr::Or(box Expr::Lit(W256(0, 0)), a) => *a.clone(),
-    Expr::Or(a, b) => or(*a.clone(), *b.clone()),
+    Expr::Or(a_, b_) => match (**a_, **b_) {
+      (Expr::Lit(a), Expr::Lit(b)) => Expr::Lit(a | b),
+      (Expr::Lit(W256(0, 0)), a) => a.clone(),
+      _ => or(*a_.clone(), *b_.clone()),
+    },
 
-    Expr::Not(box Expr::Lit(a)) => Expr::Lit(if a == 0 { 1 } else { 0 }),
-    Expr::Not(a) => not(a.clone()),
+    Expr::Not(a_) => match **a_ {
+      (Expr::Lit(a)) => Expr::Lit(if a == W256(0, 0) { W256(1, 0) } else { W256(0, 0) }),
+      _ => not(*a_.clone()),
+    },
 
     Expr::Div(a, b) => div(*a.clone(), *b.clone()),
     Expr::SDiv(a, b) => sdiv(*a.clone(), *b.clone()),
