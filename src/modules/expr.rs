@@ -930,9 +930,9 @@ fn get_len_of_bs_in_ww(expr: &Expr) -> usize {
 //            can be simplified into a concrete value
 // Turns (Keccak ConcreteBuf) into a Lit
 fn conc_keccak_one_pass(expr: &Expr) -> Expr {
-  match *expr {
-    Expr::Keccak(expr) if is_concretebuf(&expr) => match *expr {
-      Expr::ConcreteBuf(bs) => keccak(*expr).unwrap(),
+  match expr.clone() {
+    Expr::Keccak(expr_) if is_concretebuf(&expr_) => match *expr_.clone() {
+      Expr::ConcreteBuf(bs) => keccak(*expr_.clone()).unwrap(),
       _ => panic!(""),
     },
     Expr::Keccak(orig) => match orig.as_ref() {
@@ -954,7 +954,7 @@ fn conc_keccak_one_pass(expr: &Expr) -> Expr {
             Expr::Lit(W256(0, 0)),
             Expr::Lit(W256(0, 0)),
             Expr::Lit(W256(64, 0)),
-            simplify(*orig.clone()),
+            simplify(&orig.clone()),
             Expr::ConcreteBuf(vec![]),
           ),
         ) {
@@ -964,7 +964,7 @@ fn conc_keccak_one_pass(expr: &Expr) -> Expr {
       }
       _ => Expr::Keccak(orig),
     },
-    _ => *expr,
+    _ => expr.clone(),
   }
 }
 
@@ -989,16 +989,16 @@ fn go_expr(expr: &Expr) -> Expr {
     Expr::SLoad(slot, store) => read_storage(slot.clone(), store.clone()),
     Expr::SStore(slot, val, store) => write_storage(slot.clone(), val.clone(), store.clone()),
     Expr::ReadWord(box Expr::Lit(_), _) => simplify_reads(expr),
-    Expr::ReadWord(idx, buf) => read_word(idx.clone(), buf.clone()),
+    Expr::ReadWord(idx, buf) => read_word(*idx.clone(), *buf.clone()),
     Expr::ReadByte(box Expr::Lit(_), _) => simplify_reads(expr),
-    Expr::ReadByte(idx, buf) => read_byte(idx.clone(), buf.clone()),
+    Expr::ReadByte(idx, buf) => read_byte(*idx.clone(), *buf.clone()),
     Expr::BufLength(buf) => buf_length(buf.clone()),
     Expr::WriteWord(box Expr::Lit(idx), val, box Expr::ConcreteBuf(b)) if *idx < max_bytes() => {
       let simplified_buf = pad_and_concat_buffers(*idx, &b);
       write_word(Box::new(Expr::Lit(*idx)), val.clone(), Box::new(Expr::ConcreteBuf(simplified_buf)))
     }
-    Expr::WriteWord(a, b, c) => write_word(a.clone(), b.clone(), c.clone()),
-    Expr::WriteByte(a, b, c) => write_byte(a.clone(), b.clone(), c.clone()),
+    Expr::WriteWord(a, b, c) => write_word(*a.clone(), *b.clone(), *c.clone()),
+    Expr::WriteByte(a, b, c) => write_byte(*a.clone(), *b.clone(), *c.clone()),
     Expr::CopySlice(
       box Expr::Lit(W256(0, 0)),
       box Expr::Lit(W256(0, 0)),
@@ -1008,22 +1008,23 @@ fn go_expr(expr: &Expr) -> Expr {
     ) if buf_length(src) == Expr::Lit(*s) => src.clone(),
     Expr::CopySlice(src_off, dst_off, size, src, dst) => {
       if let Expr::WriteWord(w_off, value, box Expr::ConcreteBuf(buf)) = **src {
-        let n = if let Expr::Lit(n) = **src_off { n } else { 0 };
-        let sz = if let Expr::Lit(sz) = **size { sz } else { 0 };
+        let n = if let Expr::Lit(n) = **src_off { n } else { W256(0, 0) };
+        let sz = if let Expr::Lit(sz) = **size { sz } else { W256(0, 0) };
         if n + sz >= n && n + sz >= sz && n + sz <= max_bytes() {
           let simplified_buf = pad_and_concat_buffers(n + sz, &buf);
           return copy_slice(
-            src_off.clone(),
-            dst_off.clone(),
-            size.clone(),
-            Box::new(Expr::WriteWord(w_off.clone(), value.clone(), Box::new(Expr::ConcreteBuf(simplified_buf)))),
-            dst.clone(),
+            *src_off.clone(),
+            *dst_off.clone(),
+            *size.clone(),
+            (Expr::WriteWord(w_off.clone(), value.clone(), Box::new(Expr::ConcreteBuf(simplified_buf)))),
+            *dst.clone(),
           );
         }
       }
-      copy_slice(src_off.clone(), dst_off.clone(), size.clone(), src.clone(), dst.clone())
+      copy_slice(*src_off.clone(), *dst_off.clone(), *size.clone(), *src.clone(), *dst.clone())
     }
-    Expr::IndexWord(a, b) => index_word(a.clone(), b.clone()),
+    Expr::IndexWord(a, b) => index_word(*a.clone(), *b.clone()),
+
     Expr::LT(box Expr::Lit(a), box Expr::Lit(b)) => {
       if a < b {
         Expr::Lit(1)
@@ -1033,28 +1034,37 @@ fn go_expr(expr: &Expr) -> Expr {
     }
     Expr::LT(_, box Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
     Expr::LT(a, b) => lt(*a.clone(), *b.clone()),
+
     Expr::GT(a, b) => gt(*a.clone(), *b.clone()),
     Expr::GEq(a, b) => geq(*a.clone(), *b.clone()),
     Expr::LEq(a, b) => leq(*a.clone(), *b.clone()),
     Expr::SLT(a, b) => slt(*a.clone(), *b.clone()),
     Expr::SGT(a, b) => sgt(*a.clone(), *b.clone()),
-    Expr::IsZero(a) => iszero(a.clone()),
+
+    Expr::IsZero(a) => iszero(*a.clone()),
+
     Expr::Xor(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a ^ b),
     Expr::Xor(a, b) => xor(*a.clone(), *b.clone()),
+
     Expr::Eq(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(if a == b { 1 } else { 0 }),
     Expr::Eq(_, box Expr::Lit(W256(0, 0))) => iszero(expr.clone()),
     Expr::Eq(a, b) => eq(*a.clone(), *b.clone()),
+
     Expr::ITE(box Expr::Lit(1), a, _) => *a.clone(),
     Expr::ITE(box Expr::Lit(W256(0, 0)), _, b) => *b.clone(),
     Expr::ITE(a, b, c) => ite(a.clone(), b.clone(), c.clone()),
+
     Expr::And(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a & b),
     Expr::And(box Expr::Lit(W256(0, 0)), _) => Expr::Lit(W256(0, 0)),
     Expr::And(a, b) => and(*a.clone(), *b.clone()),
+
     Expr::Or(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a | b),
     Expr::Or(box Expr::Lit(W256(0, 0)), a) => *a.clone(),
     Expr::Or(a, b) => or(*a.clone(), *b.clone()),
+
     Expr::Not(box Expr::Lit(a)) => Expr::Lit(if a == 0 { 1 } else { 0 }),
     Expr::Not(a) => not(a.clone()),
+
     Expr::Div(a, b) => div(*a.clone(), *b.clone()),
     Expr::SDiv(a, b) => sdiv(*a.clone(), *b.clone()),
     Expr::Mod(a, b) => modulo(*a.clone(), *b.clone()),
@@ -1072,10 +1082,15 @@ fn go_expr(expr: &Expr) -> Expr {
       _ => sub(**a_, **b_),
     },
 
-    Expr::SHL(box Expr::Lit(a), v) => shl(Box::new(Expr::Lit(a << 1)), v.clone()),
-    Expr::SHL(a, v) => shl(*a.clone(), *v.clone()),
-    Expr::SHR(box Expr::Lit(a), v) => shr(Box::new(Expr::Lit(a >> 1)), v.clone()),
-    Expr::SHR(a, v) => shr(*a.clone(), *v.clone()),
+    Expr::SHL(a_, b_) => match (**a_, b_) {
+      (Expr::Lit(a), b) => shl(Expr::Lit(a << 1), **b),
+      _ => shl(*a_.clone(), *b_.clone()),
+    },
+
+    Expr::SHR(a_, b_) => match (**a_, b_) {
+      (Expr::Lit(a), b) => shr(Expr::Lit(a >> 1), **b),
+      _ => shr(*a_.clone(), *b_.clone()),
+    },
 
     Expr::Max(a, b) => emax(*a.clone(), *b.clone()),
     Expr::Min(a, b) => emin(*a.clone(), *b.clone()),
