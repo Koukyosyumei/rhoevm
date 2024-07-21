@@ -1057,9 +1057,11 @@ fn go_expr(expr: &Expr) -> Expr {
     Expr::Eq(_, box Expr::Lit(W256(0, 0))) => iszero(expr.clone()),
     Expr::Eq(a, b) => eq(*a.clone(), *b.clone()),
 
-    Expr::ITE(box Expr::Lit(1), a, _) => *a.clone(),
-    Expr::ITE(box Expr::Lit(W256(0, 0)), _, b) => *b.clone(),
-    Expr::ITE(a, b, c) => ite(a.clone(), b.clone(), c.clone()),
+    Expr::ITE(a_, b_, c_) => match (**a_, **b_, **c_) {
+      (Expr::Lit(W256(1, 0)), b, _) => b,
+      (Expr::Lit(W256(0, 0)), _, c) => c,
+      (a, b, c) => ite(a.clone(), b.clone(), c.clone()),
+    },
 
     Expr::And(a_, b_) => match (**a_, **b_) {
       (Expr::Lit(a), Expr::Lit(b)) => Expr::Lit(a & b),
