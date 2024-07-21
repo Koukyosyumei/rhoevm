@@ -482,38 +482,36 @@ where
   expr.map_expr_m(&f)
 }
 
+pub fn map_prop(f: &dyn Fn(&Expr) -> Expr, prop: Prop) -> Prop {
+  match prop {
+    Prop::PBool(b) => Prop::PBool(b),
+    Prop::PEq(a, b) => Prop::PEq(f(&a).map_expr_m(&f), f(&b).map_expr_m(&f)),
+    Prop::PLT(a, b) => Prop::PLT(f(&a).map_expr_m(&f), f(&b).map_expr_m(&f)),
+    Prop::PGT(a, b) => Prop::PGT(f(&a).map_expr_m(&f), f(&b).map_expr_m(&f)),
+    Prop::PLEq(a, b) => Prop::PLEq(f(&a).map_expr_m(&f), f(&b).map_expr_m(&f)),
+    Prop::PGEq(a, b) => Prop::PGEq(f(&a).map_expr_m(&f), f(&b).map_expr_m(&f)),
+    Prop::PNeg(a) => Prop::PNeg(Box::new(map_prop_m(f, *a))),
+    Prop::PAnd(a, b) => Prop::PAnd(Box::new(map_prop_m(f, *a)), Box::new(map_prop_m(f, *b))),
+    Prop::POr(a, b) => Prop::POr(Box::new(map_prop_m(f, *a)), Box::new(map_prop_m(f, *b))),
+    Prop::PImpl(a, b) => Prop::PImpl(Box::new(map_prop_m(f, *a)), Box::new(map_prop_m(f, *b))),
+  }
+}
+
 // MapPropM function
-pub fn map_prop_m<F>(f: F, prop: Prop) -> Prop
-where
-  F: Fn(&Expr) -> Expr,
-{
+pub fn map_prop_m(f: &dyn Fn(&Expr) -> Expr, prop: Prop) -> Prop {
   match prop {
     Prop::PBool(b) => Prop::PBool(b),
     Prop::PEq(a, b) => Prop::PEq(a.map_expr_m(&f), b.map_expr_m(&f)),
-    _ => todo!(),
+    Prop::PLT(a, b) => Prop::PLT(a.map_expr_m(&f), b.map_expr_m(&f)),
+    Prop::PGT(a, b) => Prop::PGT(a.map_expr_m(&f), b.map_expr_m(&f)),
+    Prop::PLEq(a, b) => Prop::PLEq(a.map_expr_m(&f), b.map_expr_m(&f)),
+    Prop::PGEq(a, b) => Prop::PGEq(a.map_expr_m(&f), b.map_expr_m(&f)),
+    Prop::PNeg(a) => Prop::PNeg(Box::new(map_prop_m(f, *a))),
+    Prop::PAnd(a, b) => Prop::PAnd(Box::new(map_prop_m(f, *a)), Box::new(map_prop_m(f, *b))),
+    Prop::POr(a, b) => Prop::POr(Box::new(map_prop_m(f, *a)), Box::new(map_prop_m(f, *b))),
+    Prop::PImpl(a, b) => Prop::PImpl(Box::new(map_prop_m(f, *a)), Box::new(map_prop_m(f, *b))),
   }
 }
-
-// MapPropM_ function
-fn map_prop_m_<F>(f: F, prop: Prop) -> ()
-where
-  F: Fn(&Expr),
-{
-  fn f_upd<F>(action: F, expr: &Expr) -> Expr
-  where
-    F: Fn(&Expr),
-  {
-    action(expr);
-    expr.clone()
-  }
-
-  let f_upd_fn = |expr: &Expr| f_upd(&f, expr);
-  let _ = map_prop_m(f_upd_fn, prop);
-}
-
-/*
-mapExprM :: Monad m => (forall a . Expr a -> m (Expr a)) -> Expr b -> m (Expr b)
-*/
 
 // MapEContractM function
 fn map_econtract_m<F>(f: F, expr: Expr) -> Expr

@@ -1,7 +1,7 @@
 use core::panic;
 use std::{clone, cmp::min};
 
-use crate::modules::traversals::{map_expr, map_prop_m};
+use crate::modules::traversals::{map_expr, map_prop};
 use crate::modules::types::{maybe_lit_addr, maybe_lit_byte, pad_right, until_fixpoint, Expr, Prop, W256};
 
 use super::evm::keccak;
@@ -885,14 +885,14 @@ pub fn is_lit_byte(e: &Expr) -> bool {
 
 // Concretize & simplify Keccak expressions until fixed-point.
 fn conc_keccak_simp_expr(expr: Expr) -> Expr {
-  until_fixpoint(|e| map_expr(|expr: &Expr| conc_keccak_one_pass(expr.clone()), e.clone()), expr)
+  until_fixpoint(|e| map_expr(|expr: &Expr| conc_keccak_one_pass(expr), e.clone()), expr)
 }
 
 // Only concretize Keccak in Props
 // Needed because if it also simplified, we may not find some simplification errors, as
 // simplification would always be ON
 fn conc_keccak_props(props: Vec<Prop>) -> Vec<Prop> {
-  until_fixpoint(|ps| ps.into_iter().map(|p| map_prop(conc_keccak_one_pass, p)).collect(), props)
+  until_fixpoint(|ps| ps.into_iter().map(|p| map_prop(&conc_keccak_one_pass, p.clone())).collect(), props)
 }
 
 fn is_concretebuf(expr: &Expr) -> bool {
@@ -929,8 +929,8 @@ fn get_len_of_bs_in_ww(expr: &Expr) -> usize {
 // Simplifies in case the input to the Keccak is of specific array/map format and
 //            can be simplified into a concrete value
 // Turns (Keccak ConcreteBuf) into a Lit
-fn conc_keccak_one_pass(expr: Expr) -> Expr {
-  match expr {
+fn conc_keccak_one_pass(expr: &Expr) -> Expr {
+  match *expr {
     Expr::Keccak(expr) if is_concretebuf(&expr) => match *expr {
       Expr::ConcreteBuf(bs) => keccak(*expr).unwrap(),
       _ => panic!(""),
@@ -949,7 +949,7 @@ fn conc_keccak_one_pass(expr: Expr) -> Expr {
         && is_empty_concretebuf(e) =>
       {
         match (
-          bs.len(),
+          get_len_of_bs_in_ww(d),
           copy_slice(
             Expr::Lit(W256(0, 0)),
             Expr::Lit(W256(0, 0)),
@@ -964,6 +964,201 @@ fn conc_keccak_one_pass(expr: Expr) -> Expr {
       }
       _ => Expr::Keccak(orig),
     },
-    _ => expr,
+    _ => *expr,
+  }
+}
+
+// Main simplify function
+fn simplify(expr: &Expr) -> Expr {
+  let simplified = map_expr(go_expr, expr.clone());
+  if &simplified == expr {
+    simplified
+  } else {
+    simplify(&map_expr(go_expr, &structure_array_slots(expr)))
+  }
+}
+
+fn go_expr(expr: &Expr) -> Expr {
+  match expr {
+    Expr::Failure(a, b, c) => Expr::Failure(simplify_props(a.clone()), b.clone(), c.clone()),
+    Expr::Partial(a, b, c) => Expr::Partial(simplify_props(a.clone()), b.clone(), c.clone()),
+    Expr::Success(a, b, c, d) => Expr::Success(simplify_props(a.clone()), b.clone(), c.clone(), d.clone()),
+    Expr::CopySlice(box Expr::Lit(W256(0, 0)), box Expr::Lit(W256(0, 0)), box Expr::Lit(W256(0, 0)), _, dst) => {
+      *dst.clone()
+    }
+    Expr::SLoad(slot, store) => read_storage(slot.clone(), store.clone()),
+    Expr::SStore(slot, val, store) => write_storage(slot.clone(), val.clone(), store.clone()),
+    Expr::ReadWord(box Expr::Lit(_), _) => simplify_reads(expr),
+    Expr::ReadWord(idx, buf) => read_word(idx.clone(), buf.clone()),
+    Expr::ReadByte(box Expr::Lit(_), _) => simplify_reads(expr),
+    Expr::ReadByte(idx, buf) => read_byte(idx.clone(), buf.clone()),
+    Expr::BufLength(buf) => buf_length(buf.clone()),
+    Expr::WriteWord(box Expr::Lit(idx), val, box Expr::ConcreteBuf(b)) if *idx < max_bytes() => {
+      let simplified_buf = pad_and_concat_buffers(*idx, &b);
+      write_word(Box::new(Expr::Lit(*idx)), val.clone(), Box::new(Expr::ConcreteBuf(simplified_buf)))
+    }
+    Expr::WriteWord(a, b, c) => write_word(a.clone(), b.clone(), c.clone()),
+    Expr::WriteByte(a, b, c) => write_byte(a.clone(), b.clone(), c.clone()),
+    Expr::CopySlice(
+      box Expr::Lit(W256(0, 0)),
+      box Expr::Lit(W256(0, 0)),
+      box Expr::Lit(s),
+      src,
+      box Expr::ConcreteBuf(""),
+    ) if buf_length(src) == Expr::Lit(*s) => src.clone(),
+    Expr::CopySlice(src_off, dst_off, size, src, dst) => {
+      if let Expr::WriteWord(w_off, value, box Expr::ConcreteBuf(buf)) = **src {
+        let n = if let Expr::Lit(n) = **src_off { n } else { 0 };
+        let sz = if let Expr::Lit(sz) = **size { sz } else { 0 };
+        if n + sz >= n && n + sz >= sz && n + sz <= max_bytes() {
+          let simplified_buf = pad_and_concat_buffers(n + sz, &buf);
+          return copy_slice(
+            src_off.clone(),
+            dst_off.clone(),
+            size.clone(),
+            Box::new(Expr::WriteWord(w_off.clone(), value.clone(), Box::new(Expr::ConcreteBuf(simplified_buf)))),
+            dst.clone(),
+          );
+        }
+      }
+      copy_slice(src_off.clone(), dst_off.clone(), size.clone(), src.clone(), dst.clone())
+    }
+    Expr::IndexWord(a, b) => index_word(a.clone(), b.clone()),
+    Expr::LT(box Expr::Lit(a), box Expr::Lit(b)) => {
+      if a < b {
+        Expr::Lit(1)
+      } else {
+        Expr::Lit(W256(0, 0))
+      }
+    }
+    Expr::LT(_, box Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
+    Expr::LT(a, b) => lt(a.clone(), b.clone()),
+    Expr::GT(a, b) => gt(a.clone(), b.clone()),
+    Expr::GEq(a, b) => geq(a.clone(), b.clone()),
+    Expr::LEq(a, b) => leq(a.clone(), b.clone()),
+    Expr::SLT(a, b) => slt(a.clone(), b.clone()),
+    Expr::SGT(a, b) => sgt(a.clone(), b.clone()),
+    Expr::IsZero(a) => iszero(a.clone()),
+    Expr::Xor(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a ^ b),
+    Expr::Xor(a, b) => xor(a.clone(), b.clone()),
+    Expr::Eq(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(if a == b { 1 } else { 0 }),
+    Expr::Eq(_, box Expr::Lit(W256(0, 0))) => iszero(expr.clone()),
+    Expr::Eq(a, b) => eq(a.clone(), b.clone()),
+    Expr::ITE(box Expr::Lit(1), a, _) => *a.clone(),
+    Expr::ITE(box Expr::Lit(W256(0, 0)), _, b) => *b.clone(),
+    Expr::ITE(a, b, c) => ite(a.clone(), b.clone(), c.clone()),
+    Expr::And(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a & b),
+    Expr::And(box Expr::Lit(W256(0, 0)), _) => Expr::Lit(W256(0, 0)),
+    Expr::And(a, b) => and(a.clone(), b.clone()),
+    Expr::Or(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a | b),
+    Expr::Or(box Expr::Lit(W256(0, 0)), a) => *a.clone(),
+    Expr::Or(a, b) => or(a.clone(), b.clone()),
+    Expr::Not(box Expr::Lit(a)) => Expr::Lit(if a == 0 { 1 } else { 0 }),
+    Expr::Not(a) => not(a.clone()),
+    Expr::Div(a, b) => div(a.clone(), b.clone()),
+    Expr::SDiv(a, b) => sdiv(a.clone(), b.clone()),
+    Expr::Mod(a, b) => modulo(a.clone(), b.clone()),
+    Expr::SMod(a, b) => smod(a.clone(), b.clone()),
+    Expr::Add(box Expr::Lit(W256(0, 0)), a) => *a.clone(),
+    Expr::Add(a, box Expr::Lit(W256(0, 0))) => *a.clone(),
+    Expr::Add(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a + b),
+    Expr::Add(a, b) => add(a.clone(), b.clone()),
+    Expr::Sub(a, box Expr::Lit(W256(0, 0))) => *a.clone(),
+    Expr::Sub(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a - b),
+    Expr::Sub(a, b) => sub(a.clone(), b.clone()),
+    Expr::SHL(box Expr::Lit(a), v) => shl(Box::new(Expr::Lit(a << 1)), v.clone()),
+    Expr::SHL(a, v) => shl(a.clone(), v.clone()),
+    Expr::SHR(box Expr::Lit(a), v) => shr(Box::new(Expr::Lit(a >> 1)), v.clone()),
+    Expr::SHR(a, v) => shr(a.clone(), v.clone()),
+    Expr::Max(a, b) => max(a.clone(), b.clone()),
+    Expr::Min(a, b) => min(a.clone(), b.clone()),
+    Expr::Mul(box Expr::Lit(W256(0, 0)), _) => Expr::Lit(W256(0, 0)),
+    Expr::Mul(_, box Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
+    Expr::Mul(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(a * b),
+    Expr::Mul(a, b) => mul(a.clone(), b.clone()),
+    Expr::Lit(n) => Expr::Lit(*n),
+    Expr::WAddr(a) => Expr::WAddr(a.clone()),
+    Expr::LitAddr(a) => Expr::LitAddr(*a),
+    _ => expr.clone(),
+  }
+}
+
+fn simplify_prop(prop: Prop) -> Prop {
+  let new_prop = map_prop(go, simp_inner_expr(prop.clone()));
+
+  if new_prop == prop {
+      prop
+  } else {
+      simplify_prop(new_prop)
+  }
+}
+
+fn go(prop: Prop) -> Prop {
+  match prop {
+      // LT/LEq comparisons
+      Prop::PGT(a, b) => Prop::PLT(b, a),
+      Prop::PGEq(a, b) => Prop::PLEq(b, a),
+      Prop::PLT(box Prop::Var(_), box Prop::Lit(0)) => Prop::PBool(false),
+      Prop::PLEq(box Prop::Lit(0), _) => Prop::PBool(true),
+      Prop::PLEq(box Prop::WAddr(_), box Prop::Lit(1461501637330902918203684832716283019655932542975)) => Prop::PBool(true),
+      Prop::PLEq(_, box Prop::Lit(x)) if x == max_lit() => Prop::PBool(true),
+      Prop::PLT(box Prop::Lit(val), box Prop::Var(_)) if val == max_lit() => Prop::PBool(false),
+      Prop::PLEq(box Prop::Var(_), box Prop::Lit(val)) if val == max_lit() => Prop::PBool(true),
+      Prop::PLT(box Prop::Lit(l), box Prop::Lit(r)) => Prop::PBool(l < r),
+      Prop::PLEq(box Prop::Lit(l), box Prop::Lit(r)) => Prop::PBool(l <= r),
+      Prop::PLEq(a, box Prop::Max(b, _)) if a == b => Prop::PBool(true),
+      Prop::PLEq(a, box Prop::Max(_, b)) if a == b => Prop::PBool(true),
+      Prop::PLEq(box Prop::Sub(a, b), c) if a == c => Prop::PLEq(b, a),
+      Prop::PLT(box Prop::Max(box Prop::Lit(a), b), box Prop::Lit(c)) if a < c => Prop::PLT(b, box Prop::Lit(c)),
+      Prop::PLT(box Prop::Lit(0), box Prop::Eq(a, b)) => Prop::PEq(a, b),
+
+      // Negations
+      Prop::PNeg(box Prop::PBool(b)) => Prop::PBool(!b),
+      Prop::PNeg(box Prop::PNeg(a)) => *a,
+
+      // Solc specific stuff
+      Prop::PEq(box Prop::IsZero(box Prop::Eq(a, b)), box Prop::Lit(0)) => Prop::PEq(a, b),
+      Prop::PEq(box Prop::IsZero(box Prop::IsZero(box Prop::Eq(a, b))), box Prop::Lit(0)) => Prop::PNeg(box Prop::PEq(a, b)),
+
+      // IsZero(a) -> (a == 0)
+      // IsZero(IsZero(a)) -> ~(a == 0) -> a > 0
+      // IsZero(IsZero(a)) == 0 -> ~~(a == 0) -> a == 0
+      // ~(IsZero(IsZero(a)) == 0) -> ~~~(a == 0) -> ~(a == 0) -> a > 0
+      Prop::PNeg(box Prop::PEq(box Prop::IsZero(box Prop::IsZero(a)), box Prop::Lit(0))) => Prop::PLT(box Prop::Lit(0), a),
+
+      // IsZero(a) -> (a == 0)
+      // IsZero(a) == 0 -> ~(a == 0)
+      // ~(IsZero(a) == 0) -> ~~(a == 0) -> a == 0
+      Prop::PNeg(box Prop::PEq(box Prop::IsZero(a), box Prop::Lit(0))) => Prop::PEq(a, box Prop::Lit(0)),
+
+      // a < b == 0 -> ~(a < b)
+      // ~(a < b == 0) -> ~~(a < b) -> a < b
+      Prop::PNeg(box Prop::PEq(box Prop::LT(a, b), box Prop::Lit(0))) => Prop::PLT(a, b),
+
+      // And/Or
+      Prop::PAnd(box Prop::PBool(l), box Prop::PBool(r)) => Prop::PBool(l && r),
+      Prop::PAnd(box Prop::PBool(false), _) => Prop::PBool(false),
+      Prop::PAnd(_, box Prop::PBool(false)) => Prop::PBool(false),
+      Prop::PAnd(box Prop::PBool(true), x) => *x,
+      Prop::PAnd(x, box Prop::PBool(true)) => *x,
+      Prop::POr(box Prop::PBool(true), _) => Prop::PBool(true),
+      Prop::POr(_, box Prop::PBool(true)) => Prop::PBool(true),
+      Prop::POr(box Prop::PBool(l), box Prop::PBool(r)) => Prop::PBool(l || r),
+      Prop::POr(x, box Prop::PBool(false)) => *x,
+      Prop::POr(box Prop::PBool(false), x) => *x,
+
+      // Imply
+      Prop::PImpl(_, box Prop::PBool(true)) => Prop::PBool(true),
+      Prop::PImpl(box Prop::PBool(true), b) => *b,
+      Prop::PImpl(box Prop::PBool(false), _) => Prop::PBool(true),
+
+      // Eq
+      Prop::PEq(box Prop::Eq(a, b), box Prop::Lit(0)) => Prop::PNeg(box Prop::PEq(a, b)),
+      Prop::PEq(box Prop::Eq(a, b), box Prop::Lit(1)) => Prop::PEq(a, b),
+      Prop::PEq(box Prop::Sub(a, b), box Prop::Lit(0)) => Prop::PEq(a, b),
+      Prop::PEq(box Prop::LT(a, b), box Prop::Lit(0)) => Prop::PLEq(b, a),
+      Prop::PEq(box Prop::Lit(l), box Prop::Lit(r)) => Prop::PBool(l == r),
+      o @ Prop::PEq(ref l, ref r) if l == r => Prop::PBool(true),
+      _ => prop,
   }
 }
