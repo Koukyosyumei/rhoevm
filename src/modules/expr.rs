@@ -4,7 +4,7 @@ use std::{clone, cmp::min};
 use crate::modules::traversals::{map_expr, map_prop};
 use crate::modules::types::{maybe_lit_addr, maybe_lit_byte, pad_right, until_fixpoint, Expr, Prop, W256};
 
-use super::evm::keccak;
+use super::evm::{buf_length, keccak};
 // ** Constants **
 
 const MAX_LIT: W256 = W256(0xffffffffffffffffffffffffffffffff, 0xffffffffffffffffffffffffffffffff);
@@ -1001,33 +1001,31 @@ fn go_expr(expr: &Expr) -> Expr {
     Expr::WriteWord(a, b, c) => write_word(*a.clone(), *b.clone(), *c.clone()),
     Expr::WriteByte(a, b, c) => write_byte(*a.clone(), *b.clone(), *c.clone()),
 
-    Expr::CopySlice(box Expr::Lit(W256(0, 0)), box Expr::Lit(W256(0, 0)), box Expr::Lit(W256(0, 0)), _, dst) => {
-      *dst.clone()
-    }
-    Expr::CopySlice(
-      box Expr::Lit(W256(0, 0)),
-      box Expr::Lit(W256(0, 0)),
-      box Expr::Lit(s),
-      src,
-      box Expr::ConcreteBuf(""),
-    ) if buf_length(src) == Expr::Lit(*s) => src.clone(),
-    Expr::CopySlice(src_off, dst_off, size, src, dst) => {
-      if let Expr::WriteWord(w_off, value, box Expr::ConcreteBuf(buf)) = **src {
-        let n = if let Expr::Lit(n) = **src_off { n } else { W256(0, 0) };
-        let sz = if let Expr::Lit(sz) = **size { sz } else { W256(0, 0) };
-        if n + sz >= n && n + sz >= sz && n + sz <= max_bytes() {
-          let simplified_buf = pad_and_concat_buffers(n + sz, &buf);
-          return copy_slice(
-            *src_off.clone(),
-            *dst_off.clone(),
-            *size.clone(),
-            (Expr::WriteWord(w_off.clone(), value.clone(), Box::new(Expr::ConcreteBuf(simplified_buf)))),
-            *dst.clone(),
-          );
-        }
+    Expr::CopySlice(src_off_, dst_off_, size_, src_, dst_) => match (**src_off_, **dst_off_, **size_, **src_, **dst_) {
+      (Expr::Lit(W256(0, 0)), Expr::Lit(W256(0, 0)), Expr::Lit(W256(0, 0)), _, dst) => dst.clone(),
+      (Expr::Lit(W256(0, 0)), Expr::Lit(W256(0, 0)), Expr::Lit(s), src, Expr::ConcreteBuf(b))
+        if b.len() == 0 && buf_length(src) == Expr::Lit(s) =>
+      {
+        src.clone()
       }
-      copy_slice(*src_off.clone(), *dst_off.clone(), *size.clone(), *src.clone(), *dst.clone())
-    }
+      (src_off, dst_off, size, src, dst) => {
+        if let Expr::WriteWord(w_off, value, box Expr::ConcreteBuf(buf)) = **src {
+          let n = if let Expr::Lit(n) = src_off { n } else { W256(0, 0) };
+          let sz = if let Expr::Lit(sz) = size { sz } else { W256(0, 0) };
+          if n + sz >= n && n + sz >= sz && n + sz <= max_bytes() {
+            let simplified_buf = pad_and_concat_buffers(n + sz, &buf);
+            return copy_slice(
+              src_off.clone(),
+              dst_off.clone(),
+              size.clone(),
+              (Expr::WriteWord(w_off.clone(), value.clone(), Box::new(Expr::ConcreteBuf(simplified_buf)))),
+              dst.clone(),
+            );
+          }
+        }
+        copy_slice(src_off.clone(), dst_off.clone(), size.clone(), src.clone(), dst.clone())
+      }
+    },
     Expr::IndexWord(a, b) => index_word(*a.clone(), *b.clone()),
 
     Expr::LT(box Expr::Lit(a), box Expr::Lit(b)) => {
@@ -1053,9 +1051,11 @@ fn go_expr(expr: &Expr) -> Expr {
       _ => xor(*a_.clone(), *b_.clone()),
     },
 
-    Expr::Eq(box Expr::Lit(a), box Expr::Lit(b)) => Expr::Lit(if a == b { 1 } else { 0 }),
-    Expr::Eq(_, box Expr::Lit(W256(0, 0))) => iszero(expr.clone()),
-    Expr::Eq(a, b) => eq(*a.clone(), *b.clone()),
+    Expr::Eq(a_, b_) => match (**a_, **b_) {
+      (Expr::Lit(a), Expr::Lit(b)) => Expr::Lit(if a == b { W256(1, 0) } else { W256(0, 0) }),
+      (_, Expr::Lit(W256(0, 0))) => iszero(expr.clone()),
+      (a, b) => eq(a.clone(), b.clone()),
+    },
 
     Expr::ITE(a_, b_, c_) => match (**a_, **b_, **c_) {
       (Expr::Lit(W256(1, 0)), b, _) => b,
