@@ -47,9 +47,7 @@ pub struct Env {
 
 impl Default for Env {
   fn default() -> Self {
-    Env {
-      config: Config::default(),
-    }
+    Env { config: Config::default() }
   }
 }
 

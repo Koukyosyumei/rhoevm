@@ -288,11 +288,8 @@ impl Shr<u32> for W256 {
   type Output = W256;
 
   fn shr(self, rhs: u32) -> W256 {
-    let (high_shifted, low_shifted) = if rhs >= 128 {
-      (self.1 >> (rhs - 128), 0)
-    } else {
-      (self.0 >> rhs | self.1 << (128 - rhs), self.1 >> rhs)
-    };
+    let (high_shifted, low_shifted) =
+      if rhs >= 128 { (self.1 >> (rhs - 128), 0) } else { (self.0 >> rhs | self.1 << (128 - rhs), self.1 >> rhs) };
     W256(high_shifted, low_shifted)
   }
 }
@@ -301,11 +298,8 @@ impl Shl<u32> for W256 {
   type Output = W256;
 
   fn shl(self, rhs: u32) -> W256 {
-    let (high_shifted, low_shifted) = if rhs >= 128 {
-      (self.1 << (rhs - 128), 0)
-    } else {
-      (self.0 << rhs | self.1 >> (128 - rhs), self.1 << rhs)
-    };
+    let (high_shifted, low_shifted) =
+      if rhs >= 128 { (self.1 << (rhs - 128), 0) } else { (self.0 << rhs | self.1 >> (128 - rhs), self.1 << rhs) };
     W256(high_shifted, low_shifted)
   }
 }
@@ -522,12 +516,7 @@ pub enum Expr {
   LogEntry(Box<Expr>, Box<Expr>, Vec<Box<Expr>>),
 
   // Contract
-  C {
-    code: ContractCode,
-    storage: Box<Expr>,
-    balance: Box<Expr>,
-    nonce: Option<W64>,
-  },
+  C { code: ContractCode, storage: Box<Expr>, balance: Box<Expr>, nonce: Option<W64> },
 
   // Addresses
   SymAddr(String),
@@ -617,16 +606,9 @@ impl fmt::Display for Expr {
       Expr::CodeSize(expr) => write!(f, "CodeSize({})", expr),
       Expr::CodeHash(expr) => write!(f, "CodeHash({})", expr),
       Expr::LogEntry(addr, buf, topics) => write!(f, "LogEntry({}, {}, {:?})", addr, buf, topics),
-      Expr::C {
-        code,
-        storage,
-        balance,
-        nonce,
-      } => write!(
-        f,
-        "Contract {{ code: {:?}, storage: {}, balance: {}, nonce: {:?} }}",
-        code, storage, balance, nonce
-      ),
+      Expr::C { code, storage, balance, nonce } => {
+        write!(f, "Contract {{ code: {:?}, storage: {}, balance: {}, nonce: {:?} }}", code, storage, balance, nonce)
+      }
       Expr::SymAddr(name) => write!(f, "SymAddr({})", name),
       Expr::LitAddr(addr) => write!(f, "LitAddr({})", addr),
       Expr::WAddr(expr) => write!(f, "WAddr({})", expr),
@@ -642,11 +624,9 @@ impl fmt::Display for Expr {
       Expr::ReadByte(index, src) => write!(f, "ReadByte({}, {})", index, src),
       Expr::WriteWord(dst, value, prev) => write!(f, "WriteWord({}, {}, {})", dst, value, prev),
       Expr::WriteByte(dst, value, prev) => write!(f, "WriteByte({}, {}, {})", dst, value, prev),
-      Expr::CopySlice(src_offset, dst_offset, size, src, dst) => write!(
-        f,
-        "CopySlice({}, {}, {}, {}, {})",
-        src_offset, dst_offset, size, src, dst
-      ),
+      Expr::CopySlice(src_offset, dst_offset, size, src, dst) => {
+        write!(f, "CopySlice({}, {}, {}, {}, {})", src_offset, dst_offset, size, src, dst)
+      }
       Expr::BufLength(buf) => write!(f, "BufLength({})", buf),
       Expr::End => write!(f, "end"),
     }
@@ -733,18 +713,8 @@ impl PartialEq for Expr {
         expr1a == expr2a && expr1b == expr2b && vec1 == vec2
       }
       (
-        C {
-          code: code1,
-          storage: storage1,
-          balance: balance1,
-          nonce: nonce1,
-        },
-        C {
-          code: code2,
-          storage: storage2,
-          balance: balance2,
-          nonce: nonce2,
-        },
+        C { code: code1, storage: storage1, balance: balance1, nonce: nonce1 },
+        C { code: code2, storage: storage2, balance: balance2, nonce: nonce2 },
       ) => code1 == code2 && storage1 == storage2 && balance1 == balance2 && nonce1 == nonce2,
       (SymAddr(name1), SymAddr(name2)) => name1 == name2,
       (LitAddr(addr1), LitAddr(addr2)) => addr1 == addr2,
@@ -1039,12 +1009,7 @@ impl Hash for Expr {
         expr2.hash(state);
         vec.hash(state);
       }
-      C {
-        code,
-        storage,
-        balance,
-        nonce,
-      } => {
+      C { code, storage, balance, nonce } => {
         "Contract".hash(state);
         code.hash(state);
         storage.hash(state);
@@ -1365,11 +1330,7 @@ struct TraceContext {
 // Implement Monoid trait for TraceContext
 impl Default for TraceContext {
   fn default() -> Self {
-    TraceContext {
-      traces: Vec::new(),
-      contracts: ExprContractMap::new(),
-      labels: AddrStringMap::new(),
-    }
+    TraceContext { traces: Vec::new(), contracts: ExprContractMap::new(), labels: AddrStringMap::new() }
   }
 }
 
@@ -1456,17 +1417,8 @@ pub struct Cache {
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum FrameContext {
-  CreationContext {
-    address: Expr,
-    codehash: Expr,
-    createversion: ExprContractMap,
-    substate: SubState,
-  },
-  CallCOntext {
-    target: Expr,
-    context: Expr,
-    offset: Expr,
-  },
+  CreationContext { address: Expr, codehash: Expr, createversion: ExprContractMap, substate: SubState },
+  CallCOntext { target: Expr, context: Expr, offset: Expr },
 }
 
 pub struct Frame {
@@ -1682,13 +1634,7 @@ pub fn from_list(bs: Vec<Expr>) -> Expr {
     for (idx, expr) in bs.into_iter().enumerate() {
       match expr {
         Expr::LitByte(_) => continue,
-        _ => {
-          buf_expr = Expr::WriteByte(
-            Box::new(Expr::Lit(W256(0, idx as u128))),
-            Box::new(expr),
-            Box::new(buf_expr),
-          )
-        }
+        _ => buf_expr = Expr::WriteByte(Box::new(Expr::Lit(W256(0, idx as u128))), Box::new(expr), Box::new(buf_expr)),
       }
     }
     buf_expr

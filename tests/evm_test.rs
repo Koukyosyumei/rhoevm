@@ -18,17 +18,9 @@ fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) 
   let (miner, block_num, base_fee, prev_ran) = (Expr::SymAddr("miner".to_string()), W256(0, 0), W256(0, 0), W256(0, 0));
 
   let caller = Expr::SymAddr("caller".to_string());
-  let ts = if let Some(t) = cmd.timestamp.clone() {
-    Expr::Lit(t)
-  } else {
-    Expr::Timestamp
-  };
+  let ts = if let Some(t) = cmd.timestamp.clone() { Expr::Lit(t) } else { Expr::Timestamp };
 
-  let callvalue = if let Some(v) = cmd.value.clone() {
-    Expr::Lit(v)
-  } else {
-    Expr::TxValue
-  };
+  let callvalue = if let Some(v) = cmd.value.clone() { Expr::Lit(v) } else { Expr::TxValue };
 
   let contract = match (&cmd.rpc, &cmd.address, &cmd.code) {
     (_, _, Some(code)) => {
@@ -38,19 +30,14 @@ fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) 
       } else {
         ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs))
       };
-      let address = if let Some(a) = cmd.origin.clone() {
-        Expr::LitAddr(a)
-      } else {
-        Expr::SymAddr("origin".to_string())
-      };
+      let address =
+        if let Some(a) = cmd.origin.clone() { Expr::LitAddr(a) } else { Expr::SymAddr("origin".to_string()) };
       abstract_contract(mc, address)
     }
     _ => return Err("Error: must provide at least (rpc + address) or code".into()),
   };
 
-  let mut vm = vm0(
-    base_fee, miner, ts, block_num, prev_ran, calldata, callvalue, caller, contract, cmd,
-  );
+  let mut vm = vm0(base_fee, miner, ts, block_num, prev_ran, calldata, callvalue, caller, contract, cmd);
   init_tx(&mut vm);
   Ok(vm)
 }
@@ -72,17 +59,11 @@ fn test_vm_exec_1() {
   vm.exec1();
   assert_eq!(vm.state.pc, 4);
   assert_eq!(vm.decoded_opcodes.len(), 4);
-  assert_eq!(
-    vm.decoded_opcodes,
-    vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)"]
-  );
+  assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)"]);
   assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x40)");
 
   vm.exec1();
   assert_eq!(vm.state.pc, 5);
   assert_eq!(vm.decoded_opcodes.len(), 5);
-  assert_eq!(
-    vm.decoded_opcodes,
-    vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)", "04 MSTORE"]
-  );
+  assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)", "04 MSTORE"]);
 }

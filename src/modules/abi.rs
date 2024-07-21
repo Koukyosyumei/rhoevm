@@ -14,10 +14,7 @@ pub struct Sig {
 
 impl Sig {
   pub fn new(method_signature: &str, inputs: &[String]) -> Self {
-    Self {
-      method_signature: method_signature.to_string(),
-      inputs: inputs.to_vec(),
-    }
+    Self { method_signature: method_signature.to_string(), inputs: inputs.to_vec() }
   }
 }
 

@@ -57,11 +57,7 @@ pub fn make_vm(opts: VMOpts) -> VM {
   let initial_accessed_addrs = ExprSet::from([txorigin.clone(), txto_addr.clone(), opts.coinbase.clone()]);
   let initial_accessed_storage_keys: HashSet<_> =
     txaccess_list.iter().flat_map(|(k, v)| v.iter().map(move |v| (k.clone(), v.clone()))).collect();
-  let touched = if opts.create {
-    vec![txorigin.clone()]
-  } else {
-    vec![txorigin.clone(), txto_addr.clone()]
-  };
+  let touched = if opts.create { vec![txorigin.clone()] } else { vec![txorigin.clone(), txto_addr.clone()] };
 
   let memory = Memory::ConcreteMemory(Vec::new());
 
@@ -118,10 +114,7 @@ pub fn make_vm(opts: VMOpts) -> VM {
       fresh_address: 0,
       fresh_gas_vals: 0,
     },
-    cache: Cache {
-      fetched: HashMap::new(),
-      path: HashMap::new(),
-    },
+    cache: Cache { fetched: HashMap::new(), path: HashMap::new() },
     burned: Gas::Concerete(initial_gas()),
     constraints: opts.calldata.1.clone(),
     iterations: HashMap::new(),
@@ -148,10 +141,7 @@ pub fn make_vm(opts: VMOpts) -> VM {
         base_fee: opts.base_fee.clone(),
         schedule: opts.schedule.clone(),
       },
-      cache: Cache {
-        fetched: HashMap::new(),
-        path: HashMap::new(),
-      },
+      cache: Cache { fetched: HashMap::new(), path: HashMap::new() },
       urlaor_alias: String::new(),
     }],
     current_fork: 0,
@@ -189,9 +179,7 @@ pub fn abstract_contract(code: ContractCode, addr: Expr) -> Contract {
 }
 
 pub fn empty_contract() -> Contract {
-  initial_contract(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(
-    Vec::new(),
-  )))
+  initial_contract(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Vec::new())))
 }
 
 pub fn initial_contract(code: ContractCode) -> Contract {
@@ -362,11 +350,7 @@ impl VM {
             } else {
               let bytes = read_memory(x_offset, x_size);
               let (topics, xs) = xs.split_at(n as usize);
-              let logs = vec![Expr::LogEntry(
-                Box::new(self.state.contract.clone()),
-                Box::new(bytes),
-                topics.to_vec(),
-              )];
+              let logs = vec![Expr::LogEntry(Box::new(self.state.contract.clone()), Box::new(bytes), topics.to_vec())];
               burn_log(x_size, op, || {});
               access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
               trace_top_log(logs.clone());
@@ -487,10 +471,7 @@ impl VM {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
             next(self, op);
-            push_sym(
-              self,
-              Box::new(Expr::Lit(W256(len_buf(&self.state.calldata) as u128, 0))),
-            );
+            push_sym(self, Box::new(Expr::Lit(W256(len_buf(&self.state.calldata) as u128, 0))));
           });
         }
         Op::Calldatacopy => {
@@ -633,10 +614,7 @@ impl VM {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
             next(self, op);
-            push_sym(
-              self,
-              Box::new(Expr::Lit(W256(len_buf(&self.state.returndata) as u128, 0))),
-            );
+            push_sym(self, Box::new(Expr::Lit(W256(len_buf(&self.state.returndata) as u128, 0))));
           });
         }
         Op::Coinbase => {
@@ -1034,11 +1012,7 @@ fn burn_extcodecopy<F: FnOnce()>(vm: &mut VM, ext_account: Expr, code_size: Expr
   let cost = match ext_account {
     Expr::LitAddr(_) => {
       let acc = access_account_for_gas(vm, ext_account);
-      let acc_cost = if acc {
-        schedule.g_warm_storage_read
-      } else {
-        schedule.g_cold_account_access
-      };
+      let acc_cost = if acc { schedule.g_warm_storage_read } else { schedule.g_cold_account_access };
       acc_cost + schedule.g_copy * ceiled_c
     }
     _ => panic!("illegal expression"),

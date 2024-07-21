@@ -20,10 +20,7 @@ fn test_add_symbolic() {
     add(x, y),
     Expr::Add(
       Box::new(Expr::Lit(W256(3, 0))),
-      Box::new(Expr::Sub(
-        Box::new(Expr::Lit(W256(4, 0))),
-        Box::new(Expr::Lit(W256(2, 0)))
-      ))
+      Box::new(Expr::Sub(Box::new(Expr::Lit(W256(4, 0))), Box::new(Expr::Lit(W256(2, 0)))))
     )
   );
 }
@@ -196,10 +193,7 @@ fn test_is_byte_aligned() {
 fn test_index_word_literal_masked() {
   // Test case where i and w are literals, and w is a masked word (Expr::And)
   let idx = Expr::Lit(W256(5, 0));
-  let mask = Expr::Lit(W256(
-    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
-    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
-  ));
+  let mask = Expr::Lit(W256(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF));
   let word = Expr::Lit(W256(0x11223344556677889900AABBCCDDEEFF, 0));
   let w = Expr::And(Box::new(mask.clone()), Box::new(word.clone()));
 

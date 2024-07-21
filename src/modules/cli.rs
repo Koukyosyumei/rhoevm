@@ -177,17 +177,9 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop
   };
 
   let caller = Expr::SymAddr("caller".to_string());
-  let ts = if let Some(t) = cmd.timestamp.clone() {
-    Expr::Lit(t)
-  } else {
-    Expr::Timestamp
-  };
+  let ts = if let Some(t) = cmd.timestamp.clone() { Expr::Lit(t) } else { Expr::Timestamp };
 
-  let callvalue = if let Some(v) = cmd.value.clone() {
-    Expr::Lit(v)
-  } else {
-    Expr::TxValue
-  };
+  let callvalue = if let Some(v) = cmd.value.clone() { Expr::Lit(v) } else { Expr::TxValue };
 
   let contract = match (&cmd.rpc, &cmd.address, &cmd.code) {
     (Some(url), Some(addr), _) => {
@@ -225,19 +217,14 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop
       } else {
         ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs))
       };
-      let address = if let Some(a) = cmd.origin.clone() {
-        Expr::LitAddr(a)
-      } else {
-        Expr::SymAddr("origin".to_string())
-      };
+      let address =
+        if let Some(a) = cmd.origin.clone() { Expr::LitAddr(a) } else { Expr::SymAddr("origin".to_string()) };
       abstract_contract(mc, address)
     }
     _ => return Err("Error: must provide at least (rpc + address) or code".into()),
   };
 
-  let mut vm = vm0(
-    base_fee, miner, ts, block_num, prev_ran, calldata, callvalue, caller, contract, cmd,
-  );
+  let mut vm = vm0(base_fee, miner, ts, block_num, prev_ran, calldata, callvalue, caller, contract, cmd);
   init_tx(&mut vm);
   Ok(vm)
 }
@@ -259,62 +246,22 @@ pub fn vm0(
     other_contracts: Vec::new(),
     calldata: calldata,
     value: callvalue,
-    address: if let Some(a) = cmd.address.clone() {
-      Expr::LitAddr(a)
-    } else {
-      Expr::SymAddr("entrypoint".to_string())
-    },
+    address: if let Some(a) = cmd.address.clone() { Expr::LitAddr(a) } else { Expr::SymAddr("entrypoint".to_string()) },
     caller: caller,
-    origin: if let Some(a) = cmd.origin.clone() {
-      Expr::LitAddr(a)
-    } else {
-      Expr::SymAddr("origin".to_string())
-    },
+    origin: if let Some(a) = cmd.origin.clone() { Expr::LitAddr(a) } else { Expr::SymAddr("origin".to_string()) },
     gas: Gas::Symbolic,
-    gaslimit: if let Some(gl) = cmd.gaslimit {
-      gl
-    } else {
-      0xffffffffffffffff
-    },
+    gaslimit: if let Some(gl) = cmd.gaslimit { gl } else { 0xffffffffffffffff },
     base_fee: base_fee,
-    priority_fee: if let Some(pf) = cmd.priority_fee.clone() {
-      pf
-    } else {
-      W256(0, 0)
-    },
-    coinbase: if let Some(c) = cmd.coinbase.clone() {
-      Expr::LitAddr(c)
-    } else {
-      miner
-    },
+    priority_fee: if let Some(pf) = cmd.priority_fee.clone() { pf } else { W256(0, 0) },
+    coinbase: if let Some(c) = cmd.coinbase.clone() { Expr::LitAddr(c) } else { miner },
     number: if let Some(n) = cmd.number.clone() { n } else { block_num },
     time_stamp: ts,
-    block_gaslimit: if let Some(b) = cmd.gaslimit {
-      b
-    } else {
-      0xffffffffffffffff
-    },
-    gasprice: if let Some(g) = cmd.gasprice.clone() {
-      g
-    } else {
-      W256(0, 0)
-    },
-    max_code_size: if let Some(m) = cmd.max_code_size.clone() {
-      m
-    } else {
-      W256(0xffffffff, 0)
-    },
-    prev_randao: if let Some(p) = cmd.prev_randao.clone() {
-      p
-    } else {
-      prev_ran
-    },
+    block_gaslimit: if let Some(b) = cmd.gaslimit { b } else { 0xffffffffffffffff },
+    gasprice: if let Some(g) = cmd.gasprice.clone() { g } else { W256(0, 0) },
+    max_code_size: if let Some(m) = cmd.max_code_size.clone() { m } else { W256(0xffffffff, 0) },
+    prev_randao: if let Some(p) = cmd.prev_randao.clone() { p } else { prev_ran },
     schedule: FEE_SCHEDULE,
-    chain_id: if let Some(i) = cmd.chainid.clone() {
-      i
-    } else {
-      W256(1, 0)
-    },
+    chain_id: if let Some(i) = cmd.chainid.clone() { i } else { W256(1, 0) },
     create: cmd.create,
     base_state: if let Some(is) = &cmd.initial_storage {
       parseInitialStorage(is.clone())
@@ -348,10 +295,8 @@ pub fn build_calldata(cmd: &SymbolicCommand) -> Result<(Expr, Vec<Prop>), Box<dy
     // Calldata according to given ABI with possible specializations from the `arg` list
     (None, Some(sig)) => {
       let method = function_abi(sig)?;
-      let sig = Sig::new(
-        &method.method_signature,
-        &method.inputs.iter().map(|input| input.1.clone()).collect::<Vec<_>>(),
-      );
+      let sig =
+        Sig::new(&method.method_signature, &method.inputs.iter().map(|input| input.1.clone()).collect::<Vec<_>>());
       Ok(mk_calldata(Some(sig), &cmd.arg))
     }
 
@@ -365,28 +310,19 @@ pub fn build_calldata(cmd: &SymbolicCommand) -> Result<(Expr, Vec<Prop>), Box<dy
 
 fn mk_calldata(sig: Option<Sig>, args: &[String]) -> (Expr, Vec<Prop>) {
   match sig {
-    Some(Sig {
-      method_signature: name,
-      inputs: types,
-    }) => {
+    Some(Sig { method_signature: name, inputs: types }) => {
       todo!()
     }
     None => (
       Expr::AbstractBuf("txdata".to_string()),
-      vec![Prop::PLEq(
-        buf_length(Expr::AbstractBuf("txdata".to_string())),
-        Expr::Lit(W256(2 ^ 64, 0)),
-      )],
+      vec![Prop::PLEq(buf_length(Expr::AbstractBuf("txdata".to_string())), Expr::Lit(W256(2 ^ 64, 0)))],
     ),
   }
 }
 
 fn function_abi(sig: &str) -> Result<AbiMethod, Box<dyn std::error::Error>> {
   // Implementation here
-  Ok(AbiMethod {
-    method_signature: sig.to_string(),
-    inputs: vec![],
-  })
+  Ok(AbiMethod { method_signature: sig.to_string(), inputs: vec![] })
 }
 
 struct AbiMethod {

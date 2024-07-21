@@ -46,12 +46,7 @@ struct RpcRequest {
 
 impl RpcRequest {
   fn new(method: String, params: Vec<Value>) -> Self {
-    RpcRequest {
-      jsonrpc: "2.0".to_string(),
-      id: 1,
-      method,
-      params,
-    }
+    RpcRequest { jsonrpc: "2.0".to_string(), id: 1, method, params }
   }
 }
 

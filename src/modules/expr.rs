@@ -68,12 +68,7 @@ pub fn mul(l: Expr, r: Expr) -> Expr {
 }
 
 pub fn div(l: Expr, r: Expr) -> Expr {
-  op2(
-    Expr::Div,
-    |x, y| if y == W256(0, 0) { W256(0, 0) } else { x / y },
-    &l,
-    &r,
-  )
+  op2(Expr::Div, |x, y| if y == W256(0, 0) { W256(0, 0) } else { x / y }, &l, &r)
 }
 
 pub fn emin(l: Expr, r: Expr) -> Expr {
@@ -124,12 +119,7 @@ pub fn sdiv(l: Expr, r: Expr) -> Expr {
 }
 
 pub fn r#mod(l: Expr, r: Expr) -> Expr {
-  op2(
-    Expr::Mod,
-    |x, y| if y == W256(0, 0) { W256(0, 0) } else { x % y },
-    &l,
-    &r,
-  )
+  op2(Expr::Mod, |x, y| if y == W256(0, 0) { W256(0, 0) } else { x % y }, &l, &r)
 }
 
 pub fn smod(l: Expr, r: Expr) -> Expr {
@@ -263,11 +253,7 @@ pub fn eq(x: Expr, y: Expr) -> Expr {
 }
 
 pub fn iszero(x: Expr) -> Expr {
-  op1(
-    Expr::IsZero,
-    |x| if x == W256(0, 0) { W256(1, 0) } else { W256(0, 0) },
-    &x,
-  )
+  op1(Expr::IsZero, |x| if x == W256(0, 0) { W256(1, 0) } else { W256(0, 0) }, &x)
 }
 
 // Bits
@@ -289,21 +275,11 @@ pub fn not(x: Expr) -> Expr {
 }
 
 pub fn shl(x: Expr, y: Expr) -> Expr {
-  op2(
-    Expr::SHL,
-    |x, y| if x > W256(256, 0) { W256(0, 0) } else { y << x.0 as u32 },
-    &x,
-    &y,
-  )
+  op2(Expr::SHL, |x, y| if x > W256(256, 0) { W256(0, 0) } else { y << x.0 as u32 }, &x, &y)
 }
 
 pub fn shr(x: Expr, y: Expr) -> Expr {
-  op2(
-    Expr::SHR,
-    |x, y| if x > W256(256, 0) { W256(0, 0) } else { y >> x.0 as u32 },
-    &x,
-    &y,
-  )
+  op2(Expr::SHR, |x, y| if x > W256(256, 0) { W256(0, 0) } else { y >> x.0 as u32 }, &x, &y)
 }
 
 pub fn sar(x: Expr, y: Expr) -> Expr {
@@ -421,10 +397,7 @@ pub fn index_word(i: Expr, w: Expr) -> Expr {
             Expr::LitByte(0)
           }
         } else if idx <= W256(31, 0) {
-          Expr::IndexWord(
-            Box::new(Expr::Lit(idx)),
-            Box::new(Expr::And(Box::new(Expr::Lit(mask)), Box::new(*box_w))),
-          )
+          Expr::IndexWord(Box::new(Expr::Lit(idx)), Box::new(Expr::And(Box::new(Expr::Lit(mask)), Box::new(*box_w))))
         } else {
           Expr::LitByte(0)
         }
@@ -506,10 +479,7 @@ pub fn read_byte(idx: Expr, buf: Expr) -> Expr {
           if let Expr::Lit(_) = *val {
             index_word(Expr::Lit(x - idx_val), *val)
           } else {
-            Expr::ReadByte(
-              Box::new(Expr::Lit(x)),
-              Box::new(Expr::WriteWord(Box::new(Expr::Lit(idx_val)), val, src)),
-            )
+            Expr::ReadByte(Box::new(Expr::Lit(x)), Box::new(Expr::WriteWord(Box::new(Expr::Lit(idx_val)), val, src)))
           }
         } else {
           read_byte(Expr::Lit(x), *src)
@@ -663,10 +633,7 @@ pub fn read_word(idx: Expr, buf: Expr) -> Expr {
         } else if idx_val >= dst_offset_val && idx_val <= dst_offset_val + size_val - W256(32, 0) {
           return read_word(Expr::Lit(idx_val), *dst);
         } else {
-          return read_word_from_bytes(
-            Expr::Lit(idx_val),
-            Expr::CopySlice(src_offset, dst_offset, size, src, dst),
-          );
+          return read_word_from_bytes(Expr::Lit(idx_val), Expr::CopySlice(src_offset, dst_offset, size, src, dst));
         }
       }
     }
@@ -740,11 +707,7 @@ pub fn write_word(offset: Expr, value: Expr, buf: Expr) -> Expr {
           return Expr::WriteWord(idx_, val_, Box::new(write_word(Expr::Lit(idx), val, *buf_)));
         }
       }
-      Expr::WriteWord(
-        Box::new(Expr::Lit(idx)),
-        Box::new(val),
-        Box::new(Expr::WriteWord(idx_, val_, buf_)),
-      )
+      Expr::WriteWord(Box::new(Expr::Lit(idx)), Box::new(val), Box::new(Expr::WriteWord(idx_, val_, buf_)))
     }
 
     (idx, val, buf @ Expr::WriteWord(_, _, _)) => Expr::WriteWord(Box::new(idx), Box::new(val), Box::new(buf)),
@@ -765,13 +728,7 @@ pub fn word256_bytes(val: W256) -> Vec<u8> {
 }
 
 pub fn copy_slice(src_offset: Expr, dst_offset: Expr, size: Expr, src: Expr, dst: Expr) -> Expr {
-  match (
-    src_offset.clone(),
-    dst_offset.clone(),
-    size.clone(),
-    src.clone(),
-    dst.clone(),
-  ) {
+  match (src_offset.clone(), dst_offset.clone(), size.clone(), src.clone(), dst.clone()) {
     // Copies from empty buffers
     (_, _, Expr::Lit(W256(0, 0)), Expr::ConcreteBuf(src_buf), dst) if src_buf.len() == 0 => dst,
     (a, b, Expr::Lit(size), Expr::ConcreteBuf(src_buf), Expr::ConcreteBuf(dst_buf))
@@ -791,13 +748,7 @@ pub fn copy_slice(src_offset: Expr, dst_offset: Expr, size: Expr, src: Expr, dst
     }
     (src_offset, dst_offset, Expr::Lit(size), Expr::ConcreteBuf(src_buf), dst) if src_buf.len() == 0 => {
       if size < MAX_BYTES {
-        copy_slice(
-          src_offset,
-          dst_offset,
-          Expr::Lit(size.clone()),
-          Expr::ConcreteBuf(vec![0; size.0 as usize]),
-          dst,
-        )
+        copy_slice(src_offset, dst_offset, Expr::Lit(size.clone()), Expr::ConcreteBuf(vec![0; size.0 as usize]), dst)
       } else {
         Expr::CopySlice(
           Box::new(src_offset),
