@@ -1,6 +1,6 @@
-use crate::modules::types::{Expr, Prop, W256};
+use crate::modules::types::{maybe_lit_addr, maybe_lit_byte, pad_right, Expr, Prop, W256};
 use core::panic;
-use std::cmp::min;
+use std::{clone, cmp::min};
 
 // ** Constants **
 
@@ -689,13 +689,13 @@ pub fn read_word_from_bytes(idx: Expr, buf: Expr) -> Expr {
         &[]
       };
       let padded: Vec<u8> = slice.iter().cloned().chain(std::iter::repeat(0)).take(32).collect();
-      return Expr::Lit(W256(u64::from_le_bytes(padded.try_into().unwrap()) as u128, 0));
+      return Expr::Lit(W256::from_bytes(padded.try_into().unwrap()));
     }
   }
   let bytes: Vec<Expr> = (0..32).map(|i| read_byte(add(idx.clone(), Expr::Lit(W256(i, 0))), buf.clone())).collect();
   if bytes.iter().all(|b| matches!(b, Expr::Lit(_))) {
     let result = bytes.into_iter().map(|b| if let Expr::Lit(byte) = b { byte.0 as u8 } else { 0 }).collect::<Vec<u8>>();
-    Expr::Lit(W256(u64::from_le_bytes(result.try_into().unwrap()) as u128, 0))
+    Expr::Lit(W256::from_bytes(result))
   } else {
     Expr::ReadWord(Box::new(idx), Box::new(buf))
   }
@@ -764,6 +764,167 @@ pub fn word256_bytes(val: W256) -> Vec<u8> {
   bytes
 }
 
-pub fn conc_keccak_props(props: Vec<Prop>) -> Vec<Prop> {
-  todo!()
+pub fn copy_slice(src_offset: Expr, dst_offset: Expr, size: Expr, src: Expr, dst: Expr) -> Expr {
+  match (
+    src_offset.clone(),
+    dst_offset.clone(),
+    size.clone(),
+    src.clone(),
+    dst.clone(),
+  ) {
+    // Copies from empty buffers
+    (_, _, Expr::Lit(W256(0, 0)), Expr::ConcreteBuf(src_buf), dst) if src_buf.len() == 0 => dst,
+    (a, b, Expr::Lit(size), Expr::ConcreteBuf(src_buf), Expr::ConcreteBuf(dst_buf))
+      if src_buf.len() == 0 && dst_buf.len() == 0 =>
+    {
+      if size < MAX_BYTES {
+        Expr::ConcreteBuf(vec![0; size.0 as usize])
+      } else {
+        Expr::CopySlice(
+          Box::new(a),
+          Box::new(b),
+          Box::new(Expr::Lit(size)),
+          Box::new(Expr::ConcreteBuf(src_buf)),
+          Box::new(Expr::ConcreteBuf(dst_buf)),
+        )
+      }
+    }
+    (src_offset, dst_offset, Expr::Lit(size), Expr::ConcreteBuf(src_buf), dst) if src_buf.len() == 0 => {
+      if size < MAX_BYTES {
+        copy_slice(
+          src_offset,
+          dst_offset,
+          Expr::Lit(size.clone()),
+          Expr::ConcreteBuf(vec![0; size.0 as usize]),
+          dst,
+        )
+      } else {
+        Expr::CopySlice(
+          Box::new(src_offset),
+          Box::new(dst_offset),
+          Box::new(Expr::Lit(size)),
+          Box::new(Expr::ConcreteBuf(src_buf)),
+          Box::new(dst),
+        )
+      }
+    }
+    // Fully concrete copies
+    (
+      Expr::Lit(src_offset),
+      Expr::Lit(dst_offset),
+      Expr::Lit(size),
+      Expr::ConcreteBuf(src_buf),
+      Expr::ConcreteBuf(dst_buf),
+    ) if dst_buf.len() == 0 => {
+      if src_offset > W256(src_buf.len() as u128, 0) && size < MAX_BYTES {
+        Expr::ConcreteBuf(vec![0; size.0 as usize])
+      } else if src_offset <= W256(src_buf.len() as u128, 0) && dst_offset < MAX_BYTES && size < MAX_BYTES {
+        let hd = vec![0; dst_offset.0 as usize];
+        let sl = pad_right(
+          size.0 as usize,
+          (&src_buf[src_offset.0 as usize..src_offset.0 as usize + size.0 as usize]).to_vec(),
+        );
+        return Expr::ConcreteBuf([hd, sl].concat());
+      } else {
+        Expr::CopySlice(
+          Box::new(Expr::Lit(src_offset)),
+          Box::new(Expr::Lit(dst_offset)),
+          Box::new(Expr::Lit(size)),
+          Box::new(Expr::ConcreteBuf(src_buf)),
+          Box::new(Expr::ConcreteBuf(dst_buf)),
+        )
+      }
+    }
+    (
+      Expr::Lit(src_offset),
+      Expr::Lit(dst_offset),
+      Expr::Lit(size),
+      Expr::ConcreteBuf(src_buf),
+      Expr::ConcreteBuf(dst_buf),
+    ) => {
+      if dst_offset < MAX_BYTES && size < MAX_BYTES {
+        let hd = pad_right(dst_offset.0 as usize, (&dst_buf[..dst_offset.0 as usize]).to_vec());
+        let sl = if src_offset > W256(src_buf.len() as u128, 0) {
+          vec![0; size.0 as usize]
+        } else {
+          pad_right(
+            size.0 as usize,
+            (&src_buf[src_offset.0 as usize..src_offset.0 as usize + size.0 as usize]).to_vec(),
+          )
+        };
+        let tl = if (dst_offset.0 as usize + size.0 as usize) < dst_buf.len() {
+          &dst_buf[dst_offset.0 as usize + size.0 as usize..]
+        } else {
+          &vec![]
+        };
+        Expr::ConcreteBuf([hd, sl, tl.to_vec()].concat())
+      } else {
+        Expr::CopySlice(
+          Box::new(Expr::Lit(src_offset)),
+          Box::new(Expr::Lit(dst_offset)),
+          Box::new(Expr::Lit(size)),
+          Box::new(Expr::ConcreteBuf(src_buf)),
+          Box::new(Expr::ConcreteBuf(dst_buf)),
+        )
+      }
+    }
+    // copying 32 bytes can be rewritten to a WriteWord on dst (e.g. CODECOPY of args during constructors)
+    (src_offset, dst_offset, Expr::Lit(W256(32, 0)), src, dst) => {
+      write_word(dst_offset, read_word(src_offset, src), dst)
+    }
+    // concrete indices & abstract src (may produce a concrete result if we are copying from a concrete region of src)
+    (Expr::Lit(src_offset), Expr::Lit(dst_offset), Expr::Lit(size), src, Expr::ConcreteBuf(dst_buf)) => {
+      if (dst_offset < MAX_BYTES
+        && size < MAX_BYTES
+        && src_offset.clone() + size.clone() - W256(1, 0) > src_offset.clone())
+      {
+        let hd = pad_right(dst_offset.0 as usize, (&dst_buf[..dst_offset.0 as usize]).to_vec());
+        let sl: Vec<Expr> = ((src_offset.0)..(src_offset.0) + (size.0))
+          .map(|i| read_byte(Expr::Lit(W256(i as u128, 0)), src.clone()))
+          .collect();
+        let tl = &dst_buf[dst_offset.0 as usize + size.0 as usize..];
+
+        if sl.iter().all(is_lit_byte) {
+          let packed_sl: Vec<u8> = sl.into_iter().filter_map(maybe_lit_byte).collect();
+          let mut result = hd;
+          result.extend_from_slice(&packed_sl);
+          result.extend_from_slice(tl);
+          Expr::ConcreteBuf(result)
+        } else {
+          Expr::CopySlice(
+            Box::new(Expr::Lit(src_offset)),
+            Box::new(Expr::Lit(dst_offset)),
+            Box::new(Expr::Lit(size)),
+            Box::new(src.clone()),
+            Box::new(Expr::ConcreteBuf(dst_buf)),
+          )
+        }
+      } else {
+        Expr::CopySlice(
+          Box::new(Expr::Lit(src_offset)),
+          Box::new(Expr::Lit(dst_offset)),
+          Box::new(Expr::Lit(size)),
+          Box::new(src),
+          Box::new(Expr::ConcreteBuf(dst_buf)),
+        )
+      }
+    }
+    _ => {
+      // abstract indices
+      Expr::CopySlice(
+        Box::new(src_offset.clone()),
+        Box::new(dst_offset.clone()),
+        Box::new(size.clone()),
+        Box::new(src.clone()),
+        Box::new(dst.clone()),
+      )
+    }
+  }
+}
+
+pub fn is_lit_byte(e: &Expr) -> bool {
+  match e {
+    Expr::LitByte(_) => true,
+    _ => false,
+  }
 }

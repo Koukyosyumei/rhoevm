@@ -1,4 +1,4 @@
-use rhoevm::modules::types::{pad_left_prime, W256};
+use rhoevm::modules::types::{pad_left_prime_vec, W256};
 
 #[test]
 fn test_pad_left_prime() {
@@ -6,11 +6,11 @@ fn test_pad_left_prime() {
   let input = vec![1, 2, 3];
   let expected = vec![0; 29];
   let mut expected = [expected, vec![1, 2, 3]].concat();
-  assert_eq!(pad_left_prime(32, input), expected);
+  assert_eq!(pad_left_prime_vec(32, input), expected);
 
   // Test case: input vector exactly the size
   let input = vec![1; 32];
-  assert_eq!(pad_left_prime(32, input.clone()), input);
+  assert_eq!(pad_left_prime_vec(32, input.clone()), input);
 
   // Test case: input vector longer than size (should be truncated)
   //let input = vec![1; 33];

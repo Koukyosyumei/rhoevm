@@ -4,19 +4,15 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::fmt::{self};
 use std::hash::{Hash, Hasher};
+use std::iter;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Rem, Shl, Shr, Sub};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::vec::Vec; // Assuming state crate is used for the State monad
-use uint::construct_uint;
 
 use crate::modules::etypes::Buf;
 use crate::modules::feeschedule::FeeSchedule;
-
-construct_uint! {
-  pub struct U256(4);
-}
 
 pub type Word8 = u8;
 pub type Word32 = u32;
@@ -95,7 +91,7 @@ impl W256 {
 
 impl W256 {
   pub fn from_bytes(bytes: Vec<u8>) -> Self {
-    let padded_bytes = pad_left_prime(32, bytes);
+    let padded_bytes = pad_left_prime_vec(32, bytes);
 
     let high = u128::from_be_bytes(padded_bytes[0..16].try_into().unwrap());
     let low = u128::from_be_bytes(padded_bytes[16..32].try_into().unwrap());
@@ -104,7 +100,7 @@ impl W256 {
   }
 }
 
-pub fn pad_left_prime(size: usize, bytes: Vec<u8>) -> Vec<u8> {
+pub fn pad_left_prime_vec(size: usize, bytes: Vec<u8>) -> Vec<u8> {
   let mut padded = vec![0; size];
   let start = size.saturating_sub(bytes.len());
   padded[start..].clone_from_slice(&bytes);
@@ -1829,4 +1825,47 @@ impl_hashmap_traits!(W256W256Map, W256, W256);
 
 pub fn unbox<T>(value: Box<T>) -> T {
   *value
+}
+
+pub fn pad_left(n: usize, xs: Vec<u8>) -> Vec<u8> {
+  if xs.len() >= n {
+    return xs; // No padding needed if already of sufficient length
+  }
+  let padding_length = n - xs.len();
+  let padding = iter::repeat(0u8).take(padding_length);
+  padding.chain(xs.into_iter()).collect()
+}
+
+pub fn pad_left_prime(n: usize, xs: Vec<Expr>) -> Vec<Expr> {
+  if xs.len() >= n {
+    return xs; // No padding needed if already of sufficient length
+  }
+  let padding_length = n - xs.len();
+  let padding = iter::repeat(Expr::LitByte(0)).take(padding_length);
+  padding.chain(xs.into_iter()).collect()
+}
+
+pub fn pad_right(n: usize, mut xs: Vec<u8>) -> Vec<u8> {
+  if xs.len() >= n {
+    return xs; // No padding needed if already of sufficient length
+  }
+  let padding_length = n - xs.len();
+  xs.extend(iter::repeat(0u8).take(padding_length));
+  xs
+}
+
+pub fn maybe_lit_byte(byte: Expr) -> Option<Word8> {
+  if let Expr::LitByte(b) = byte {
+    Some(b.clone())
+  } else {
+    None
+  }
+}
+
+pub fn maybe_lit_addr(addr: Expr) -> Option<Addr> {
+  if let Expr::LitAddr(s) = addr {
+    Some(s.clone())
+  } else {
+    None
+  }
 }

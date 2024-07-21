@@ -76,4 +76,13 @@ fn test_vm_exec_1() {
     vm.decoded_opcodes,
     vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)"]
   );
+  assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x40)");
+
+  vm.exec1();
+  assert_eq!(vm.state.pc, 5);
+  assert_eq!(vm.decoded_opcodes.len(), 5);
+  assert_eq!(
+    vm.decoded_opcodes,
+    vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)", "04 MSTORE"]
+  );
 }

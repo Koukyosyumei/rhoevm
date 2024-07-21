@@ -1,18 +1,6 @@
-use futures::future::join_all;
-use num_cpus;
-use std::cmp::max;
-use std::collections::{hash_set, HashMap, HashSet};
-use std::convert::TryFrom;
-use std::convert::TryInto;
+use std::collections::HashMap;
 use std::error::Error;
-use std::hash::Hash;
-use std::io::{self, Write};
-use std::iter;
 use std::process::exit;
-use std::sync::Arc;
-use std::{clone, ops};
-use tiny_keccak::{Hasher, Keccak};
-use tokio::runtime::Runtime;
 
 use crate::modules::abi::Sig;
 use crate::modules::evm::{abstract_contract, initial_contract, make_vm};
@@ -26,7 +14,6 @@ use crate::modules::types::{
 };
 
 use super::evm::buf_length;
-use super::types::{self, Block};
 
 type URL = String;
 

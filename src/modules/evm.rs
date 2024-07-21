@@ -9,9 +9,9 @@ use crate::modules::expr::{emin, index_word, read_word_from_bytes, word256_bytes
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::types::{
-  from_list, len_buf, unbox, Addr, Block, Cache, CodeLocation, Contract, ContractCode, Env, Expr, ExprSet, ForkState,
-  FrameState, GVar, Gas, Memory, MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts,
-  W256W256Map, Word8, VM,
+  from_list, len_buf, maybe_lit_addr, maybe_lit_byte, pad_left, pad_left_prime, pad_right, unbox, Addr, Block, Cache,
+  CodeLocation, Contract, ContractCode, Env, Expr, ExprSet, ForkState, FrameState, GVar, Gas, Memory, MutableMemory,
+  RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts, W256W256Map, Word8, VM,
 };
 
 use super::types::W256;
@@ -216,7 +216,7 @@ fn is_creation(code: &ContractCode) -> bool {
 }
 
 fn is_precompile(expr: &Expr) -> bool {
-  if let Some(lit_self) = maybe_lit_addr(expr) {
+  if let Some(lit_self) = maybe_lit_addr(expr.clone()) {
     return lit_self > W256(0x0, 0) && lit_self <= W256(0x9, 0);
   }
   return false;
@@ -231,7 +231,7 @@ impl VM {
     let fees = self.block.schedule.clone();
 
     if is_precompile(&self_contract) {
-      if let Some(lit_self) = maybe_lit_addr(&self_contract) {
+      if let Some(lit_self) = maybe_lit_addr(self_contract) {
         // call to precompile
         let calldatasize = len_buf(&self.state.calldata);
         copy_bytes_to_memory(
@@ -252,7 +252,7 @@ impl VM {
         );
         match self.state.stack.first() {
           Some(boxed_expr) => {
-            if (**boxed_expr == Expr::Lit(W256(0, 0))) {
+            if **boxed_expr == Expr::Lit(W256(0, 0)) {
               todo!()
               /*
                           fetchAccount self $ \_ -> do
@@ -280,7 +280,7 @@ impl VM {
         ContractCode::InitCode(conc, _) => conc[self.state.pc],
         ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => bs[self.state.pc],
         ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
-          match maybe_lit_byte(&ops[self.state.pc]) {
+          match maybe_lit_byte(ops[self.state.pc].clone()) {
             Some(b) => b,
             None => panic!("could not analyze symbolic code"),
           }
@@ -736,12 +736,14 @@ impl VM {
         }
         Op::Mstore => {
           /*
-          Stack input
-          - offset: offset in the memory in bytes.
-          - value: 32-byte value to write in the memory.
+          Save word to memory
+
+          - Stack input
+            * offset: offset in the memory in bytes.
+            * value: 32-byte value to write in the memory.
           */
           if let Some((x, rest)) = self.state.stack.clone().split_first() {
-            if let Some((y, xs)) = rest.clone().split_first() {
+            if let Some((y, xs)) = rest.split_first() {
               next(self, op);
               match &self.state.memory {
                 Memory::ConcreteMemory(mem) => match *y.clone() {
@@ -869,22 +871,6 @@ impl VM {
         */
       }
     }
-  }
-}
-
-fn maybe_lit_byte(byte: &Expr) -> Option<Word8> {
-  if let Expr::LitByte(b) = byte {
-    Some(*b)
-  } else {
-    None
-  }
-}
-
-fn maybe_lit_addr(addr: &Expr) -> Option<Addr> {
-  if let Expr::LitAddr(s) = addr {
-    Some(s.clone())
-  } else {
-    None
   }
 }
 
@@ -1302,33 +1288,6 @@ fn codelen(cc: &ContractCode) -> Expr {
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => Expr::Lit(W256(ops.len() as u128, 0)),
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => Expr::Lit(W256(ops.len() as u128, 0)),
   }
-}
-
-fn pad_left(n: usize, xs: Vec<u8>) -> Vec<u8> {
-  if xs.len() >= n {
-    return xs; // No padding needed if already of sufficient length
-  }
-  let padding_length = n - xs.len();
-  let padding = iter::repeat(0u8).take(padding_length);
-  padding.chain(xs.into_iter()).collect()
-}
-
-fn pad_left_prime(n: usize, xs: Vec<Expr>) -> Vec<Expr> {
-  if xs.len() >= n {
-    return xs; // No padding needed if already of sufficient length
-  }
-  let padding_length = n - xs.len();
-  let padding = iter::repeat(Expr::LitByte(0)).take(padding_length);
-  padding.chain(xs.into_iter()).collect()
-}
-
-fn pad_right(n: usize, mut xs: Vec<u8>) -> Vec<u8> {
-  if xs.len() >= n {
-    return xs; // No padding needed if already of sufficient length
-  }
-  let padding_length = n - xs.len();
-  xs.extend(iter::repeat(0u8).take(padding_length));
-  xs
 }
 
 fn add(a: Expr, b: Expr) -> Expr {

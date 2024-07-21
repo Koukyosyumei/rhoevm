@@ -1,6 +1,6 @@
 use rhoevm::modules::expr::{
-  add, addmod, count_leading_zeros, div, geq, gt, index_word, is_byte_aligned, is_power_of_two, leq, lt, mul, mulmod,
-  read_byte, sub, write_byte,
+  add, addmod, copy_slice, count_leading_zeros, div, geq, gt, index_word, is_byte_aligned, is_power_of_two, leq, lt,
+  mul, mulmod, read_byte, sub, write_byte,
 };
 use rhoevm::modules::types::{Expr, W256};
 
@@ -309,4 +309,74 @@ fn test_read_byte_concrete() {
 
   let expected = Expr::Lit(W256(0xAB, 0));
   assert_eq!(read_byte(idx, buf), expected);
+}
+
+#[test]
+fn test_copy_slice_empty_buffers() {
+  let src_offset = Expr::Lit(W256(0, 0));
+  let dst_offset = Expr::Lit(W256(0, 0));
+  let size = Expr::Lit(W256(0, 0));
+  let src = Expr::ConcreteBuf(vec![]);
+  let dst = Expr::ConcreteBuf(vec![]);
+  let result = copy_slice(src_offset, dst_offset, size, src.clone(), dst.clone());
+  assert_eq!(result, dst);
+}
+
+#[test]
+fn test_copy_slice_concrete_empty_buffers() {
+  let src_offset = Expr::Lit(W256(0, 0));
+  let dst_offset = Expr::Lit(W256(0, 0));
+  let size = Expr::Lit(W256(10, 0));
+  let src = Expr::ConcreteBuf(vec![]);
+  let dst = Expr::ConcreteBuf(vec![]);
+  let result = copy_slice(src_offset, dst_offset, size, src.clone(), dst.clone());
+  assert_eq!(result, Expr::ConcreteBuf(vec![0; 10]));
+}
+
+#[test]
+fn test_copy_slice_fully_concrete() {
+  let src_offset = Expr::Lit(W256(2, 0));
+  let dst_offset = Expr::Lit(W256(0, 0));
+  let size = Expr::Lit(W256(2, 0));
+  let src = Expr::ConcreteBuf(vec![1, 2, 3, 4]);
+  let dst = Expr::ConcreteBuf(vec![]);
+  let result = copy_slice(src_offset, dst_offset, size, src.clone(), dst.clone());
+  assert_eq!(result, Expr::ConcreteBuf(vec![3, 4]));
+}
+
+#[test]
+fn test_copy_slice_with_padding() {
+  let src_offset = Expr::Lit(W256(2, 0));
+  let dst_offset = Expr::Lit(W256(2, 0));
+  let size = Expr::Lit(W256(2, 0));
+  let src = Expr::ConcreteBuf(vec![1, 2, 3, 4]);
+  let dst = Expr::ConcreteBuf(vec![5, 6]);
+  let result = copy_slice(src_offset, dst_offset, size, src.clone(), dst.clone());
+  assert_eq!(result, Expr::ConcreteBuf(vec![5, 6, 3, 4]));
+}
+
+#[test]
+fn test_copy_slice_abstract_src() {
+  let src_offset = Expr::Lit(W256(0, 0));
+  let dst_offset = Expr::Lit(W256(0, 0));
+  let size = Expr::Lit(W256(31, 0));
+  let src = Expr::CopySlice(
+    Box::new(Expr::Lit(W256(0, 0))),
+    Box::new(Expr::Lit(W256(0, 0))),
+    Box::new(Expr::Lit(W256(32, 0))),
+    Box::new(Expr::ConcreteBuf(vec![1; 32])),
+    Box::new(Expr::ConcreteBuf(vec![0; 32])),
+  );
+  let dst = Expr::ConcreteBuf(vec![0; 32]);
+  let result = copy_slice(src_offset, dst_offset, size, src.clone(), dst.clone());
+  assert_eq!(
+    result,
+    Expr::CopySlice(
+      Box::new(Expr::Lit(W256(0, 0))),
+      Box::new(Expr::Lit(W256(0, 0))),
+      Box::new(Expr::Lit(W256(31, 0))),
+      Box::new(src.clone()),
+      Box::new(Expr::ConcreteBuf(vec![0; 32])),
+    )
+  );
 }
