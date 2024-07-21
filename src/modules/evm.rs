@@ -840,6 +840,430 @@ impl VM {
             underrun();
           }
         }
+        Op::Exp => {
+          // NOTE: this can be done symbolically using unrolling like this:
+          //       https://hackage.haskell.org/package/sbv-9.0/docs/src/Data.SBV.Core.Model.html#.%5E
+          //       However, it requires symbolic gas, since the gas depends on the exponent
+          let stk = vec![]; // Example stack
+          if let [base, exponent, xs @ ..] = &stk[..] {
+            burn_exp(exponent, || {
+              // next();
+              // state.stack = Expr::Exp(base.clone(), exponent.clone()) : xs
+            });
+          } else {
+            underrun();
+          }
+        }
+        Op::Signextend => {
+          // stackOp2(g_low, Expr::Sex);
+        }
+        Op::Create => {
+          not_static(|| {
+            let stk = vec![]; // Example stack
+            if let [x_value, x_offset, x_size, xs @ ..] = &stk[..] {
+              access_memory_range(x_offset, x_size, || {
+                // let available_gas = use(state.gas);
+                let available_gas = 0; // Example available gas
+                let (cost, gas) = cost_of_create(0, available_gas, x_size, false); // Example fees
+                let new_addr = create_address("self", 0); // Example self and nonce
+                let _ = access_account_for_gas(&new_addr);
+                burn(cost, || {
+                  let init_code = read_memory(x_offset, x_size);
+                  create("self", "this", x_size, gas, x_value, vec![], new_addr, init_code);
+                });
+              });
+            } else {
+              underrun();
+            }
+          });
+        }
+        Op::Call => {
+          let stk = vec![]; // Example stack
+          if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &stk[..] {
+            branch(true, |gt0| {
+              if gt0 {
+                not_static(|| {});
+              } else {
+                force_addr(x_to, "unable to determine a call target", |x_to| {
+                  match 0 {
+                    // gasTryFrom(x_gas)
+                    0 => vm_error("IllegalOverflow"),
+                    _ => {
+                      delegate_call(
+                        "this",
+                        0,
+                        x_to,
+                        x_to,
+                        x_value,
+                        x_in_offset,
+                        x_in_size,
+                        x_out_offset,
+                        x_out_size,
+                        vec![],
+                        |callee| {
+                          // let from = fromMaybe(self, vm.config.overrideCaller);
+                          // zoom(state, || {
+                          //     assign(callvalue, x_value);
+                          //     assign(caller, from);
+                          //     assign(contract, callee);
+                          // });
+                          // let reset_caller = use(config.resetCaller);
+                          // if reset_caller { assign(config.overrideCaller, None); }
+                          // touchAccount(from);
+                          // touchAccount(callee);
+                          // transfer(from, callee, x_value);
+                        },
+                      );
+                    }
+                  }
+                });
+              }
+            });
+          } else {
+            underrun();
+          }
+        }
+        Op::Callcode => {
+          let stk = vec![]; // Example stack
+          if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &stk[..] {
+            force_addr(x_to, "unable to determine a call target", |x_to| {
+              match 0 {
+                // gasTryFrom(x_gas)
+                0 => vm_error("IllegalOverflow"),
+                _ => {
+                  delegate_call(
+                    "this",
+                    0,
+                    x_to,
+                    "self",
+                    x_value,
+                    x_in_offset,
+                    x_in_size,
+                    x_out_offset,
+                    x_out_size,
+                    vec![],
+                    |_| {
+                      // zoom(state, || {
+                      //     assign(callvalue, x_value);
+                      //     assign(caller, fromMaybe(self, vm.config.overrideCaller));
+                      // });
+                      // let reset_caller = use(config.resetCaller);
+                      // if reset_caller { assign(config.overrideCaller, None); }
+                      // touchAccount(self);
+                    },
+                  );
+                }
+              }
+            });
+          } else {
+            underrun();
+          }
+        }
+        Op::Return => {
+          let stk = vec![]; // Example stack
+          if let [x_offset, x_size, _] = &stk[..] {
+            access_memory_range(x_offset, x_size, || {
+              let output = read_memory(x_offset, x_size);
+              let codesize = output.len() as i64;
+              let maxsize = 0; // vm.block.maxCodeSize
+              let creation = false; // Determine if creation context
+              if creation {
+                if codesize > maxsize {
+                  finish_frame(frame_errored("MaxCodeSizeExceeded"));
+                } else {
+                  let frame_returned = burn(0, || finish_frame(FrameResult::Returned(output.clone())));
+                  let frame_errored = finish_frame(frame_errored("InvalidFormat"));
+                  match read_byte(0, output) {
+                    0xef => frame_errored,
+                    _ => frame_returned,
+                  }
+                }
+              } else {
+                finish_frame(FrameResult::Returned(output));
+              }
+            });
+          } else {
+            underrun();
+          }
+        }
+        Op::Delegatecall => {
+          let stk = vec![]; // Example stack
+          if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &stk[..] {
+            match 0 {
+              // wordToAddr(x_to)
+              0 => {
+                let loc = codeloc();
+                let msg = "Unable to determine a call target";
+                partial(|| {
+                  println!("UnexpectedSymbolicArg at {}: {}", loc.1, msg);
+                });
+              }
+              _ => {
+                match 0 {
+                  // gasTryFrom(x_gas)
+                  0 => vm_error("IllegalOverflow"),
+                  _ => {
+                    delegate_call(
+                      "this",
+                      0,
+                      x_to,
+                      "self",
+                      &Expr::Lit(0),
+                      x_in_offset,
+                      x_in_size,
+                      x_out_offset,
+                      x_out_size,
+                      vec![],
+                      |_| {
+                        touch_account("self");
+                      },
+                    );
+                  }
+                }
+              }
+            }
+          } else {
+            underrun();
+          }
+        }
+        Op::Create2 => {
+          not_static(|| {
+            let stk = vec![]; // Example stack
+            if let [x_value, x_offset, x_size, x_salt, xs @ ..] = &stk[..] {
+              // forceConcrete(x_salt, "CREATE2", |x_salt| {
+              access_memory_range(x_offset, x_size, || {
+                let available_gas = 0; // use(state.gas)
+                let buf = read_memory(x_offset, x_size);
+                force_concrete_buf(buf, "CREATE2", |init_code| {
+                  let (cost, gas) = cost_of_create(0, available_gas, x_size, true);
+                  let new_addr = create2_address("self", x_salt, init_code);
+                  let _ = access_account_for_gas(&new_addr);
+                  burn(cost, || {
+                    create("self", "this", x_size, gas, x_value, vec![], new_addr, init_code.to_vec());
+                  });
+                });
+              });
+              // });
+            } else {
+              underrun();
+            }
+          });
+        }
+        Op::Staticcall => {
+          let stk = vec![]; // Example stack
+          if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &stk[..] {
+            match 0 {
+              // wordToAddr(x_to)
+              0 => {
+                let loc = codeloc();
+                let msg = "Unable to determine a call target";
+                partial(|| {
+                  println!("UnexpectedSymbolicArg at {}: {}", loc.1, msg);
+                });
+              }
+              _ => {
+                match 0 {
+                  // gasTryFrom(x_gas)
+                  0 => vm_error("IllegalOverflow"),
+                  _ => {
+                    delegate_call(
+                      "this",
+                      0,
+                      x_to,
+                      x_to,
+                      &Expr::Lit(0),
+                      x_in_offset,
+                      x_in_size,
+                      x_out_offset,
+                      x_out_size,
+                      vec![],
+                      |callee| {
+                        // zoom(state, || {
+                        //     assign(callvalue, Expr::Lit(0));
+                        //     assign(caller, fromMaybe(self, vm.config.overrideCaller));
+                        //     assign(contract, callee);
+                        //     assign(static, true);
+                        // });
+                        // let reset_caller = use(config.resetCaller);
+                        // if reset_caller { assign(config.overrideCaller, None); }
+                        touch_account("self");
+                        touch_account(callee);
+                      },
+                    );
+                  }
+                }
+              }
+            }
+          } else {
+            underrun();
+          }
+        }
+        Op::Selfdestruct => {
+          not_static(|| {
+            let stk = vec![]; // Example stack
+            if let [x_to, ..] = &stk[..] {
+              force_addr(x_to, "SELFDESTRUCT", |x_to| {
+                if let Expr::WAddr(_) = x_to {
+                  let acc = access_account_for_gas(x_to);
+                  let cost = if acc { 0 } else { 0 }; // g_cold_account_access
+                  let funds = 0; // this.balance
+                  let recipient_exists = false; // accountExists(x_to, vm)
+                  branch(true, |has_funds| {
+                    let c_new = if !recipient_exists && has_funds {
+                      0 // g_selfdestruct_newaccount
+                    } else {
+                      0
+                    };
+                    burn(0 + c_new + cost, || {
+                      selfdestruct("self");
+                      touch_account(x_to);
+                      if has_funds {
+                        // fetchAccount(x_to, |_| {
+                        //     env.contracts[x_to].balance += funds;
+                        //     env.contracts[self].balance = Expr::Lit(0);
+                        //     doStop();
+                        // });
+                      } else {
+                        do_stop();
+                      }
+                    });
+                  });
+                } else {
+                  let pc = 0; // use(state.pc)
+                  partial(|| {
+                    println!("UnexpectedSymbolicArg at {}: trying to self destruct to a symbolic address", pc);
+                  });
+                }
+              });
+            } else {
+              underrun();
+            }
+          });
+        }
+        Op::Revert => {
+          let stk = vec![]; // Example stack
+          if let [x_offset, x_size, ..] = &stk[..] {
+            access_memory_range(x_offset, x_size, || {
+              let output = read_memory(x_offset, x_size);
+              finish_frame(FrameResult::Reverted(output));
+            });
+          } else {
+            underrun();
+          }
+        }
+        Op::Extcodecopy => {
+          let stk = vec![]; // Example stack
+          if let [ext_account, mem_offset, code_offset, code_size, xs @ ..] = &stk[..] {
+            force_addr(ext_account, "EXTCODECOPY", |ext_account| {
+              burn_extcodecopy(ext_account, code_size, || {
+                access_memory_range(mem_offset, code_size, || {
+                  fetch_account(ext_account, |account| {
+                    next();
+                    assign("state.stack", xs);
+                    if let Some(bytecode) = &account.bytecode {
+                      copy_bytes_to_memory(bytecode, code_size, code_offset, mem_offset)
+                    } else {
+                      //let pc = use("state.pc");
+                      partial(|| {
+                        println!("UnexpectedSymbolicArg at {}: Cannot copy from unknown code at {:?}", pc, ext_account);
+                      });
+                    }
+                  });
+                });
+              });
+            });
+          } else {
+            underrun();
+          }
+        }
+        Op::Returndatasize => {
+          limit_stack(1, || {
+            burn(0, || {
+              next();
+              push_sym(Expr::Lit(buf_length(&vm.state.returndata)));
+            });
+          });
+        }
+        Op::Returndatacopy => {
+          let stk = vec![]; // Example stack
+          if let [x_to, x_from, x_size, xs @ ..] = &stk[..] {
+            burn(0, || {
+              access_memory_range(x_to, x_size, || {
+                next();
+                assign("state.stack", xs);
+
+                let jump = |out_of_bounds: bool| {
+                  if out_of_bounds {
+                    vm_error("ReturnDataOutOfBounds");
+                  } else {
+                    copy_bytes_to_memory(&vm.state.returndata, x_size, x_from, x_to);
+                  }
+                };
+
+                match (x_from, buf_length(&vm.state.returndata), x_size) {
+                  (Expr::Lit(f), Expr::Lit(l), Expr::Lit(sz)) => {
+                    jump(l < f + sz || f + sz < f);
+                  }
+                  _ => {
+                    let oob = Expr::Lt(
+                      Box::new(Expr::Lit(buf_length(&vm.state.returndata))),
+                      Box::new(Expr::Add(Box::new(x_from.clone()), Box::new(x_size.clone()))),
+                    );
+                    let overflow = Expr::Lt(
+                      Box::new(Expr::Add(Box::new(x_from.clone()), Box::new(x_size.clone()))),
+                      Box::new(x_from.clone()),
+                    );
+                    branch(oob | overflow, jump);
+                  }
+                }
+              });
+            });
+          } else {
+            underrun();
+          }
+        }
+        Op::Extcodehash => {
+          let stk = vec![]; // Example stack
+          if let [x, xs @ ..] = &stk[..] {
+            force_addr(x, "EXTCODEHASH", |addr| {
+              access_and_burn(addr, || {
+                next();
+                assign("state.stack", xs);
+                fetch_account(addr, |account| {
+                  if account_empty(account) {
+                    push(Expr::Lit(0));
+                  } else {
+                    match &account.bytecode {
+                      Some(bytecode) => push_sym(keccak(bytecode)),
+                      None => push_sym(Expr::Var(format!("CodeHash({})", addr))),
+                    }
+                  }
+                });
+              });
+            });
+          } else {
+            underrun();
+          }
+        }
+        Op::Blockhash => {
+          let stk = vec![]; // Example stack
+          if let [i, ..] = &stk[..] {
+            match i {
+              Expr::Lit(block_number) => {
+                let current_block_number = vm.block.number;
+                if block_number + 256 < current_block_number || block_number >= current_block_number {
+                  push(Expr::Lit(0));
+                } else {
+                  let block_number_str = block_number.to_string();
+                  push(keccak_str(&block_number_str));
+                }
+              }
+              _ => push(Expr::Var(format!("BlockHash({:?})", i))),
+            }
+          } else {
+            underrun();
+          }
+        }
       }
     }
   }
