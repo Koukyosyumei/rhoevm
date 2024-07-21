@@ -1,8 +1,16 @@
 use rhoevm::modules::expr::{
   add, addmod, copy_slice, count_leading_zeros, div, geq, gt, index_word, is_byte_aligned, is_power_of_two, leq, lt,
-  mul, mulmod, read_byte, sub, write_byte,
+  mul, mulmod, read_byte, sub, word256_bytes, write_byte,
 };
 use rhoevm::modules::types::{Expr, W256};
+
+#[test]
+fn test_word256_bytes() {
+  let w = W256(0x80, 0);
+  let mut v: Vec<u8> = vec![0; 32];
+  v[15] = 0x80;
+  assert_eq!(word256_bytes(w), v);
+}
 
 #[test]
 fn test_add_concrete() {

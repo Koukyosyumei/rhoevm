@@ -720,8 +720,8 @@ impl VM {
             * offset: offset in the memory in bytes.
             * value: 32-byte value to write in the memory.
           */
-          if let Some((x, rest)) = self.state.stack.clone().split_first() {
-            if let Some((y, xs)) = rest.split_first() {
+          if let Some((x, rest)) = self.state.stack.clone().split_last() {
+            if let Some((y, xs)) = rest.split_last() {
               next(self, op);
               match &self.state.memory {
                 Memory::ConcreteMemory(mem) => match *y.clone() {

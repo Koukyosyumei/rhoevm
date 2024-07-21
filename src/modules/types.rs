@@ -1341,6 +1341,8 @@ pub enum Gas {
 }
 
 pub type MutableMemory = Vec<u8>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Memory {
   ConcreteMemory(MutableMemory),
   SymbolicMemory(Expr),

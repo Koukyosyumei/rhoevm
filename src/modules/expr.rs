@@ -718,7 +718,7 @@ pub fn write_word(offset: Expr, value: Expr, buf: Expr) -> Expr {
 
 pub fn word256_bytes(val: W256) -> Vec<u8> {
   let W256(low, high) = val;
-  let mut bytes = Vec::with_capacity(16); // Each u128 is 16 bytes
+  let mut bytes = Vec::with_capacity(32); // Each u128 is 16 bytes
 
   // Convert each u128 to bytes and extend the vector
   bytes.extend_from_slice(&low.to_be_bytes());

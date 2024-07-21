@@ -11,7 +11,7 @@ use rhoevm::modules::format::{hex_byte_string, strip_0x};
 //use rhoevm::modules::solvers::{with_solvers, Solver};
 use rhoevm::modules::transactions::init_tx;
 use rhoevm::modules::types::{
-  Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
+  Addr, BaseState, Contract, ContractCode, Expr, Gas, Memory, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
 };
 
 fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
@@ -66,4 +66,7 @@ fn test_vm_exec_1() {
   assert_eq!(vm.state.pc, 5);
   assert_eq!(vm.decoded_opcodes.len(), 5);
   assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)", "04 MSTORE"]);
+  let mut mem = vec![0; 96];
+  mem[0x40 + 15] = 0x80;
+  assert_eq!(vm.state.memory, Memory::ConcreteMemory(mem));
 }
