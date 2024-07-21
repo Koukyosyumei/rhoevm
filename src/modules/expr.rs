@@ -1084,81 +1084,115 @@ fn go_expr(expr: &Expr) -> Expr {
 }
 
 fn simplify_prop(prop: Prop) -> Prop {
-  let new_prop = map_prop(go, simp_inner_expr(prop.clone()));
+  let new_prop = map_prop(go_prop, simp_inner_expr(prop.clone()));
 
   if new_prop == prop {
-      prop
+    prop
   } else {
-      simplify_prop(new_prop)
+    simplify_prop(new_prop)
   }
 }
 
-fn go(prop: Prop) -> Prop {
+fn go_prop(prop: Prop) -> Prop {
   match prop {
-      // LT/LEq comparisons
-      Prop::PGT(a, b) => Prop::PLT(b, a),
-      Prop::PGEq(a, b) => Prop::PLEq(b, a),
-      Prop::PLT(box Prop::Var(_), box Prop::Lit(0)) => Prop::PBool(false),
-      Prop::PLEq(box Prop::Lit(0), _) => Prop::PBool(true),
-      Prop::PLEq(box Prop::WAddr(_), box Prop::Lit(1461501637330902918203684832716283019655932542975)) => Prop::PBool(true),
-      Prop::PLEq(_, box Prop::Lit(x)) if x == max_lit() => Prop::PBool(true),
-      Prop::PLT(box Prop::Lit(val), box Prop::Var(_)) if val == max_lit() => Prop::PBool(false),
-      Prop::PLEq(box Prop::Var(_), box Prop::Lit(val)) if val == max_lit() => Prop::PBool(true),
-      Prop::PLT(box Prop::Lit(l), box Prop::Lit(r)) => Prop::PBool(l < r),
-      Prop::PLEq(box Prop::Lit(l), box Prop::Lit(r)) => Prop::PBool(l <= r),
-      Prop::PLEq(a, box Prop::Max(b, _)) if a == b => Prop::PBool(true),
-      Prop::PLEq(a, box Prop::Max(_, b)) if a == b => Prop::PBool(true),
-      Prop::PLEq(box Prop::Sub(a, b), c) if a == c => Prop::PLEq(b, a),
-      Prop::PLT(box Prop::Max(box Prop::Lit(a), b), box Prop::Lit(c)) if a < c => Prop::PLT(b, box Prop::Lit(c)),
-      Prop::PLT(box Prop::Lit(0), box Prop::Eq(a, b)) => Prop::PEq(a, b),
+    // LT/LEq comparisons
+    Prop::PGT(a, b) => Prop::PLT(b, a),
+    Prop::PGEq(a, b) => Prop::PLEq(b, a),
 
-      // Negations
-      Prop::PNeg(box Prop::PBool(b)) => Prop::PBool(!b),
-      Prop::PNeg(box Prop::PNeg(a)) => *a,
+    Prop::PLEq(Expr::Lit(W256(0, 0)), _) => Prop::PBool(true),
+    Prop::PLEq(Expr::WAddr(_), Expr::Lit(W256(1461501637330902918203684832716283019655932542975))) => Prop::PBool(true),
+    Prop::PLEq(_, Expr::Lit(x)) if x == max_lit() => Prop::PBool(true),
 
-      // Solc specific stuff
-      Prop::PEq(box Prop::IsZero(box Prop::Eq(a, b)), box Prop::Lit(0)) => Prop::PEq(a, b),
-      Prop::PEq(box Prop::IsZero(box Prop::IsZero(box Prop::Eq(a, b))), box Prop::Lit(0)) => Prop::PNeg(box Prop::PEq(a, b)),
+    Prop::PLEq(Expr::Var(_), Expr::Lit(val)) if val == max_lit() => Prop::PBool(true),
+    Prop::PLEq(Expr::Lit(l), Expr::Lit(r)) => Prop::PBool(l <= r),
+    Prop::PLEq(a, Expr::Max(b, _)) if a == *b => Prop::PBool(true),
+    Prop::PLEq(a, Expr::Max(_, b)) if a == *b => Prop::PBool(true),
+    Prop::PLEq(Expr::Sub(a, b), c) if *a == c => Prop::PLEq(*b, *a),
 
-      // IsZero(a) -> (a == 0)
-      // IsZero(IsZero(a)) -> ~(a == 0) -> a > 0
-      // IsZero(IsZero(a)) == 0 -> ~~(a == 0) -> a == 0
-      // ~(IsZero(IsZero(a)) == 0) -> ~~~(a == 0) -> ~(a == 0) -> a > 0
-      Prop::PNeg(box Prop::PEq(box Prop::IsZero(box Prop::IsZero(a)), box Prop::Lit(0))) => Prop::PLT(box Prop::Lit(0), a),
-
-      // IsZero(a) -> (a == 0)
-      // IsZero(a) == 0 -> ~(a == 0)
-      // ~(IsZero(a) == 0) -> ~~(a == 0) -> a == 0
-      Prop::PNeg(box Prop::PEq(box Prop::IsZero(a), box Prop::Lit(0))) => Prop::PEq(a, box Prop::Lit(0)),
-
-      // a < b == 0 -> ~(a < b)
-      // ~(a < b == 0) -> ~~(a < b) -> a < b
-      Prop::PNeg(box Prop::PEq(box Prop::LT(a, b), box Prop::Lit(0))) => Prop::PLT(a, b),
-
-      // And/Or
-      Prop::PAnd(box Prop::PBool(l), box Prop::PBool(r)) => Prop::PBool(l && r),
-      Prop::PAnd(box Prop::PBool(false), _) => Prop::PBool(false),
-      Prop::PAnd(_, box Prop::PBool(false)) => Prop::PBool(false),
-      Prop::PAnd(box Prop::PBool(true), x) => *x,
-      Prop::PAnd(x, box Prop::PBool(true)) => *x,
-      Prop::POr(box Prop::PBool(true), _) => Prop::PBool(true),
-      Prop::POr(_, box Prop::PBool(true)) => Prop::PBool(true),
-      Prop::POr(box Prop::PBool(l), box Prop::PBool(r)) => Prop::PBool(l || r),
-      Prop::POr(x, box Prop::PBool(false)) => *x,
-      Prop::POr(box Prop::PBool(false), x) => *x,
-
-      // Imply
-      Prop::PImpl(_, box Prop::PBool(true)) => Prop::PBool(true),
-      Prop::PImpl(box Prop::PBool(true), b) => *b,
-      Prop::PImpl(box Prop::PBool(false), _) => Prop::PBool(true),
-
-      // Eq
-      Prop::PEq(box Prop::Eq(a, b), box Prop::Lit(0)) => Prop::PNeg(box Prop::PEq(a, b)),
-      Prop::PEq(box Prop::Eq(a, b), box Prop::Lit(1)) => Prop::PEq(a, b),
-      Prop::PEq(box Prop::Sub(a, b), box Prop::Lit(0)) => Prop::PEq(a, b),
-      Prop::PEq(box Prop::LT(a, b), box Prop::Lit(0)) => Prop::PLEq(b, a),
-      Prop::PEq(box Prop::Lit(l), box Prop::Lit(r)) => Prop::PBool(l == r),
-      o @ Prop::PEq(ref l, ref r) if l == r => Prop::PBool(true),
+    Prop::PLT(a, b) => match (a, b) {
+      (Expr::Var(_), Expr::Lit(W256(0, 0))) => Prop::PBool(false),
+      (Expr::Lit(l), Expr::Lit(r)) => Prop::PBool(l < r),
+      (Expr::Max(a_, b_), Expr::Lit(c)) => match *a_ {
+        Expr::Lit(a_v) if (a_v < c) => Prop::PLT(b, Expr::Lit(c)),
+        _ => prop,
+      },
+      (Expr::Lit(W256(0, 0)), Expr::Eq(a_, b_)) => Prop::PEq(*a_, *b_),
       _ => prop,
+    },
+
+    // Negations
+    Prop::PNeg(x) => {
+      match *x {
+        Prop::PBool(b) => Prop::PBool(!b),
+        Prop::PNeg(a) => *a,
+        Prop::PEq(Expr::IsZero(a_), Expr::Lit(W256(0, 0))) => {
+          match *a_ {
+            // IsZero(a) -> (a == 0)
+            // IsZero(IsZero(a)) -> ~(a == 0) -> a > 0
+            // IsZero(IsZero(a)) == 0 -> ~~(a == 0) -> a == 0
+            // ~(IsZero(IsZero(a)) == 0) -> ~~~(a == 0) -> ~(a == 0) -> a > 0
+            Expr::IsZero(a) => Prop::PLT(Expr::Lit(W256(0, 0)), *a),
+            // IsZero(a) -> (a == 0)
+            // IsZero(a) == 0 -> ~(a == 0)
+            // ~(IsZero(a) == 0) -> ~~(a == 0) -> a == 0
+            _ => Prop::PEq(*a_, Expr::Lit(W256(0, 0))),
+          }
+        }
+        // a < b == 0 -> ~(a < b)
+        // ~(a < b == 0) -> ~~(a < b) -> a < b
+        Prop::PEq(Expr::LT(a, b), Expr::Lit(W256(0, 0))) => Prop::PLT(*a, *b),
+        _ => prop,
+      }
+    }
+
+    // And/Or
+    Prop::PAnd(a, b) => match (*a, *b) {
+      (Prop::PBool(l), Prop::PBool(r)) => Prop::PBool(l && r),
+      (Prop::PBool(false), _) => Prop::PBool(false),
+      (_, Prop::PBool(false)) => Prop::PBool(false),
+      (Prop::PBool(true), x) => x,
+      (x, Prop::PBool(true)) => x,
+      _ => prop,
+    },
+    Prop::POr(a, b) => match (*a, *b) {
+      (Prop::PBool(l), Prop::PBool(r)) => Prop::PBool(l || r),
+      (Prop::PBool(true), _) => Prop::PBool(true),
+      (_, Prop::PBool(true)) => Prop::PBool(true),
+      (Prop::PBool(false), x) => x,
+      (x, Prop::PBool(false)) => x,
+      _ => prop,
+    },
+
+    // Imply
+    Prop::PImpl(a, b) => match (*a, *b) {
+      (_, Prop::PBool(true)) => Prop::PBool(true),
+      (Prop::PBool(true), b) => b,
+      (Prop::PBool(false), _) => Prop::PBool(true),
+      _ => prop,
+    },
+
+    // Eq
+    Prop::PEq(a_, b_) => {
+      match (a_, b_) {
+        (Expr::IsZero(x), Expr::Lit(W256(0, 0))) => {
+          // Solc specific stuff
+          match *x {
+            Expr::Eq(a, b) => Prop::PEq(*a, *b),
+            Expr::IsZero(y) => match *y {
+              Expr::Eq(a, b) => Prop::PNeg(Box::new(Prop::PEq(*a, *b))),
+              _ => prop,
+            },
+            _ => prop,
+          }
+        }
+        (Expr::Eq(a, b), Expr::Lit(W256(0, 0))) => Prop::PNeg(Box::new(Prop::PEq(*a, *b))),
+        (Expr::Eq(a, b), Expr::Lit(W256(1, 0))) => Prop::PEq(*a, *b),
+        (Expr::Sub(a, b), Expr::Lit(W256(0, 0))) => Prop::PEq(*a, *b),
+        (Expr::LT(a, b), Expr::Lit(W256(0, 0))) => Prop::PLEq(*b, *a),
+        (Expr::Lit(l), Expr::Lit(r)) => Prop::PBool(l == r),
+      }
+    }
+    o @ Prop::PEq(ref l, ref r) if l == r => Prop::PBool(true),
+    _ => prop,
   }
 }
