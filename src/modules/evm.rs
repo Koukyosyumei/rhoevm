@@ -788,16 +788,10 @@ impl VM {
             underrun();
           }
         }
-        _ => panic!("unsupported op"),
-        /*
         Op::Sload => {
           if let Some((x, xs)) = self.state.stack.split_first() {
             let acc = access_storage_for_gas(self, x);
-            let cost = if acc {
-              fees.g_warm_storage_read
-            } else {
-              fees.g_cold_sload
-            };
+            let cost = if acc { fees.g_warm_storage_read } else { fees.g_cold_sload };
             burn(self, cost, || {
               access_storage(self, x, |y| {
                 next(self, op);
@@ -846,7 +840,6 @@ impl VM {
             underrun();
           }
         }
-        */
       }
     }
   }
@@ -1316,7 +1309,58 @@ pub fn get_code_location(vm: &VM) -> CodeLocation {
   (vm.state.contract.clone(), vm.state.pc as i64)
 }
 
-/*
-getCodeLocation :: VM t s -> CodeLocation
-getCodeLocation vm = (vm.state.contract, vm.state.pc)
-*/
+pub fn access_storage<F>(addr: Expr, slot: Expr, continue_fn: F)
+where
+  F: FnOnce(Expr),
+{
+  let slot_conc = conc_keccak_simp_expr(&slot);
+
+  match use_contract(addr.clone())? {
+    Some(c) => match read_storage(&slot, &c.storage) {
+      Some(x) => match read_storage(&slot_conc, &c.storage) {
+        Some(_) => continue_fn(x),
+        None => rpc_call(c, slot_conc, continue_fn),
+      },
+      None => rpc_call(c, slot_conc, continue_fn),
+    },
+    None => fetch_account(addr.clone(), move |_| access_storage(addr, slot, continue_fn)),
+  }
+}
+
+fn rpc_call<F>(c: Contract, slot_conc: Expr, continue_fn: F) -> EvmResult<()>
+where
+  F: FnOnce(Expr) -> EvmResult<()>,
+{
+  if c.external {
+    force_concrete_addr(c.addr.clone(), "cannot read storage from symbolic addresses via rpc", move |addr| {
+      force_concrete(slot_conc.clone(), "cannot read symbolic slots via RPC", move |slot| {
+        match preuse_contract(addr.clone())? {
+          Some(fetched) => match read_storage(&Expr::Lit(slot.clone()), &fetched.storage) {
+            Some(val) => continue_fn(val),
+            None => mk_query(addr, slot, continue_fn),
+          },
+          None => internal_error("contract marked external not found in cache"),
+        }
+      })
+    })
+  } else {
+    modify_storage(c.addr.clone(), slot.clone(), Expr::Lit(W256(0, 0)))?;
+    continue_fn(Expr::Lit(W256(0, 0)))
+  }
+}
+
+fn mk_query<F>(addr: Address, slot: u64, continue_fn: F) -> EvmResult<()>
+where
+  F: FnOnce(Expr) -> EvmResult<()>,
+{
+  query(PleaseFetchSlot {
+    addr,
+    slot,
+    callback: Box::new(move |x| {
+      modify_storage(addr.clone(), slot, Expr::Lit(x))?;
+      modify_cache(addr, slot, Expr::Lit(x))?;
+      assign_result(None)?;
+      continue_fn(Expr::Lit(x))
+    }),
+  })
+}

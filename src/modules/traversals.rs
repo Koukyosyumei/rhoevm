@@ -1,13 +1,11 @@
 // Module: evm::traversals
 // Description: Generic traversal functions for Expr datatypes
 
-use async_trait::async_trait;
-use futures::future::join_all;
-use std::collections::HashMap;
-use std::iter::Sum;
 use std::ops::Add;
 
-use crate::modules::types::{Contract, ContractCode, Expr, Prop, RuntimeCodeStruct};
+use crate::modules::types::{Contract, ContractCode, EvmError, Expr, Prop, RuntimeCodeStruct};
+
+use super::types::ExprExprMap;
 
 pub fn go_prop<B, F>(f: &F, p: Prop) -> B
 where
@@ -41,9 +39,9 @@ where
 {
   match g {
     Expr::GVar(_) => f(g),
-    Expr::C {
-      code, storage, balance, ..
-    } => acc + fold_code(f, code) + fold_expr(f, B::default(), storage) + fold_expr(f, B::default(), balance),
+    Expr::C { code, storage, balance, .. } => {
+      acc + fold_code(f, code) + fold_expr(f, B::default(), storage) + fold_expr(f, B::default(), balance)
+    }
     _ => panic!("unexpected expr"),
   }
 }
@@ -79,75 +77,76 @@ where
   }
 }
 
-fn go_expr<F, B>(f: &F, acc: B, expr: &Expr) -> B
+fn go_expr<F, B>(f: &F, acc: B, expr: Expr) -> B
 where
   F: Fn(&Expr) -> B,
   B: Add<B, Output = B> + Clone + Default,
 {
-  match expr {
+  match expr.clone() {
     // literals & variables
-    Expr::Lit(_) | Expr::LitByte(_) | Expr::Var(_) | Expr::GVar(_) => f(expr),
+    Expr::Lit(_) | Expr::LitByte(_) | Expr::Var(_) | Expr::GVar(_) => f(&expr),
 
     // contracts
-    Expr::C { .. } => fold_econtract(f, acc, expr),
+    Expr::C { .. } => fold_econtract(f, acc.clone(), &expr),
 
     // bytes
-    Expr::IndexWord(a, b) | Expr::EqByte(a, b) => f(expr) + go_expr(f, acc, a) + go_expr(f, acc, b),
+    Expr::IndexWord(a, b) | Expr::EqByte(a, b) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b),
 
     Expr::JoinBytes(vec) => {
-      f(expr)
-        + go_expr(f, acc, &vec[0])
-        + go_expr(f, acc, &vec[1])
-        + go_expr(f, acc, &vec[2])
-        + go_expr(f, acc, &vec[3])
-        + go_expr(f, acc, &vec[4])
-        + go_expr(f, acc, &vec[5])
-        + go_expr(f, acc, &vec[6])
-        + go_expr(f, acc, &vec[7])
-        + go_expr(f, acc, &vec[8])
-        + go_expr(f, acc, &vec[9])
-        + go_expr(f, acc, &vec[10])
-        + go_expr(f, acc, &vec[11])
-        + go_expr(f, acc, &vec[12])
-        + go_expr(f, acc, &vec[13])
-        + go_expr(f, acc, &vec[14])
-        + go_expr(f, acc, &vec[15])
-        + go_expr(f, acc, &vec[16])
-        + go_expr(f, acc, &vec[17])
-        + go_expr(f, acc, &vec[18])
-        + go_expr(f, acc, &vec[19])
-        + go_expr(f, acc, &vec[20])
-        + go_expr(f, acc, &vec[21])
-        + go_expr(f, acc, &vec[22])
-        + go_expr(f, acc, &vec[23])
-        + go_expr(f, acc, &vec[24])
-        + go_expr(f, acc, &vec[25])
-        + go_expr(f, acc, &vec[26])
-        + go_expr(f, acc, &vec[27])
-        + go_expr(f, acc, &vec[28])
-        + go_expr(f, acc, &vec[29])
-        + go_expr(f, acc, &vec[30])
-        + go_expr(f, acc, &vec[31])
+      f(&expr)
+        + go_expr(f, acc.clone(), vec[0].clone())
+        + go_expr(f, acc.clone(), vec[1].clone())
+        + go_expr(f, acc.clone(), vec[2].clone())
+        + go_expr(f, acc.clone(), vec[3].clone())
+        + go_expr(f, acc.clone(), vec[4].clone())
+        + go_expr(f, acc.clone(), vec[5].clone())
+        + go_expr(f, acc.clone(), vec[6].clone())
+        + go_expr(f, acc.clone(), vec[7].clone())
+        + go_expr(f, acc.clone(), vec[8].clone())
+        + go_expr(f, acc.clone(), vec[9].clone())
+        + go_expr(f, acc.clone(), vec[10].clone())
+        + go_expr(f, acc.clone(), vec[11].clone())
+        + go_expr(f, acc.clone(), vec[12].clone())
+        + go_expr(f, acc.clone(), vec[13].clone())
+        + go_expr(f, acc.clone(), vec[14].clone())
+        + go_expr(f, acc.clone(), vec[15].clone())
+        + go_expr(f, acc.clone(), vec[16].clone())
+        + go_expr(f, acc.clone(), vec[17].clone())
+        + go_expr(f, acc.clone(), vec[18].clone())
+        + go_expr(f, acc.clone(), vec[19].clone())
+        + go_expr(f, acc.clone(), vec[20].clone())
+        + go_expr(f, acc.clone(), vec[21].clone())
+        + go_expr(f, acc.clone(), vec[22].clone())
+        + go_expr(f, acc.clone(), vec[23].clone())
+        + go_expr(f, acc.clone(), vec[24].clone())
+        + go_expr(f, acc.clone(), vec[25].clone())
+        + go_expr(f, acc.clone(), vec[26].clone())
+        + go_expr(f, acc.clone(), vec[27].clone())
+        + go_expr(f, acc.clone(), vec[28].clone())
+        + go_expr(f, acc.clone(), vec[29].clone())
+        + go_expr(f, acc.clone(), vec[30].clone())
+        + go_expr(f, acc.clone(), vec[31].clone())
     }
 
     // control flow
-    Expr::Success(a, _, c, d) => {
-      f(expr)
+    Expr::Success(a, _, c, mut d) => {
+      f(&expr)
         + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
-        + go_expr(f, acc, c)
+        + go_expr(f, acc, *c)
         + d.keys().fold(B::default(), |acc, k| acc + fold_expr(f, B::default(), k))
         + d.values().fold(B::default(), |acc, v| acc + fold_econtract(f, B::default(), v))
     }
-    Expr::Failure(a, _, FailureType::Revert(c)) => {
-      f(expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone())) + go_expr(f, acc, c)
+    Expr::Failure(a, _, EvmError::Revert(c)) => {
+      f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
+      //+ go_expr(f, acc, EvmError::Revert(c))
     }
     Expr::Failure(a, _, _) => {
-      f(expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
+      f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
     }
     Expr::Partial(a, _, _) => {
-      f(expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
+      f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
     }
-    Expr::ITE(a, b, c) => f(expr) + go_expr(f, acc, a) + go_expr(f, acc, b) + go_expr(f, acc, c),
+    Expr::ITE(a, b, c) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b) + go_expr(f, acc, *c),
 
     // integers
     Expr::Add(a, b)
@@ -160,9 +159,9 @@ where
     | Expr::Exp(a, b)
     | Expr::SEx(a, b)
     | Expr::Min(a, b)
-    | Expr::Max(a, b) => f(expr) + go_expr(f, acc, a) + go_expr(f, acc, b),
+    | Expr::Max(a, b) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc, *b),
 
-    Expr::AddMod(a, b, c) | Expr::MulMod(a, b, c) => f(expr) + go_expr(f, acc, a) + go_expr(f, acc, b),
+    Expr::AddMod(a, b, c) | Expr::MulMod(a, b, c) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc, *b),
 
     // booleans
     Expr::LT(a, b)
@@ -171,17 +170,17 @@ where
     | Expr::GEq(a, b)
     | Expr::SLT(a, b)
     | Expr::SGT(a, b)
-    | Expr::Eq(a, b) => f(expr) + go_expr(f, acc, a) + go_expr(f, acc, b),
+    | Expr::Eq(a, b) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc, *b),
 
-    Expr::IsZero(a) | Expr::Not(a) => f(expr) + go_expr(f, acc, a),
+    Expr::IsZero(a) | Expr::Not(a) => f(&expr) + go_expr(f, acc, *a),
 
     // bits
     Expr::And(a, b) | Expr::Or(a, b) | Expr::Xor(a, b) | Expr::SHL(a, b) | Expr::SHR(a, b) | Expr::SAR(a, b) => {
-      f(expr) + go_expr(f, acc, a) + go_expr(f, acc, b)
+      f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc, *b)
     }
 
     // Hashes
-    Expr::Keccak(a) | Expr::SHA256(a) => f(expr) + go_expr(f, acc, a),
+    Expr::Keccak(a) | Expr::SHA256(a) => f(&expr) + go_expr(f, acc, *a),
 
     // block context
     Expr::Origin
@@ -191,23 +190,23 @@ where
     | Expr::PrevRandao
     | Expr::GasLimit
     | Expr::ChainId
-    | Expr::BaseFee => f(expr),
+    | Expr::BaseFee => f(&expr),
 
-    Expr::BlockHash(a) => f(expr) + go_expr(f, acc, a),
+    Expr::BlockHash(a) => f(&expr) + go_expr(f, acc, *a),
 
     // tx context
-    Expr::TxValue => f(expr),
+    Expr::TxValue => f(&expr),
 
     // frame context
-    Expr::Gas(_, _) | Expr::Balance { .. } => f(expr),
+    Expr::Gas(_, _) | Expr::Balance { .. } => f(&expr),
 
     // code
-    Expr::CodeSize(a) | Expr::CodeHash(a) => f(expr) + go_expr(f, acc, a),
+    Expr::CodeSize(a) | Expr::CodeHash(a) => f(&expr) + go_expr(f, acc, *a),
 
-    // logs
-    Expr::LogEntry(a, b, c) => {
-      f(expr) + go_expr(f, acc, a) + b.iter().fold(B::default(), |acc, v| acc + go_expr(f, acc, v)) + go_expr(f, acc, c)
-    }
+    _ => panic!("not implemented"), // logs
+                                    //Expr::LogEntry(a, b, c) => {
+                                    //  f(&expr) + go_expr(f, acc, *a) + b.iter().fold(B::default(), |acc, v| acc + go_expr(f, acc, v)) + go_expr(f, acc, c)
+                                    //}
   }
 }
 
@@ -217,63 +216,37 @@ where
   F: Fn(&Expr) -> B,
   B: Add<B, Output = B> + Default + Clone,
 {
-  acc.clone() + go_expr(f, acc.clone(), expr)
+  acc.clone() + go_expr(f, acc.clone(), expr.clone())
 }
 
-#[async_trait]
 pub trait ExprMappable {
-  async fn map_expr_m<F, Fut>(&self, f: F) -> Expr
-  where
-    F: Fn(&Expr) -> Fut + Send + Sync,
-    Fut: std::future::Future<Output = Expr> + Send;
+  fn map_expr_m(&self, f: &dyn Fn(&Expr) -> Expr) -> Expr;
 }
 
-#[async_trait]
 impl ExprMappable for Expr {
-  async fn map_expr_m<F, Fut>(&self, f: F) -> Expr
-  where
-    F: Fn(&Expr) -> Fut + Send + Sync,
-    Fut: std::future::Future<Output = Expr> + Send,
-  {
+  fn map_expr_m(&self, f: &dyn Fn(&Expr) -> Expr) -> Expr {
     match self {
-      Expr::Lit(a) => f(&Expr::Lit(*a)).await,
-      Expr::LitByte(a) => f(&Expr::LitByte(*a)).await,
-      Expr::Var(a) => f(&Expr::Var(*a)).await,
-      Expr::GVar(s) => f(&Expr::GVar(*s)).await,
+      Expr::Lit(a) => f(&Expr::Lit(a.clone())),
+      Expr::LitByte(a) => f(&Expr::LitByte(*a)),
+      Expr::Var(a) => f(&Expr::Var(a.clone())),
+      Expr::GVar(s) => f(&Expr::GVar(s.clone())),
 
       // Addresses
-      Expr::C {
-        code,
-        storage,
-        balance,
-        nonce,
-      } => map_econtract_m(f, self.clone()).await,
+      Expr::C { code, storage, balance, nonce } => map_econtract_m(f, self.clone()),
 
-      Expr::LitAddr(a) => f(&Expr::LitAddr(*a)).await,
-      Expr::SymAddr(a) => f(&Expr::SymAddr(*a)).await,
+      Expr::LitAddr(a) => f(&Expr::LitAddr(a.clone())),
+      Expr::SymAddr(a) => f(&Expr::SymAddr(a.clone())),
       Expr::WAddr(a) => {
-        let a = a.map_expr_m(&f).await;
-        f(&Expr::WAddr(Box::new(a))).await
+        let a = a.map_expr_m(&f);
+        f(&Expr::WAddr(Box::new(a)))
       }
 
       // Bytes
-      Expr::IndexWord(a, b) => {
-        f(&Expr::IndexWord(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::EqByte(a, b) => {
-        f(&Expr::EqByte(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
+      Expr::IndexWord(a, b) => f(&Expr::IndexWord(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::EqByte(a, b) => f(&Expr::EqByte(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
 
       Expr::JoinBytes(vec) => {
-        let mut parts = join_all(vec![
+        let mut parts = vec![
           vec[0].map_expr_m(&f),
           vec[1].map_expr_m(&f),
           vec[2].map_expr_m(&f),
@@ -306,8 +279,7 @@ impl ExprMappable for Expr {
           vec[29].map_expr_m(&f),
           vec[30].map_expr_m(&f),
           vec[31].map_expr_m(&f),
-        ])
-        .await;
+        ];
         f(&Expr::JoinBytes(vec![
           parts.remove(0),
           parts.remove(1),
@@ -342,413 +314,201 @@ impl ExprMappable for Expr {
           parts.remove(30),
           parts.remove(31),
         ]))
-        .await
       }
 
       // Control Flow
       Expr::Failure(a, b, c) => {
-        let a = join_all(a.iter().map(|x| map_prop_m(f, x.clone()))).await;
-        f(&Expr::Failure(a, *b, *c)).await
+        let a = (a.iter().map(|x| map_prop_m(f, x.clone()))).into_iter().collect();
+        f(&Expr::Failure(a, b.clone(), c.clone()))
       }
       Expr::Partial(a, b, c) => {
-        let a = join_all(a.iter().map(|x| map_prop_m(f, x.clone()))).await;
-        f(&Expr::Partial(a, *b, *c)).await
+        let a = (a.iter().map(|x| map_prop_m(f, x.clone()))).into_iter().collect();
+        f(&Expr::Partial(a, b.clone(), c.clone()))
       }
       Expr::Success(a, b, c, d) => {
-        let a = join_all(a.iter().map(|x| map_prop_m(f, x.clone()))).await;
-        let c = c.map_expr_m(&f).await;
-        let d = join_all(d.iter().map(|(k, v)| {
-          let k = f(k);
-          let v = map_econtract_m(f, v.clone());
-          async move { (k.await, v.await) }
-        }))
-        .await
-        .into_iter()
-        .collect::<HashMap<_, _>>();
-        f(&Expr::Success(a, *b, Box::new(c), d)).await
+        let a_ = (a.iter().map(|x| map_prop_m(f, x.clone()))).into_iter().collect();
+        let c_ = c.map_expr_m(&f);
+        let d_: ExprExprMap = ExprExprMap::from(
+          (d.clone().iter().map(|(k, v)| (f(k), map_econtract_m(f, v.clone())))).into_iter().collect(),
+        );
+        f(&Expr::Success(a_, b.clone(), Box::new(c_), d_))
       }
       Expr::ITE(a, b, c) => {
-        let res = join_all(vec![a.map_expr_m(&f), b.map_expr_m(&f), c.map_expr_m(&f)]).await.into_iter().collect();
-        f(&Expr::ITE(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-          Box::new(c.map_expr_m(&f).await),
-        ))
-        .await
+        f(&Expr::ITE(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
       }
 
       // Integers
-      Expr::Add(a, b) => {
-        f(&Expr::Add(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::Sub(a, b) => {
-        f(&Expr::Sub(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::Mul(a, b) => {
-        f(&Expr::Mul(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::Div(a, b) => {
-        f(&Expr::Div(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::SDiv(a, b) => {
-        f(&Expr::SDiv(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::Mod(a, b) => {
-        f(&Expr::Mod(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::SMod(a, b) => {
-        f(&Expr::SMod(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
+      Expr::Add(a, b) => f(&Expr::Add(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Sub(a, b) => f(&Expr::Sub(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Mul(a, b) => f(&Expr::Mul(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Div(a, b) => f(&Expr::Div(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::SDiv(a, b) => f(&Expr::SDiv(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Mod(a, b) => f(&Expr::Mod(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::SMod(a, b) => f(&Expr::SMod(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
       Expr::AddMod(a, b, c) => {
-        f(&Expr::AddMod(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-          Box::new(c.map_expr_m(&f).await),
-        ))
-        .await
+        f(&Expr::AddMod(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
       }
       Expr::MulMod(a, b, c) => {
-        f(&Expr::MulMod(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-          Box::new(c.map_expr_m(&f).await),
-        ))
-        .await
+        f(&Expr::MulMod(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
       }
-      Expr::Exp(a, b) => {
-        f(&Expr::Exp(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::SEx(a, b) => {
-        f(&Expr::SEx(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::Min(a, b) => {
-        f(&Expr::Min(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::Max(a, b) => {
-        f(&Expr::Max(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
+      Expr::Exp(a, b) => f(&Expr::Exp(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::SEx(a, b) => f(&Expr::SEx(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Min(a, b) => f(&Expr::Min(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Max(a, b) => f(&Expr::Max(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
 
       // Booleans
-      Expr::LT(a, b) => {
-        f(&Expr::LT(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::GT(a, b) => {
-        f(&Expr::GT(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::LEq(a, b) => {
-        f(&Expr::LEq(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::GEq(a, b) => {
-        f(&Expr::GEq(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::SLT(a, b) => {
-        f(&Expr::SLT(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::SGT(a, b) => {
-        f(&Expr::SGT(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::Eq(a, b) => {
-        f(&Expr::Eq(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
+      Expr::LT(a, b) => f(&Expr::LT(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::GT(a, b) => f(&Expr::GT(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::LEq(a, b) => f(&Expr::LEq(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::GEq(a, b) => f(&Expr::GEq(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::SLT(a, b) => f(&Expr::SLT(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::SGT(a, b) => f(&Expr::SGT(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Eq(a, b) => f(&Expr::Eq(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
       Expr::IsZero(a) => {
-        let a = a.map_expr_m(&f).await;
-        f(&Expr::IsZero(Box::new(a))).await
+        let a = a.map_expr_m(&f);
+        f(&Expr::IsZero(Box::new(a)))
       }
 
       // Bits
-      Expr::And(a, b) => {
-        f(&Expr::And(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::Or(a, b) => {
-        f(&Expr::Or(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::Xor(a, b) => {
-        f(&Expr::Xor(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
+      Expr::And(a, b) => f(&Expr::And(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Or(a, b) => f(&Expr::Or(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Xor(a, b) => f(&Expr::Xor(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
       Expr::Not(a) => {
-        let a = a.map_expr_m(&f).await;
-        f(&Expr::Not(Box::new(a))).await
+        let a = a.map_expr_m(&f);
+        f(&Expr::Not(Box::new(a)))
       }
-      Expr::SHL(a, b) => {
-        f(&Expr::SHL(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::SHR(a, b) => {
-        f(&Expr::SHR(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::SAR(a, b) => {
-        f(&Expr::SAR(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
+      Expr::SHL(a, b) => f(&Expr::SHL(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::SHR(a, b) => f(&Expr::SHR(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::SAR(a, b) => f(&Expr::SAR(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
 
       // Hashes
       Expr::Keccak(a) => {
-        let a = a.map_expr_m(&f).await;
-        f(&Expr::Keccak(Box::new(a))).await
+        let a = a.map_expr_m(&f);
+        f(&Expr::Keccak(Box::new(a)))
       }
       Expr::SHA256(a) => {
-        let a = a.map_expr_m(&f).await;
-        f(&Expr::SHA256(Box::new(a))).await
+        let a = a.map_expr_m(&f);
+        f(&Expr::SHA256(Box::new(a)))
       }
 
       // Block Context
-      Expr::Origin => f(&Expr::Origin).await,
-      Expr::Coinbase => f(&Expr::Coinbase).await,
-      Expr::Timestamp => f(&Expr::Timestamp).await,
-      Expr::BlockNumber => f(&Expr::BlockNumber).await,
-      Expr::PrevRandao => f(&Expr::PrevRandao).await,
-      Expr::GasLimit => f(&Expr::GasLimit).await,
-      Expr::ChainId => f(&Expr::ChainId).await,
-      Expr::BaseFee => f(&Expr::BaseFee).await,
+      Expr::Origin => f(&Expr::Origin),
+      Expr::Coinbase => f(&Expr::Coinbase),
+      Expr::Timestamp => f(&Expr::Timestamp),
+      Expr::BlockNumber => f(&Expr::BlockNumber),
+      Expr::PrevRandao => f(&Expr::PrevRandao),
+      Expr::GasLimit => f(&Expr::GasLimit),
+      Expr::ChainId => f(&Expr::ChainId),
+      Expr::BaseFee => f(&Expr::BaseFee),
       Expr::BlockHash(a) => {
-        let a = a.map_expr_m(&f).await;
-        f(&Expr::BlockHash(Box::new(a))).await
+        let a = a.map_expr_m(&f);
+        f(&Expr::BlockHash(Box::new(a)))
       }
 
       // Tx Context
-      Expr::TxValue => f(&Expr::TxValue).await,
+      Expr::TxValue => f(&Expr::TxValue),
 
       // Frame Context
-      Expr::Gas(a) => f(&Expr::Gas(*a)).await,
+      Expr::Gas(a, b) => f(&Expr::Gas(a.clone(), b.clone())),
       Expr::Balance(a) => {
-        let a = a.map_expr_m(&f).await;
-        f(&Expr::Balance(Box::new(a))).await
+        let a = a.map_expr_m(&f);
+        f(&Expr::Balance(Box::new(a)))
       }
 
       // Code
       Expr::CodeSize(a) => {
-        let a = a.map_expr_m(&f).await;
-        f(&Expr::CodeSize(Box::new(a))).await
+        let a = a.map_expr_m(&f);
+        f(&Expr::CodeSize(Box::new(a)))
       }
       Expr::CodeHash(a) => {
-        let a = a.map_expr_m(&f).await;
-        f(&Expr::CodeHash(Box::new(a))).await
+        let a = a.map_expr_m(&f);
+        f(&Expr::CodeHash(Box::new(a)))
       }
 
       // Logs
-      Expr::LogEntry(a, b, c) => {
-        f(&Expr::LogEntry(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-          Box::new(c.map_expr_m(&f).await),
-        ))
-        .await
-      }
+      Expr::LogEntry(a, b, c) => f(&Expr::LogEntry(
+        Box::new(a.map_expr_m(&f)),
+        Box::new(b.map_expr_m(&f)),
+        c.into_iter().map(|v| Box::new(v.map_expr_m(&f))).into_iter().collect(),
+      )),
 
       // Storage
-      Expr::ConcreteStore(b) => f(&Expr::ConcreteStore(*b)).await,
-      Expr::AbstractStore(a, b) => f(&Expr::AbstractStore(*a, *b)).await,
-      Expr::SLoad(a, b) => {
-        f(&Expr::SLoad(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
+      Expr::ConcreteStore(b) => f(&Expr::ConcreteStore(b.clone())),
+      Expr::AbstractStore(a, b) => f(&Expr::AbstractStore(a.clone(), b.clone())),
+      Expr::SLoad(a, b) => f(&Expr::SLoad(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
       Expr::SStore(a, b, c) => {
-        f(&Expr::SStore(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-          Box::new(c.map_expr_m(&f).await),
-        ))
-        .await
+        f(&Expr::SStore(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
       }
 
       // Buffers
-      Expr::ConcreteBuf(a) => f(&Expr::ConcreteBuf(*a)).await,
-      Expr::AbstractBuf(a) => f(&Expr::AbstractBuf(*a)).await,
-      Expr::ReadWord(a, b) => {
-        f(&Expr::ReadWord(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
-      Expr::ReadByte(a, b) => {
-        f(&Expr::ReadByte(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-        ))
-        .await
-      }
+      Expr::ConcreteBuf(a) => f(&Expr::ConcreteBuf(a.clone())),
+      Expr::AbstractBuf(a) => f(&Expr::AbstractBuf(a.clone())),
+      Expr::ReadWord(a, b) => f(&Expr::ReadWord(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::ReadByte(a, b) => f(&Expr::ReadByte(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
       Expr::WriteWord(a, b, c) => {
-        f(&Expr::WriteWord(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-          Box::new(c.map_expr_m(&f).await),
-        ))
-        .await
+        f(&Expr::WriteWord(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
       }
       Expr::WriteByte(a, b, c) => {
-        f(&Expr::WriteByte(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-          Box::new(c.map_expr_m(&f).await),
-        ))
-        .await
+        f(&Expr::WriteByte(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
       }
 
       Expr::CopySlice(a, b, c, d, e) => {
-        let (a, b, c, d, e) = join_all(vec![
-          a.map_expr_m(&f),
-          b.map_expr_m(&f),
-          c.map_expr_m(&f),
-          d.map_expr_m(&f),
-          e.map_expr_m(&f),
-        ])
-        .await
-        .into_iter()
-        .collect();
+        let a_ = a.map_expr_m(&f);
+        let b_ = b.map_expr_m(&f);
+        let c_ = c.map_expr_m(&f);
+        let d_ = d.map_expr_m(&f);
+        let e_ = e.map_expr_m(&f);
         f(&Expr::CopySlice(
-          Box::new(a.map_expr_m(&f).await),
-          Box::new(b.map_expr_m(&f).await),
-          Box::new(c.map_expr_m(&f).await),
-          Box::new(d[3].clone()),
-          Box::new(e[4].clone()),
+          Box::new(a_.map_expr_m(&f)),
+          Box::new(b_.map_expr_m(&f)),
+          Box::new(c_.map_expr_m(&f)),
+          Box::new(d_.clone()),
+          Box::new(e_.clone()),
         ))
-        .await
       }
       Expr::BufLength(a) => {
-        let a = a.map_expr_m(&f).await;
-        f(&Expr::BufLength(Box::new(a))).await
+        let a = a.map_expr_m(&f);
+        f(&Expr::BufLength(Box::new(a)))
       }
       _ => panic!("unuexpected expr"),
     }
   }
 }
 
-// MapPropM function
-pub async fn map_prop_m<F, Fut>(f: F, prop: Prop) -> Prop
+pub fn map_expr<F>(f: F, expr: Expr) -> Expr
 where
-  F: Fn(&Expr) -> Fut + Send + Sync,
-  Fut: std::future::Future<Output = Expr> + Send,
+  F: Fn(&Expr) -> Expr,
+{
+  expr.map_expr_m(&f)
+}
+
+// MapPropM function
+pub fn map_prop_m<F>(f: F, prop: Prop) -> Prop
+where
+  F: Fn(&Expr) -> Expr,
 {
   match prop {
     Prop::PBool(b) => Prop::PBool(b),
-    Prop::PEq(a, b) => Prop::PEq(a.map_expr_m(&f).await, b.map_expr_m(&f).await),
-    // Implement other Prop variants similarly
+    Prop::PEq(a, b) => Prop::PEq(a.map_expr_m(&f), b.map_expr_m(&f)),
     _ => todo!(),
   }
 }
 
 // MapPropM_ function
-async fn map_prop_m_<F, Fut>(f: F, prop: Prop) -> ()
+fn map_prop_m_<F>(f: F, prop: Prop) -> ()
 where
-  F: Fn(&Expr) -> Fut + Send + Sync,
-  Fut: std::future::Future<Output = ()> + Send,
+  F: Fn(&Expr),
 {
-  async fn f_upd<F, Fut>(action: F, expr: &Expr) -> Expr
+  fn f_upd<F>(action: F, expr: &Expr) -> Expr
   where
-    F: Fn(&Expr) -> Fut + Send + Sync,
-    Fut: std::future::Future<Output = ()> + Send,
+    F: Fn(&Expr),
   {
-    action(expr).await;
+    action(expr);
     expr.clone()
   }
 
   let f_upd_fn = |expr: &Expr| f_upd(&f, expr);
-  let _ = map_prop_m(f_upd_fn, prop).await;
-}
-
-pub fn map_expr_m<F>(f: F, expr: Expr) -> Expr
-where
-  F: Fn(&Expr) -> Expr,
-{
-  todo!()
+  let _ = map_prop_m(f_upd_fn, prop);
 }
 
 /*
@@ -756,18 +516,17 @@ mapExprM :: Monad m => (forall a . Expr a -> m (Expr a)) -> Expr b -> m (Expr b)
 */
 
 // MapEContractM function
-async fn map_econtract_m<F, Fut>(f: F, expr: Expr) -> Expr
+fn map_econtract_m<F>(f: F, expr: Expr) -> Expr
 where
-  F: Fn(&Expr) -> Fut + Send + Sync,
-  Fut: std::future::Future<Output = Expr> + Send,
+  F: Fn(&Expr) -> Expr,
 {
   match expr {
     Expr::GVar(_) => expr,
-    Expr::C(code, storage, balance, nonce) => {
-      let code = map_code_m(&f, code).await;
-      let storage = storage.map_expr_m(&f).await;
-      let balance = balance.map_expr_m(&f).await;
-      Expr::C(Box::new(code), Box::new(storage), Box::new(balance), nonce)
+    Expr::C { code, storage, balance, nonce } => {
+      let code = map_code_m(&f, code);
+      let storage = storage.map_expr_m(&f);
+      let balance = balance.map_expr_m(&f);
+      Expr::C { code: code, storage: Box::new(storage), balance: Box::new(balance), nonce: nonce }
     }
     // Handle other Expr variants
     _ => todo!(),
@@ -775,41 +534,33 @@ where
 }
 
 // MapContractM function
-async fn map_contract_m<F, Fut>(f: F, contract: Contract) -> Contract
+fn map_contract_m<F>(f: F, contract: Contract) -> Contract
 where
-  F: Fn(&Expr) -> Fut + Send + Sync,
-  Fut: std::future::Future<Output = Expr> + Send,
+  F: Fn(&Expr) -> Expr,
 {
-  let code = map_code_m(&f, contract.code).await;
-  let storage = contract.storage.map_expr_m(&f).await;
-  let orig_storage = contract.orig_storage.map_expr_m(&f).await;
-  let balance = contract.balance.map_expr_m(&f).await;
-  Contract {
-    code,
-    storage,
-    orig_storage,
-    balance,
-    ..contract
-  }
+  let code = map_code_m(&f, contract.code);
+  let storage = contract.storage.map_expr_m(&f);
+  let orig_storage = contract.orig_storage.map_expr_m(&f);
+  let balance = contract.balance.map_expr_m(&f);
+  Contract { code, storage, orig_storage, balance, ..contract }
 }
 
 // MapCodeM function
-async fn map_code_m<F, Fut>(f: F, code: ContractCode) -> ContractCode
+fn map_code_m<F>(f: F, code: ContractCode) -> ContractCode
 where
-  F: Fn(&Expr) -> Fut + Send + Sync,
-  Fut: std::future::Future<Output = Expr> + Send,
+  F: Fn(&Expr) -> Expr,
 {
   match code {
-    ContractCode::UnKnownCode(expr) => ContractCode::UnKnownCode(Box::new(f(&expr).await)),
+    ContractCode::UnKnownCode(expr) => ContractCode::UnKnownCode(Box::new(f(&expr))),
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(expr)) => {
       ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(expr))
     }
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(exprs)) => {
-      let exprs = join_all(exprs.into_iter().map(|expr| expr.map_expr_m(&f))).await;
-      ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(exprs))
+      let new_exprs = (exprs.into_iter().map(|expr| expr.map_expr_m(&f))).into_iter().collect();
+      ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(new_exprs))
     }
     ContractCode::InitCode(bytes, buf) => {
-      let buf = buf.map_expr_m(&f).await;
+      let buf = buf.map_expr_m(&f);
       ContractCode::InitCode(bytes, Box::new(buf))
     }
   }

@@ -1,7 +1,10 @@
-use crate::modules::types::{maybe_lit_addr, maybe_lit_byte, pad_right, Expr, Prop, W256};
 use core::panic;
 use std::{clone, cmp::min};
 
+use crate::modules::traversals::{map_expr, map_prop_m};
+use crate::modules::types::{maybe_lit_addr, maybe_lit_byte, pad_right, until_fixpoint, Expr, Prop, W256};
+
+use super::evm::keccak;
 // ** Constants **
 
 const MAX_LIT: W256 = W256(0xffffffffffffffffffffffffffffffff, 0xffffffffffffffffffffffffffffffff);
@@ -877,5 +880,90 @@ pub fn is_lit_byte(e: &Expr) -> bool {
   match e {
     Expr::LitByte(_) => true,
     _ => false,
+  }
+}
+
+// Concretize & simplify Keccak expressions until fixed-point.
+fn conc_keccak_simp_expr(expr: Expr) -> Expr {
+  until_fixpoint(|e| map_expr(|expr: &Expr| conc_keccak_one_pass(expr.clone()), e.clone()), expr)
+}
+
+// Only concretize Keccak in Props
+// Needed because if it also simplified, we may not find some simplification errors, as
+// simplification would always be ON
+fn conc_keccak_props(props: Vec<Prop>) -> Vec<Prop> {
+  until_fixpoint(|ps| ps.into_iter().map(|p| map_prop(conc_keccak_one_pass, p)).collect(), props)
+}
+
+fn is_concretebuf(expr: &Expr) -> bool {
+  match expr {
+    Expr::ConcreteBuf(_) => true,
+    _ => false,
+  }
+}
+
+fn is_empty_concretebuf(expr: &Expr) -> bool {
+  match expr {
+    Expr::ConcreteBuf(dst_buf) => dst_buf.is_empty(),
+    _ => false,
+  }
+}
+
+fn is_simplifiable_ww(expr: &Expr) -> bool {
+  match expr {
+    Expr::WriteWord(a, _, c) if **a == Expr::Lit(W256(0, 0)) && is_concretebuf(c) => true,
+    _ => false,
+  }
+}
+
+fn get_len_of_bs_in_ww(expr: &Expr) -> usize {
+  match expr {
+    Expr::WriteWord(a, _, c) if **a == Expr::Lit(W256(0, 0)) && is_concretebuf(c) => match *c.clone() {
+      Expr::ConcreteBuf(bs) => bs.len(),
+      _ => 0,
+    },
+    _ => 0,
+  }
+}
+
+// Simplifies in case the input to the Keccak is of specific array/map format and
+//            can be simplified into a concrete value
+// Turns (Keccak ConcreteBuf) into a Lit
+fn conc_keccak_one_pass(expr: Expr) -> Expr {
+  match expr {
+    Expr::Keccak(expr) if is_concretebuf(&expr) => match *expr {
+      Expr::ConcreteBuf(bs) => keccak(*expr).unwrap(),
+      _ => panic!(""),
+    },
+    Expr::Keccak(orig) => match orig.as_ref() {
+      Expr::CopySlice(
+        a, //Expr::Lit(W256(0, 0)),
+        b, //Expr::Lit(W256(0, 0)),
+        c, // Expr::Lit(W256(64, 0)),
+        d, // Expr::WriteWord(Expr::Lit(W256(0, 0)), _, (Expr::ConcreteBuf(bs))),
+        e, //Expr::ConcreteBuf(dst_buf),
+      ) if **a == Expr::Lit(W256(0, 0))
+        && **b == Expr::Lit(W256(0, 0))
+        && **c == Expr::Lit(W256(64, 0))
+        && is_simplifiable_ww(d)
+        && is_empty_concretebuf(e) =>
+      {
+        match (
+          bs.len(),
+          copy_slice(
+            Expr::Lit(W256(0, 0)),
+            Expr::Lit(W256(0, 0)),
+            Expr::Lit(W256(64, 0)),
+            simplify(*orig.clone()),
+            Expr::ConcreteBuf(vec![]),
+          ),
+        ) {
+          (64, Expr::ConcreteBuf(a)) => keccak(Expr::ConcreteBuf(a)).unwrap(),
+          _ => Expr::Keccak(orig),
+        }
+      }
+      _ => Expr::Keccak(orig),
+    },
+    _ => expr,
   }
 }

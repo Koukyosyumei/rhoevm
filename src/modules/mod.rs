@@ -9,16 +9,15 @@ pub mod fetch;
 pub mod format;
 pub mod op;
 pub mod transactions;
+pub mod traversals;
 pub mod types;
 /*
 pub mod cse;
 pub mod exec;
-pub mod expr;
 pub mod keccak;
 pub mod smt;
 pub mod solidity;
 pub mod solvers;
 pub mod stepper;
 pub mod symexec;
-pub mod traversals;
 */

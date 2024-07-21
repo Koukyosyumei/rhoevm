@@ -1817,3 +1817,17 @@ pub fn maybe_lit_addr(addr: Expr) -> Option<Addr> {
     None
   }
 }
+
+pub fn until_fixpoint<F, T>(f: F, mut x: T) -> T
+where
+  F: Fn(&T) -> T,
+  T: PartialEq + Clone,
+{
+  loop {
+    let x_new = f(&x);
+    if x == x_new {
+      return x;
+    }
+    x = x_new;
+  }
+}
