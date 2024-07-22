@@ -984,7 +984,7 @@ fn go_expr(expr: &Expr) -> Expr {
     Expr::Partial(a, b, c) => Expr::Partial(simplify_props(a.clone()), b.clone(), c.clone()),
     Expr::Success(a, b, c, d) => Expr::Success(simplify_props(a.clone()), b.clone(), c.clone(), d.clone()),
 
-    Expr::SLoad(slot, store) => read_storage(slot.clone(), store.clone()),
+    Expr::SLoad(slot, store) => read_storage(&slot.clone(), &store.clone()).unwrap(),
     Expr::SStore(slot, val, store) => write_storage(*slot.clone(), *val.clone(), *store.clone()),
 
     Expr::ReadWord(idx_, buf_) => match (**idx_, **buf_) {

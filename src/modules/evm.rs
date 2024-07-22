@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::expr::{
-  add, conc_keccak_simp_expr, emin, geq, gt, index_word, leq, lt, read_byte, read_bytes, read_storage,
+  add, conc_keccak_simp_expr, emin, eq, geq, gt, index_word, iszero, leq, lt, read_byte, read_bytes, read_storage,
   read_word_from_bytes, simplify, sub, word256_bytes, write_byte, write_storage, write_word,
 };
 use crate::modules::feeschedule::FeeSchedule;
@@ -873,7 +873,7 @@ impl VM {
               access_memory_range(self, **x_offset, **x_size, || {
                 // let available_gas = use(state.gas);
                 let available_gas = 0; // Example available gas
-                let (cost, gas) = cost_of_create(0, available_gas, x_size, false); // Example fees
+                let (cost, gas) = (0, Gas::Symbolic); //cost_of_create(0, available_gas, x_size, false); // Example fees
                 let new_addr = create_address("self", 0); // Example self and nonce
                 let _ = access_account_for_gas(self, &new_addr);
                 burn(self, cost, || {
@@ -901,11 +901,11 @@ impl VM {
           if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
             &self.state.stack[..]
           {
-            branch(self, true, |gt0| {
+            branch(self, &gt(**x_value, Expr::Lit(W256(0, 0))), |gt0| {
               if gt0 {
-                not_static(self, || {});
+                Ok(not_static(self, || {}))
               } else {
-                force_addr(x_to, "unable to determine a call target", |x_to| {
+                Ok(force_addr(x_to, "unable to determine a call target", |x_to| {
                   match 0 {
                     // gasTryFrom(x_gas)
                     0 => vm_error("IllegalOverflow"),
@@ -939,7 +939,7 @@ impl VM {
                       );
                     }
                   }
-                });
+                }))
               }
             });
           } else {
@@ -999,7 +999,7 @@ impl VM {
                   let frame_returned = burn(self, 0, || finish_frame(self, FrameResult::FrameReturned(output.clone())));
                   let frame_errored = finish_frame(self, FrameResult::FrameErrored(EvmError::InvalidFormat));
                   match read_byte(Expr::Lit(W256(0, 0)), output) {
-                    0xef => frame_errored,
+                    Expr::Lit(W256(0xef, 0)) => frame_errored,
                     _ => frame_returned,
                   }
                 }
@@ -1146,9 +1146,9 @@ impl VM {
                 if let Expr::WAddr(_) = x_to {
                   let acc = access_account_for_gas(self, x_to);
                   let cost = if acc { 0 } else { 0 }; // g_cold_account_access
-                  let funds = 0; // this.balance
+                  let funds = this_contract.balance; // this.balance
                   let recipient_exists = false; // accountExists(x_to, vm)
-                  branch(true, |has_funds| {
+                  branch(self, &eq(funds, Expr::Lit(W256(0, 0))), |has_funds| {
                     let c_new = if !recipient_exists && has_funds {
                       0 // g_selfdestruct_newaccount
                     } else {
@@ -1167,6 +1167,7 @@ impl VM {
                         do_stop();
                       }
                     });
+                    Ok(())
                   });
                 } else {
                   let pc = 0; // use(state.pc)
@@ -2108,7 +2109,7 @@ fn create(
     vm.state.returndata = Expr::Mempty;
     vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::CallDepthLimitReached)));
     next(vm, op);
-  } else if collision(&vm.env.contracts.get(&new_addr)) {
+  } else if collision(vm.env.contracts.get(&new_addr).cloned()) {
     let x_gas_val = if let Gas::Concerete(g) = x_gas { g } else { 0 };
     burn(vm, x_gas_val, || {
       vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
@@ -2119,7 +2120,7 @@ fn create(
       next(vm, op);
     });
   } else {
-    vm.branch(x_value > this.balance, |condition| {
+    branch(vm, &gt(x_value, this.balance), |condition| {
       if condition {
         vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
         vm.state.returndata = Expr::Mempty;
@@ -2130,45 +2131,48 @@ fn create(
         next(vm, op);
         touch_account(&self_addr.clone());
         touch_account(&new_addr.clone());
+        Ok(())
       } else {
-        burn(vm, x_gas, || match parse_init_code(init_code.clone()) {
-          None => {
-            vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
-              pc: vm.state.pc,
-              msg: "initcode must have a concrete prefix".to_string(),
-              args: vec![],
-            }));
-          }
-          Some(c) => {
-            let new_contract = initial_contract(c);
-            let new_context = FrameContext::CreationContext {
-              address: new_addr.clone(),
-              codehash: new_contract.codehash.clone(),
-              createversion: vm.env.contracts.clone(),
-              substate: vm.tx.substate.clone(),
-            };
+        Ok({
+          burn(vm, x_gas, || match parse_init_code(init_code.clone()) {
+            None => {
+              vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+                pc: vm.state.pc,
+                msg: "initcode must have a concrete prefix".to_string(),
+                args: vec![],
+              }));
+            }
+            Some(c) => {
+              let new_contract = initial_contract(c);
+              let new_context = FrameContext::CreationContext {
+                address: new_addr.clone(),
+                codehash: new_contract.codehash.clone(),
+                createversion: vm.env.contracts.clone(),
+                substate: vm.tx.substate.clone(),
+              };
 
-            let old_acc = vm.env.contracts.get(&new_addr).cloned();
-            let old_bal = old_acc.map_or(Expr::Lit(W256(0, 0)), |acc| acc.balance.clone());
-            vm.env.contracts.insert(new_addr.clone(), Contract { balance: old_bal.clone(), ..new_contract });
-            vm.env.contracts.insert(self_addr.clone(), Contract { nonce: this.nonce.map(|n| n + 1), ..this });
+              let old_acc = vm.env.contracts.get(&new_addr).cloned();
+              let old_bal = old_acc.map_or(Expr::Lit(W256(0, 0)), |acc| acc.balance.clone());
+              vm.env.contracts.insert(new_addr.clone(), Contract { balance: old_bal.clone(), ..new_contract });
+              vm.env.contracts.insert(self_addr.clone(), Contract { nonce: this.nonce.map(|n| n + 1), ..this });
 
-            transfer(vm, self_addr.clone(), new_addr.clone(), x_value.clone());
-            vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context)));
-            next(vm, op);
-            vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
-            let state = blank_state();
-            vm.state = FrameState {
-              contract: new_addr.clone(),
-              code_contract: new_addr.clone(),
-              code: c.clone(),
-              callvalue: x_value.clone(),
-              caller: self_addr.clone(),
-              gas: x_gas.clone(),
-              ..state
-            };
-          }
-        });
+              transfer(vm, self_addr.clone(), new_addr.clone(), x_value.clone());
+              vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context)));
+              next(vm, op);
+              vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
+              let state = blank_state();
+              vm.state = FrameState {
+                contract: new_addr.clone(),
+                code_contract: new_addr.clone(),
+                code: c.clone(),
+                callvalue: x_value.clone(),
+                caller: self_addr.clone(),
+                gas: x_gas.clone(),
+                ..state
+              };
+            }
+          });
+        })
       }
     });
   }
@@ -2275,22 +2279,25 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr) -> Result<(), EvmError
 
   let src_balance = vm.env.contracts.get(&src).map(|contract| contract.balance.clone());
   let dst_balance = vm.env.contracts.get(&dst).map(|contract| contract.balance.clone());
-  let base_state = vm.config.base_state;
+  let base_state = vm.config.base_state.clone();
 
   let mkc = match base_state {
     BaseState::AbstractBase => unknown_contract,
     BaseState::EmptyBase => |addr| empty_contract(),
   };
 
-  match (src_balance, dst_balance) {
+  match (src_balance, dst_balance.clone()) {
     (Some(src_bal), Some(_)) => {
-      if gt(val.clone(), src_bal) {
-        Err(EvmError::BalanceTooLow(Box::new(val), Box::new(src_bal)))
-      } else {
-        vm.env.contracts.entry(src).or_insert(empty_contract()).balance = sub(src_bal, val.clone());
-        vm.env.contracts.entry(dst).or_insert(empty_contract()).balance = add(dst_balance.unwrap(), val.clone());
-        Ok(())
-      }
+      branch(vm, &gt(val.clone(), src_bal.clone()), |cond| {
+        if cond {
+          Err(EvmError::BalanceTooLow(Box::new(val.clone()), Box::new(src_bal.clone())))
+        } else {
+          Ok(())
+        }
+      });
+      vm.env.contracts.entry(src).or_insert(empty_contract()).balance = sub(src_bal, val.clone());
+      vm.env.contracts.entry(dst).or_insert(empty_contract()).balance = add(dst_balance.unwrap(), val.clone());
+      Ok(())
     }
     (None, Some(_)) => match src {
       Expr::LitAddr(_) => {
@@ -2344,6 +2351,13 @@ fn account_empty(c: &Contract) -> bool {
   cc && c.nonce == Some(0) && c.balance == Expr::Lit(W256(1, 0))
 }
 
+/*
+createAddress :: Expr EAddr -> Maybe W64 -> EVM t s (Expr EAddr)
+createAddress (LitAddr a) (Just n) = pure $ Concrete.createAddress a n
+createAddress (GVar _) _ = internalError "Unexpected GVar"
+createAddress _ _ = freshSymAddr
+*/
+
 fn create2_address(expr: Expr, s: W256, b: ByteString) -> Expr {
   match (expr, s, b) {
     (Expr::LitAddr(a), s, b) => todo!(),
@@ -2355,7 +2369,7 @@ fn create2_address(expr: Expr, s: W256, b: ByteString) -> Expr {
 
 fn branch<F>(vm: &mut VM, cond: &Expr, continue_fn: F)
 where
-  F: FnOnce(Expr),
+  F: FnOnce(bool) -> Result<(), EvmError>,
 {
   let loc = codeloc(vm);
   let pathconds = vm.constraints.clone();
@@ -2369,6 +2383,31 @@ fn choose_path(loc: CodeLocation, bc: BranchCondition) {
     (loc, BranchCondition::Unknown) => {}
   }
 }
+
+fn collision(c_: Option<Contract>) -> bool {
+  match c_ {
+    Some(c) => {
+      c.nonce != Some(0) || {
+        match c.code {
+          ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(v)) => v.len() != 0,
+          ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(b)) => !b.is_empty(),
+          _ => true,
+        }
+      }
+    }
+    _ => false,
+  }
+}
+
+/*
+collision :: Maybe Contract -> Bool
+collision c' = case c' of
+  Just c -> c.nonce /= Just 0 || case c.code of
+    RuntimeCode (ConcreteRuntimeCode "") -> False
+    RuntimeCode (SymbolicRuntimeCode b) -> not $ null b
+    _ -> True
+  Nothing -> False
+*/
 
 /*
   branch cond continue = do
