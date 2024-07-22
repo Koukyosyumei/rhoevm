@@ -1467,7 +1467,7 @@ pub struct RuntimeConfig {
 
 #[derive(Debug, Clone)]
 pub enum VMResult {
-  Unfinished,
+  Unfinished(PartialExec),
   VMFailure(EvmError),
   VMSuccess(Expr),
   HandleEffect,
@@ -1631,9 +1631,9 @@ pub struct ForkState {
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum PartialExec {
-  UnexpectedSymbolicArg(i32, String, Vec<Expr>),
-  MaxIterationsReached(i32, Box<Expr>),
-  JumpIntoSymbolicCode(i32, i32),
+  UnexpectedSymbolicArg { pc: usize, msg: String, args: Vec<Expr> },
+  MaxIterationsReached { pc: usize, addr: Box<Expr> },
+  JumpIntoSymbolicCode { pc: usize, jump_dst: usize },
 }
 
 // Example function translating fromList logic from Haskell

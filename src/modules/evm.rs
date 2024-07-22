@@ -11,7 +11,8 @@ use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::types::{
   from_list, len_buf, maybe_lit_addr, maybe_lit_byte, pad_left, pad_left_prime, pad_right, unbox, Addr, Block, Cache,
   CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, FrameState, GVar, Gas, Memory,
-  MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts, W256W256Map, Word8, VM,
+  MutableMemory, PartialExec, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts, VMResult, W256W256Map,
+  Word8, VM,
 };
 
 use super::types::W256;
@@ -790,10 +791,10 @@ impl VM {
         }
         Op::Sload => {
           if let Some((x, xs)) = self.state.stack.split_first() {
-            let acc = access_storage_for_gas(self, x);
+            let acc = access_storage_for_gas(self, self_contract, **x);
             let cost = if acc { fees.g_warm_storage_read } else { fees.g_cold_sload };
             burn(self, cost, || {
-              access_storage(self, **x, |y| {
+              access_storage(self_contract, **x, |y| {
                 next(self, op);
                 self.state.stack = std::iter::once(Box::new(y)).chain(xs.iter().cloned()).collect();
               });
@@ -847,7 +848,7 @@ impl VM {
           let stk = vec![]; // Example stack
           if let [base, exponent, xs @ ..] = &stk[..] {
             burn_exp(exponent, || {
-              // next();
+              // next(self, op);
               // state.stack = Expr::Exp(base.clone(), exponent.clone()) : xs
             });
           } else {
@@ -869,7 +870,7 @@ impl VM {
                 let _ = access_account_for_gas(self, &new_addr);
                 burn(self, cost, || {
                   let init_code = read_memory(x_offset, x_size);
-                  create("self", "this", x_size, gas, x_value, vec![], new_addr, init_code);
+                  create(self, self_contract, *this_contract, *x_size, gas, *x_value, vec![], new_addr, init_code);
                 });
               });
             } else {
@@ -890,15 +891,16 @@ impl VM {
                     0 => vm_error("IllegalOverflow"),
                     _ => {
                       delegate_call(
-                        "this",
-                        0,
+                        self,
+                        *this_contract,
+                        Gas::Concerete(0),
                         x_to,
                         x_to,
-                        x_value,
-                        x_in_offset,
-                        x_in_size,
-                        x_out_offset,
-                        x_out_size,
+                        *x_value,
+                        *x_in_offset,
+                        *x_in_size,
+                        *x_out_offset,
+                        *x_out_size,
                         vec![],
                         |callee| {
                           // let from = fromMaybe(self, vm.config.overrideCaller);
@@ -932,15 +934,16 @@ impl VM {
                 0 => vm_error("IllegalOverflow"),
                 _ => {
                   delegate_call(
-                    "this",
-                    0,
+                    self,
+                    *this_contract,
+                    Gas::Concerete(0),
                     x_to,
-                    "self",
-                    x_value,
-                    x_in_offset,
-                    x_in_size,
-                    x_out_offset,
-                    x_out_size,
+                    self_contract,
+                    *x_value,
+                    *x_in_offset,
+                    *x_in_size,
+                    *x_out_offset,
+                    *x_out_size,
                     vec![],
                     |_| {
                       // zoom(state, || {
@@ -994,9 +997,11 @@ impl VM {
               0 => {
                 let loc = codeloc();
                 let msg = "Unable to determine a call target";
-                partial(|| {
-                  println!("UnexpectedSymbolicArg at {}: {}", loc.1, msg);
-                });
+                self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+                  pc: loc.1,
+                  msg: msg.to_string(),
+                  args: vec![],
+                }));
               }
               _ => {
                 match 0 {
@@ -1004,18 +1009,19 @@ impl VM {
                   0 => vm_error("IllegalOverflow"),
                   _ => {
                     delegate_call(
-                      "this",
-                      0,
-                      x_to,
-                      "self",
-                      &Expr::Lit(W256(0, 0)),
-                      x_in_offset,
-                      x_in_size,
-                      x_out_offset,
-                      x_out_size,
+                      self,
+                      *this_contract,
+                      Gas::Concerete(0),
+                      *x_to,
+                      self_contract,
+                      Expr::Lit(W256(0, 0)),
+                      *x_in_offset,
+                      *x_in_size,
+                      *x_out_offset,
+                      *x_out_size,
                       vec![],
                       |_| {
-                        touch_account("self");
+                        touch_account(&self_contract);
                       },
                     );
                   }
@@ -1039,7 +1045,17 @@ impl VM {
                   let new_addr = create2_address("self", x_salt, init_code);
                   let _ = access_account_for_gas(self, &new_addr);
                   burn(self, cost, || {
-                    create("self", "this", x_size, gas, x_value, vec![], new_addr, init_code.to_vec());
+                    create(
+                      self,
+                      self_contract,
+                      *this_contract,
+                      *x_size,
+                      gas,
+                      *x_value,
+                      vec![],
+                      new_addr,
+                      init_code.to_vec(),
+                    );
                   });
                 });
               });
@@ -1057,9 +1073,11 @@ impl VM {
               0 => {
                 let loc = codeloc();
                 let msg = "Unable to determine a call target";
-                partial(|| {
-                  println!("UnexpectedSymbolicArg at {}: {}", loc.1, msg);
-                });
+                self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+                  pc: loc.1,
+                  msg: msg.to_string(),
+                  args: vec![],
+                }));
               }
               _ => {
                 match 0 {
@@ -1067,15 +1085,16 @@ impl VM {
                   0 => vm_error("IllegalOverflow"),
                   _ => {
                     delegate_call(
-                      "this",
-                      0,
-                      x_to,
-                      x_to,
-                      &Expr::Lit(W256(0, 0)),
-                      x_in_offset,
-                      x_in_size,
-                      x_out_offset,
-                      x_out_size,
+                      self,
+                      *this_contract,
+                      Gas::Concerete(0),
+                      *x_to,
+                      *x_to,
+                      Expr::Lit(W256(0, 0)),
+                      *x_in_offset,
+                      *x_in_size,
+                      *x_out_offset,
+                      *x_out_size,
                       vec![],
                       |callee| {
                         // zoom(state, || {
@@ -1086,8 +1105,8 @@ impl VM {
                         // });
                         // let reset_caller = use(config.resetCaller);
                         // if reset_caller { assign(config.overrideCaller, None); }
-                        touch_account("self");
-                        touch_account(callee);
+                        touch_account(&self_contract);
+                        touch_account(&callee);
                       },
                     );
                   }
@@ -1115,8 +1134,8 @@ impl VM {
                       0
                     };
                     burn(self, 0 + c_new + cost, || {
-                      selfdestruct("self");
-                      touch_account(x_to);
+                      selfdestruct(self_contract);
+                      touch_account(&x_to);
                       if has_funds {
                         // fetchAccount(x_to, |_| {
                         //     env.contracts[x_to].balance += funds;
@@ -1130,9 +1149,11 @@ impl VM {
                   });
                 } else {
                   let pc = 0; // use(state.pc)
-                  partial(|| {
-                    println!("UnexpectedSymbolicArg at {}: trying to self destruct to a symbolic address", pc);
-                  });
+                  self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+                    pc: pc,
+                    msg: "trying to self destruct to a symbolic address".to_string(),
+                    args: vec![],
+                  }));
                 }
               });
             } else {
@@ -1158,14 +1179,17 @@ impl VM {
               burn_extcodecopy(self, ext_account, code_size, || {
                 access_memory_range(self, *mem_offset, *code_size, || {
                   fetch_account(&ext_account, |account| {
-                    next();
-                    assign("state.stack", xs);
-                    if let Some(bytecode) = &account.bytecode {
-                      copy_bytes_to_memory(bytecode, code_size, code_offset, mem_offset)
+                    next(self, op);
+                    self.state.stack = xs;
+                    if let Some(bytecode) = &account.bytecode() {
+                      copy_bytes_to_memory(bytecode.clone(), *code_size, *code_offset, *mem_offset, self)
                     } else {
                       //let pc = use("state.pc");
                       partial(|| {
-                        println!("UnexpectedSymbolicArg at {}: Cannot copy from unknown code at {:?}", pc, ext_account);
+                        println!(
+                          "PartialExec::UnexpectedSymbolicArg at {}: Cannot copy from unknown code at {:?}",
+                          pc, ext_account
+                        );
                       });
                     }
                   });
@@ -1179,7 +1203,7 @@ impl VM {
         Op::Returndatasize => {
           limit_stack(1, || {
             burn(self, 0, || {
-              next();
+              next(self, op);
               push_sym(self, Box::new(buf_length(self.state.returndata)));
             });
           });
@@ -1189,8 +1213,8 @@ impl VM {
           if let [x_to, x_from, x_size, xs @ ..] = &stk[..] {
             burn(self, 0, || {
               access_memory_range(self, *x_to, *x_size, || {
-                next();
-                assign("state.stack", xs);
+                next(self, op);
+                self.state.stack = xs;
 
                 let jump = |out_of_bounds: bool| {
                   if out_of_bounds {
@@ -1224,17 +1248,17 @@ impl VM {
         }
         Op::Extcodehash => {
           let stk = vec![]; // Example stack
-          if let [x, xs @ ..] = &stk[..] {
+          if let Some((x, xs)) = self.state.stack.split_first() {
             force_addr(x, "EXTCODEHASH", |addr| {
               access_and_burn(&addr, || {
-                next();
-                assign("state.stack", xs);
+                next(self, op);
+                self.state.stack = xs.to_vec();
                 fetch_account(&addr, |account| {
                   if account_empty(account) {
                     push(self, (W256(0, 0)));
                   } else {
-                    match &account.bytecode {
-                      Some(bytecode) => push_sym(self, Box::new(keccak(bytecode).unwrap())),
+                    match &account.bytecode() {
+                      Some(bytecode) => push_sym(self, Box::new(keccak(bytecode.clone()).unwrap())),
                       None => push_sym(self, Box::new(Expr::Var(format!("CodeHash({})", addr)))),
                     }
                   }
@@ -1251,7 +1275,7 @@ impl VM {
             match i {
               Expr::Lit(block_number) => {
                 let current_block_number = self.block.number;
-                if block_number + 256 < current_block_number || block_number >= current_block_number {
+                if *block_number + W256(256, 0) < current_block_number || block_number >= &current_block_number {
                   push(self, (W256(0, 0)));
                 } else {
                   let block_number_str = block_number.to_string();
@@ -1451,14 +1475,17 @@ fn access_account_for_gas(vm: &mut VM, addr: Expr) -> bool {
   accessed
 }
 
-/*
-  burnExtcodecopy extAccount (forceLit -> codeSize) continue = do
-    FeeSchedule {..} <- gets (.block.schedule)
-    acc <- accessAccountForGas extAccount
-    let cost = if acc then g_warm_storage_read else g_cold_account_access
-    burn (cost + g_copy * ceilDiv (unsafeInto codeSize) 32) continue
-
-*/
+fn access_storage_for_gas(vm: &mut VM, addr: Expr, key: Expr) -> bool {
+  let accessd_str_keys = vm.tx.substate.accessed_storage_keys;
+  match maybe_lit_word(key) {
+    Some(litword) => {
+      let accessed = accessd_str_keys.contains(&(addr, litword));
+      vm.tx.substate.accessed_storage_keys.insert((addr, litword));
+      accessed
+    }
+    _ => false,
+  }
+}
 
 fn next(vm: &mut VM, op: u8) {
   vm.state.pc += op_size(op);
@@ -1480,7 +1507,7 @@ fn memory_cost(schedule: &FeeSchedule, byte_count: u64) -> u64 {
 }
 
 fn to_word64(expr: Expr) -> Option<u64> {
-  // Implement conversion from Expr<EWord> to u64
+  // Implement conversion from Expr to u64
   unimplemented!()
 }
 
@@ -1787,4 +1814,221 @@ where
       continue_fn(Expr::Lit(x))
     }),
   })
+}
+
+fn is_precompile_addr(addr: &Expr) -> bool {
+  // Dummy implementation
+  false
+}
+
+// Implement the delegateCall function in Rust
+fn delegate_call(
+  vm: &mut VM,
+  this: Contract,
+  gas_given: Gas,
+  x_to: Expr,
+  x_context: Expr,
+  x_value: Expr,
+  x_in_offset: Expr,
+  x_in_size: Expr,
+  x_out_offset: Expr,
+  x_out_size: Expr,
+  xs: Vec<Expr>,
+  continue_fn: impl FnOnce(Expr),
+) {
+  if is_precompile_addr(&x_to) {
+    force_concrete_addr2(&x_to, &x_context, "Cannot call precompile with symbolic addresses", |(x_to, x_context)| {
+      precompiled_contract(
+        vm,
+        &this,
+        gas_given,
+        x_to,
+        x_context,
+        x_value,
+        x_in_offset,
+        x_in_size,
+        x_out_offset,
+        x_out_size,
+        xs,
+      );
+    });
+  } else if x_to == vm.cheat_code {
+    vm.state.stack = xs;
+    cheat(vm, x_in_offset, x_in_size, x_out_offset, x_out_size);
+  } else {
+    call_checks(
+      vm,
+      &this,
+      gas_given,
+      x_context,
+      x_to,
+      x_value,
+      x_in_offset,
+      x_in_size,
+      x_out_offset,
+      x_out_size,
+      xs,
+      |x_gas| {
+        vm.fetch_account(x_to.clone(), |target| match &target.code {
+          Code::UnknownCode => {
+            let pc = vm.state.pc;
+            vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+              pc: pc,
+              msg: "call target has unknown code".to_string(),
+              args: vec![x_to.clone()],
+            }));
+          }
+          _ => {
+            burn(vm, gas_given, || {
+              let calldata = read_memory(vm, x_in_offset, x_in_size);
+              let abi = maybe_lit_word(read_bytes(vm, 4, 0, x_in_offset, 4));
+              let new_context = CallContext {
+                target: x_to.clone(),
+                context: x_context.clone(),
+                offset: x_out_offset,
+                size: x_out_size,
+                codehash: target.codehash.clone(),
+                callreversion: vm0.env.contracts.clone(),
+                substate: vm0.tx.substate.clone(),
+                abi,
+                calldata,
+              };
+              vm.push_trace(Trace);
+              vm.next();
+              vm.push_to(vm1.frames.clone(), Frame { state: vm1.state.clone(), context: new_context.clone() });
+              let new_memory = ConcreteMemory::new(0);
+              vm.state = FrameState {
+                gas: x_gas.clone(),
+                pc: 0,
+                code: clear_init_code(target.code.clone()),
+                code_contract: x_to.clone(),
+                stack: vec![],
+                memory: new_memory,
+                memory_size: 0,
+                returndata: Expr::Mempty,
+                calldata: new_context.calldata.clone(),
+              };
+              continue_fn(x_to);
+            });
+          }
+        });
+      },
+    );
+  }
+}
+
+// Implement the create function in Rust
+fn create(
+  vm: &mut VM,
+  self_addr: Expr,
+  this: Contract,
+  x_size: Expr,
+  x_gas: Gas,
+  x_value: Expr,
+  xs: Vec<Expr>,
+  new_addr: Expr,
+  init_code: Expr,
+) {
+  if x_size > Expr::Lit(vm.block.max_code_size * 2) {
+    vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
+    vm.state.returndata = Expr::Mempty;
+    vm_error(EvmError::MaxInitCodeSizeExceeded(vm0.block.max_code_size * 2, x_size));
+  } else if this.nonce == Some(u128::max_value()) {
+    vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
+    vm.state.returndata = Expr::Mempty;
+    vm.push_trace(Trace);
+    vm.next();
+  } else if vm.frames.len() >= 1024 {
+    vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
+    vm.state.returndata = Expr::Mempty;
+    vm.push_trace(Trace);
+    vm.next();
+  } else if collision(&vm.env.contracts.get(&new_addr)) {
+    vm.burn(x_gas, || {
+      vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
+      vm.state.returndata = Expr::Mempty;
+      vm.modifying(self_addr.clone(), 1);
+      vm.next();
+    });
+  } else {
+    vm.branch(x_value > this.balance, |condition| {
+      if condition {
+        vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
+        vm.state.returndata = Expr::Mempty;
+        vm.push_trace(Trace);
+        vm.next();
+        touch_account(&self_addr.clone());
+        touch_account(&new_addr.clone());
+      } else {
+        vm.burn(x_gas, || match parse_init_code(init_code.clone()) {
+          None => {
+            vm.partial(PartialExec::UnexpectedSymbolicArg(
+              vm0.state.pc,
+              "initcode must have a concrete prefix".to_string(),
+              vec![],
+            ));
+          }
+          Some(c) => {
+            let new_contract = initial_contract(c);
+            let new_context = CallContext {
+              address: new_addr.clone(),
+              codehash: new_contract.codehash.clone(),
+              createreversion: vm0.env.contracts.clone(),
+              substate: vm0.tx.substate.clone(),
+            };
+            vm.modifying(vm.env.contracts.clone(), |contracts| {
+              let old_acc = contracts.get(&new_addr).cloned();
+              let old_bal = old_acc.map_or(Expr::Lit(0), |acc| acc.balance.clone());
+              contracts.insert(new_addr.clone(), Contract { balance: old_bal.clone(), ..new_contract });
+              contracts.insert(self_addr.clone(), Contract { nonce: this.nonce.map(|n| n + 1), ..this });
+            });
+            vm.transfer(self_addr.clone(), new_addr.clone(), x_value.clone());
+            vm.push_trace(Trace);
+            vm.next();
+            let vm1 = vm.get();
+            vm.push_to(vm1.frames.clone(), Frame { state: vm1.state.clone(), context: new_context.clone() });
+            let state = blank_state();
+            vm.state = FrameState {
+              contract: new_addr.clone(),
+              code_contract: new_addr.clone(),
+              code: c.clone(),
+              callvalue: x_value.clone(),
+              caller: self_addr.clone(),
+              gas: x_gas.clone(),
+              ..state
+            };
+          }
+        });
+      }
+    });
+  }
+}
+
+fn force_concrete_addr<F>(vm: &mut VM, n: Expr, msg: String, continue_fn: F)
+where
+  F: FnOnce(Addr),
+{
+  match maybe_lit_addr(n.clone()) {
+    None => {
+      vm.result =
+        Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg { pc: vm.state.pc, msg, args: vec![n] }));
+    }
+    Some(c) => continue_fn(c),
+  }
+}
+
+fn force_concrete_addr2<F>(vm: &mut VM, addrs: (Expr, Expr), msg: String, continue_fn: F)
+where
+  F: FnOnce((Addr, Addr)),
+{
+  match (maybe_lit_addr(addrs.0.clone()), maybe_lit_addr(addrs.1.clone())) {
+    (Some(c), Some(d)) => continue_fn((c, d)),
+    _ => {
+      vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+        pc: vm.state.pc,
+        msg,
+        args: vec![addrs.0, addrs.1],
+      }));
+    }
+  }
 }
