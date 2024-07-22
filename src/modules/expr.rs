@@ -1249,6 +1249,10 @@ fn go_prop(prop: Prop) -> Prop {
   }
 }
 
+pub fn read_storage(w: &Expr, st: &Expr) -> Option<Expr> {
+  todo!()
+}
+
 pub fn write_storage(k: Expr, v: Expr, store: Expr) -> Expr {
   match (k.clone(), v.clone(), store.clone()) {
     (Expr::Lit(key), Expr::Lit(val), store) => match (store) {

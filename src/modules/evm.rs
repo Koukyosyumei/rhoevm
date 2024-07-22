@@ -6,19 +6,19 @@ use std::iter;
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::expr::{
-  add, conc_keccak_simp_expr, emin, geq, gt, index_word, leq, lt, read_byte, read_bytes, read_word_from_bytes, sub,
-  word256_bytes, write_byte, write_storage, write_word,
+  add, conc_keccak_simp_expr, emin, geq, gt, index_word, leq, lt, read_byte, read_bytes, read_storage,
+  read_word_from_bytes, sub, word256_bytes, write_byte, write_storage, write_word,
 };
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::types::{
-  from_list, len_buf, maybe_lit_addr, maybe_lit_byte, pad_left, pad_left_prime, pad_right, to_int, unbox, Addr,
-  BaseState, Block, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame,
-  FrameState, GVar, Gas, Memory, MutableMemory, PartialExec, RuntimeCodeStruct, RuntimeConfig, SubState, Trace,
-  TraceData, Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM, FrameContext
+  from_list, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left, pad_left_prime, pad_right, to_int,
+  unbox, Addr, BaseState, Block, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState,
+  Frame, FrameContext, FrameState, GVar, Gas, Memory, MutableMemory, PartialExec, RuntimeCodeStruct, RuntimeConfig,
+  SubState, Trace, TraceData, Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM,
 };
 
-use super::types::W256;
+use super::types::{ByteString, W256};
 
 fn initial_gas() -> u64 {
   10000 // Placeholder value
@@ -797,7 +797,7 @@ impl VM {
             let acc = access_storage_for_gas(self, self_contract, **x);
             let cost = if acc { fees.g_warm_storage_read } else { fees.g_cold_sload };
             burn(self, cost, || {
-              access_storage(self_contract, **x, |y| {
+              access_storage(self, self_contract, **x, |y| {
                 next(self, op);
                 self.state.stack = std::iter::once(Box::new(y)).chain(xs.iter().cloned()).collect();
               });
@@ -809,9 +809,11 @@ impl VM {
         Op::Jump => {
           if let Some((x, xs)) = self.state.stack.split_first() {
             burn(self, fees.g_mid, || {
-              force_concrete(x, "JUMP: symbolic jumpdest", |x_| match to_int(&x_) {
-                None => EvmError::BadJumpDestination,
-                Some(i) => check_jump(self, i, xs),
+              force_concrete(x, "JUMP: symbolic jumpdest", |x_| {
+                match to_int(&x_) {
+                  None => Err(EvmError::BadJumpDestination),
+                  Some(i) => check_jump(self, i as usize, xs.to_vec()),
+                };
               });
             });
           } else {
@@ -826,12 +828,14 @@ impl VM {
                   let jump = |condition: bool| {
                     if condition {
                       match to_int(&x_) {
-                        None => EvmError::BadJumpDestination,
-                        Some(i) => check_jump(self, i, xs),
+                        None => Err(EvmError::BadJumpDestination),
+                        Some(i) => check_jump(self, i as usize, xs.to_vec()),
                       }
                     } else {
-                      self.state.stack = xs.to_vec();
-                      next(self, op);
+                      Ok({
+                        self.state.stack = xs.to_vec();
+                        next(self, op);
+                      })
                     }
                   };
                   branch(y, jump);
@@ -848,12 +852,12 @@ impl VM {
           // NOTE: this can be done symbolically using unrolling like this:
           //       https://hackage.haskell.org/package/sbv-9.0/docs/src/Data.SBV.Core.Model.html#.%5E
           //       However, it requires symbolic gas, since the gas depends on the exponent
-          let stk = vec![]; // Example stack
-          if let [base, exponent, xs @ ..] = &stk[..] {
-            burn_exp(exponent, || {
-              // next(self, op);
-              // state.stack = Expr::Exp(base.clone(), exponent.clone()) : xs
-            });
+          if let [base, exponent, xs @ ..] = &self.state.stack[..] {
+            //burn_exp(exponent, || {
+            next(self, op);
+            self.state.stack = xs.to_vec();
+            self.state.stack.push(Box::new(Expr::Exp(base.clone(), exponent.clone())));
+            //});
           } else {
             underrun();
           }
@@ -863,9 +867,8 @@ impl VM {
         }
         Op::Create => {
           not_static(self, || {
-            let stk = vec![]; // Example stack
-            if let [x_value, x_offset, x_size, xs @ ..] = &stk[..] {
-              access_memory_range(self, *x_offset, *x_size, || {
+            if let [x_value, x_offset, x_size, xs @ ..] = &self.state.stack[..] {
+              access_memory_range(self, **x_offset, **x_size, || {
                 // let available_gas = use(state.gas);
                 let available_gas = 0; // Example available gas
                 let (cost, gas) = cost_of_create(0, available_gas, x_size, false); // Example fees
@@ -873,7 +876,18 @@ impl VM {
                 let _ = access_account_for_gas(self, &new_addr);
                 burn(self, cost, || {
                   let init_code = read_memory(x_offset, x_size);
-                  create(self, op, self_contract, *this_contract, *x_size, gas, *x_value, vec![], new_addr, init_code);
+                  create(
+                    self,
+                    op,
+                    self_contract,
+                    *this_contract,
+                    **x_size,
+                    gas,
+                    **x_value,
+                    vec![],
+                    new_addr,
+                    init_code,
+                  );
                 });
               });
             } else {
@@ -882,8 +896,9 @@ impl VM {
           });
         }
         Op::Call => {
-          let stk = vec![]; // Example stack
-          if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &stk[..] {
+          if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
+            &self.state.stack[..]
+          {
             branch(true, |gt0| {
               if gt0 {
                 not_static(self, || {});
@@ -895,15 +910,16 @@ impl VM {
                     _ => {
                       delegate_call(
                         self,
+                        op,
                         *this_contract,
                         Gas::Concerete(0),
                         x_to,
                         x_to,
-                        *x_value,
-                        *x_in_offset,
-                        *x_in_size,
-                        *x_out_offset,
-                        *x_out_size,
+                        **x_value,
+                        **x_in_offset,
+                        **x_in_size,
+                        **x_out_offset,
+                        **x_out_size,
                         vec![],
                         |callee| {
                           // let from = fromMaybe(self, vm.config.overrideCaller);
@@ -929,8 +945,9 @@ impl VM {
           }
         }
         Op::Callcode => {
-          let stk = vec![]; // Example stack
-          if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &stk[..] {
+          if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
+            &self.state.stack[..]
+          {
             force_addr(x_to, "unable to determine a call target", |x_to| {
               match 0 {
                 // gasTryFrom(x_gas)
@@ -938,15 +955,16 @@ impl VM {
                 _ => {
                   delegate_call(
                     self,
+                    op,
                     *this_contract,
                     Gas::Concerete(0),
                     x_to,
                     self_contract,
-                    *x_value,
-                    *x_in_offset,
-                    *x_in_size,
-                    *x_out_offset,
-                    *x_out_size,
+                    **x_value,
+                    **x_in_offset,
+                    **x_in_size,
+                    **x_out_offset,
+                    **x_out_size,
                     vec![],
                     |_| {
                       // zoom(state, || {
@@ -966,9 +984,8 @@ impl VM {
           }
         }
         Op::Return => {
-          let stk = vec![]; // Example stack
-          if let [x_offset, x_size, _] = &stk[..] {
-            access_memory_range(self, *x_offset, *x_size, || {
+          if let [x_offset, x_size, _] = &self.state.stack[..] {
+            access_memory_range(self, **x_offset, **x_size, || {
               let output = read_memory(x_offset, x_size);
               let codesize = output.len() as i64;
               let maxsize = 0; // vm.block.maxCodeSize
@@ -993,8 +1010,7 @@ impl VM {
           }
         }
         Op::Delegatecall => {
-          let stk = vec![]; // Example stack
-          if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &stk[..] {
+          if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &self.state.stack[..] {
             match 0 {
               // wordToAddr(x_to)
               0 => {
@@ -1013,15 +1029,16 @@ impl VM {
                   _ => {
                     delegate_call(
                       self,
+                      op,
                       *this_contract,
                       Gas::Concerete(0),
-                      *x_to,
+                      **x_to,
                       self_contract,
                       Expr::Lit(W256(0, 0)),
-                      *x_in_offset,
-                      *x_in_size,
-                      *x_out_offset,
-                      *x_out_size,
+                      **x_in_offset,
+                      **x_in_size,
+                      **x_out_offset,
+                      **x_out_size,
                       vec![],
                       |_| {
                         touch_account(&self_contract);
@@ -1037,14 +1054,13 @@ impl VM {
         }
         Op::Create2 => {
           not_static(self, || {
-            let stk = vec![]; // Example stack
-            if let [x_value, x_offset, x_size, x_salt, xs @ ..] = &stk[..] {
+            if let [x_value, x_offset, x_size, x_salt, xs @ ..] = &self.state.stack[..] {
               // forceConcrete(x_salt, "CREATE2", |x_salt| {
-              access_memory_range(self, *x_offset, *x_size, || {
+              access_memory_range(self, **x_offset, **x_size, || {
                 let available_gas = 0; // use(state.gas)
                 let buf = read_memory(x_offset, x_size);
                 force_concrete_buf(buf, "CREATE2", |init_code| {
-                  let (cost, gas) = cost_of_create(0, available_gas, x_size, true);
+                  let (cost, gas) = (0, Gas::Symbolic); // cost_of_create(0, available_gas, x_size, true);
                   let new_addr = create2_address("self", x_salt, init_code);
                   let _ = access_account_for_gas(self, &new_addr);
                   burn(self, cost, || {
@@ -1053,9 +1069,9 @@ impl VM {
                       op,
                       self_contract,
                       *this_contract,
-                      *x_size,
+                      **x_size,
                       gas,
-                      *x_value,
+                      **x_value,
                       vec![],
                       new_addr,
                       init_code.to_vec(),
@@ -1070,8 +1086,7 @@ impl VM {
           });
         }
         Op::Staticcall => {
-          let stk = vec![]; // Example stack
-          if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &stk[..] {
+          if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &self.state.stack[..] {
             match 0 {
               // wordToAddr(x_to)
               0 => {
@@ -1090,15 +1105,16 @@ impl VM {
                   _ => {
                     delegate_call(
                       self,
+                      op,
                       *this_contract,
                       Gas::Concerete(0),
-                      *x_to,
-                      *x_to,
+                      **x_to,
+                      **x_to,
                       Expr::Lit(W256(0, 0)),
-                      *x_in_offset,
-                      *x_in_size,
-                      *x_out_offset,
-                      *x_out_size,
+                      **x_in_offset,
+                      **x_in_size,
+                      **x_out_offset,
+                      **x_out_size,
                       vec![],
                       |callee| {
                         // zoom(state, || {
@@ -1123,8 +1139,7 @@ impl VM {
         }
         Op::Selfdestruct => {
           not_static(self, || {
-            let stk = vec![]; // Example stack
-            if let [x_to, ..] = &stk[..] {
+            if let [x_to, ..] = &self.state.stack[..] {
               force_addr(x_to, "SELFDESTRUCT", |x_to| {
                 if let Expr::WAddr(_) = x_to {
                   let acc = access_account_for_gas(self, x_to);
@@ -1166,9 +1181,8 @@ impl VM {
           });
         }
         Op::Revert => {
-          let stk = vec![]; // Example stack
-          if let [x_offset, x_size, ..] = &stk[..] {
-            access_memory_range(self, *x_offset, *x_size, || {
+          if let [x_offset, x_size, ..] = &self.state.stack[..] {
+            access_memory_range(self, **x_offset, **x_size, || {
               let output = read_memory(x_offset, x_size);
               finish_frame(self, FrameResult::FrameReverted(output));
             });
@@ -1177,24 +1191,21 @@ impl VM {
           }
         }
         Op::Extcodecopy => {
-          let stk = vec![]; // Example stack
-          if let [ext_account, mem_offset, code_offset, code_size, xs @ ..] = &stk[..] {
+          if let [ext_account, mem_offset, code_offset, code_size, xs @ ..] = &self.state.stack[..] {
             force_addr(ext_account, "EXTCODECOPY", |ext_account| {
-              burn_extcodecopy(self, ext_account, code_size, || {
-                access_memory_range(self, *mem_offset, *code_size, || {
+              burn_extcodecopy(self, ext_account, **code_size, self.block.schedule.clone(), || {
+                access_memory_range(self, **mem_offset, **code_size, || {
                   fetch_account(&ext_account, |account| {
                     next(self, op);
-                    self.state.stack = xs;
+                    self.state.stack = xs.to_vec();
                     if let Some(bytecode) = &account.bytecode() {
-                      copy_bytes_to_memory(bytecode.clone(), *code_size, *code_offset, *mem_offset, self)
+                      copy_bytes_to_memory(bytecode.clone(), **code_size, **code_offset, **mem_offset, self)
                     } else {
-                      //let pc = use("state.pc");
-                      partial(|| {
-                        println!(
-                          "PartialExec::UnexpectedSymbolicArg at {}: Cannot copy from unknown code at {:?}",
-                          pc, ext_account
-                        );
-                      });
+                      self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+                        pc: self.state.pc,
+                        msg: "Cannot copy from unknown code".to_string(),
+                        args: vec![ext_account],
+                      }))
                     }
                   });
                 });
@@ -1205,7 +1216,7 @@ impl VM {
           }
         }
         Op::Returndatasize => {
-          limit_stack(1, || {
+          limit_stack(1, self.state.stack.len(), || {
             burn(self, 0, || {
               next(self, op);
               push_sym(self, Box::new(buf_length(self.state.returndata)));
@@ -1213,33 +1224,32 @@ impl VM {
           });
         }
         Op::Returndatacopy => {
-          let stk = vec![]; // Example stack
-          if let [x_to, x_from, x_size, xs @ ..] = &stk[..] {
+          if let [x_to, x_from, x_size, xs @ ..] = &self.state.stack[..] {
             burn(self, 0, || {
-              access_memory_range(self, *x_to, *x_size, || {
+              access_memory_range(self, **x_to, **x_size, || {
                 next(self, op);
-                self.state.stack = xs;
+                self.state.stack = xs.to_vec();
 
                 let jump = |out_of_bounds: bool| {
                   if out_of_bounds {
                     vm_error("ReturnDataOutOfBounds");
                   } else {
-                    copy_bytes_to_memory(self.state.returndata, *x_size, *x_from, *x_to, self);
+                    copy_bytes_to_memory(self.state.returndata, **x_size, **x_from, **x_to, self);
                   }
                 };
 
-                match (x_from, buf_length(self.state.returndata), x_size) {
+                match (**x_from, buf_length(self.state.returndata), **x_size) {
                   (Expr::Lit(f), Expr::Lit(l), Expr::Lit(sz)) => {
-                    jump(l < *f + *sz || *f + *sz < *f);
+                    jump(l < f + sz || f + sz < f);
                   }
                   _ => {
                     let oob = Expr::LT(
                       Box::new((buf_length(self.state.returndata))),
-                      Box::new(Expr::Add(Box::new(x_from.clone()), Box::new(x_size.clone()))),
+                      Box::new(Expr::Add(Box::new(*x_from.clone()), Box::new(*x_size.clone()))),
                     );
                     let overflow = Expr::LT(
-                      Box::new(Expr::Add(Box::new(x_from.clone()), Box::new(x_size.clone()))),
-                      Box::new(x_from.clone()),
+                      Box::new(Expr::Add(Box::new(*x_from.clone()), Box::new(*x_size.clone()))),
+                      Box::new(*x_from.clone()),
                     );
                     branch(oob | overflow, jump);
                   }
@@ -1251,7 +1261,6 @@ impl VM {
           }
         }
         Op::Extcodehash => {
-          let stk = vec![]; // Example stack
           if let Some((x, xs)) = self.state.stack.split_first() {
             force_addr(x, "EXTCODEHASH", |addr| {
               access_and_burn(&addr, || {
@@ -1274,12 +1283,11 @@ impl VM {
           }
         }
         Op::Blockhash => {
-          let stk = vec![]; // Example stack
-          if let [i, ..] = &stk[..] {
-            match i {
+          if let [i, ..] = &self.state.stack[..] {
+            match **i {
               Expr::Lit(block_number) => {
                 let current_block_number = self.block.number;
-                if *block_number + W256(256, 0) < current_block_number || block_number >= &current_block_number {
+                if block_number + W256(256, 0) < current_block_number || block_number >= current_block_number {
                   push(self, (W256(0, 0)));
                 } else {
                   let block_number_str = block_number.to_string();
@@ -1602,10 +1610,10 @@ fn access_account_for_gas(vm: &mut VM, addr: Expr) -> bool {
 }
 
 fn access_storage_for_gas(vm: &mut VM, addr: Expr, key: Expr) -> bool {
-  let accessd_str_keys = vm.tx.substate.accessed_storage_keys;
+  let accessd_str_keys = &vm.tx.substate.accessed_storage_keys;
   match maybe_lit_word(key) {
     Some(litword) => {
-      let accessed = accessd_str_keys.contains(&(addr, litword));
+      let accessed = accessd_str_keys.contains(&(addr.clone(), litword.clone()));
       vm.tx.substate.accessed_storage_keys.insert((addr, litword));
       accessed
     }
@@ -1882,25 +1890,25 @@ pub fn get_code_location(vm: &VM) -> CodeLocation {
   (vm.state.contract.clone(), vm.state.pc as i64)
 }
 
-pub fn access_storage<F>(addr: Expr, slot: Expr, continue_fn: F)
+pub fn access_storage<F>(vm: &mut VM, addr: Expr, slot: Expr, continue_fn: F)
 where
   F: FnOnce(Expr),
 {
-  let slot_conc = conc_keccak_simp_expr(&slot);
+  let slot_conc = conc_keccak_simp_expr(slot.clone());
 
-  match use_contract(addr.clone())? {
+  match vm.env.contracts.get(&addr) {
     Some(c) => match read_storage(&slot, &c.storage) {
       Some(x) => match read_storage(&slot_conc, &c.storage) {
         Some(_) => continue_fn(x),
-        None => rpc_call(c, slot_conc, continue_fn),
+        None => rpc_call(vm, addr, slot.clone(), c.clone(), slot_conc, continue_fn),
       },
-      None => rpc_call(c, slot_conc, continue_fn),
+      None => rpc_call(vm, addr, slot.clone(), c.clone(), slot_conc, continue_fn),
     },
-    None => fetch_account(&addr.clone(), move |_| access_storage(addr, slot, continue_fn)),
+    None => fetch_account(&addr.clone(), move |_| access_storage(vm, addr, slot, continue_fn)),
   }
 }
 
-fn rpc_call<F>(vm: &mut VM, addr: Expr, c: Contract, slot_conc: Expr, continue_fn: F)
+fn rpc_call<F>(vm: &mut VM, addr: Expr, slot: Expr, c: Contract, slot_conc: Expr, continue_fn: F)
 where
   F: FnOnce(Expr),
 {
@@ -1909,12 +1917,13 @@ where
       vm,
       addr.clone(),
       "cannot read storage from symbolic addresses via rpc".to_string(),
-      move |addr| {
-        force_concrete(&slot_conc.clone(), "cannot read symbolic slots via RPC", move |slot| {
-          match preuse_contract(addr.clone())? {
-            Some(fetched) => match read_storage(&Expr::Lit(slot.clone()), &fetched.storage) {
+      move |addr_| {
+        force_concrete(&slot_conc.clone(), "cannot read symbolic slots via RPC", move |slot_| {
+          let slot_val = if let Expr::Lit(s_) = slot_ { s_ } else { panic!("unexpected expr") };
+          match vm.cache.fetched.get(&addr_) {
+            Some(fetched) => match read_storage(&slot, &fetched.storage) {
               Some(val) => continue_fn(val),
-              None => mk_query(addr, slot, continue_fn),
+              None => mk_query(addr, slot_val.0 as u64, continue_fn),
             },
             None => internal_error("contract marked external not found in cache"),
           }
@@ -1922,8 +1931,7 @@ where
       },
     )
   } else {
-    vm.env.contracts.entry(addr).or_insert(empty_contract()).storage;
-    modify_storage(addr.clone(), slot.clone(), Expr::Lit(W256(0, 0)))?;
+    write_storage(slot, Expr::Lit(W256(0, 0)), vm.env.contracts.entry(addr).or_insert(empty_contract()).storage);
     continue_fn(Expr::Lit(W256(0, 0)))
   }
 }
@@ -1952,6 +1960,7 @@ fn is_precompile_addr(addr: &Expr) -> bool {
 // Implement the delegateCall function in Rust
 fn delegate_call(
   vm: &mut VM,
+  op: u8,
   this: Contract,
   gas_given: Gas,
   x_to: Expr,
@@ -2002,8 +2011,8 @@ fn delegate_call(
       x_out_size,
       xs,
       |x_gas| {
-        vm.fetch_account(x_to.clone(), |target| match &target.code {
-          ContractCode::UnKnownCode => {
+        fetch_account(&x_to.clone(), |target| match &target.code {
+          ContractCode::UnKnownCode(_) => {
             let pc = vm.state.pc;
             vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
               pc: pc,
@@ -2015,21 +2024,21 @@ fn delegate_call(
             burn(vm, gas_given, || {
               let calldata = read_memory(&x_in_offset, &x_in_size);
               let abi = maybe_lit_word(read_bytes(4, 0, x_in_offset, 4));
-              let new_context = CallContext {
+              let new_context = FrameContext::CallContext {
                 target: x_to.clone(),
                 context: x_context.clone(),
                 offset: x_out_offset,
-                size: x_out_size,
-                codehash: target.codehash.clone(),
-                callreversion: vm.env.contracts.clone(),
-                substate: vm.tx.substate.clone(),
-                abi,
-                calldata,
+                //size: x_out_size,
+                //codehash: target.codehash.clone(),
+                //callreversion: vm.env.contracts.clone(),
+                //substate: vm.tx.substate.clone(),
+                //abi,
+                //calldata,
               };
-              vm.push_trace(Trace);
-              vm.next();
-              vm.push_to(vm1.frames.clone(), Frame { state: vm.state.clone(), context: new_context.clone() });
-              let new_memory = ConcreteMemory::new(0);
+              vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context)));
+              next(vm, op);
+              vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
+              let new_memory = Memory::ConcreteMemory(vec![]);
               vm.state = FrameState {
                 gas: x_gas.clone(),
                 pc: 0,
@@ -2066,8 +2075,8 @@ fn create(
 ) {
   let x_size_val = match x_size {
     Expr::Lit(v) => v,
-    _ => W256(0, 0)
-  }
+    _ => W256(0, 0),
+  };
   if x_size_val > vm.block.max_code_size * W256(2, 0) {
     vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
     vm.state.returndata = Expr::Mempty;
@@ -2083,10 +2092,13 @@ fn create(
     vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::CallDepthLimitReached)));
     next(vm, op);
   } else if collision(&vm.env.contracts.get(&new_addr)) {
-    burn(vm, x_gas, || {
+    let x_gas_val = if let Gas::Concerete(g) = x_gas { g } else { 0 };
+    burn(vm, x_gas_val, || {
       vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
       vm.state.returndata = Expr::Mempty;
-      vm.modifying(self_addr.clone(), 1);
+      let n = vm.env.contracts.entry(self_addr).or_insert(empty_contract()).nonce;
+      let new_nonce = if let Some(n_) = n { Some(n_ + 1) } else { None };
+      vm.env.contracts.entry(self_addr).or_insert(empty_contract()).nonce = new_nonce;
       next(vm, op);
     });
   } else {
@@ -2094,7 +2106,10 @@ fn create(
       if condition {
         vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
         vm.state.returndata = Expr::Mempty;
-        vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::BalanceTooLow(Box::new(x_value), Box::new(this.balance)))));
+        vm.traces.push(with_trace_location(
+          vm,
+          TraceData::ErrorTrace(EvmError::BalanceTooLow(Box::new(x_value), Box::new(this.balance))),
+        ));
         next(vm, op);
         touch_account(&self_addr.clone());
         touch_account(&new_addr.clone());
@@ -2124,7 +2139,7 @@ fn create(
             transfer(vm, self_addr.clone(), new_addr.clone(), x_value.clone());
             vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context)));
             next(vm, op);
-            vm.push_to(vm.frames.clone(), Frame { state: vm.state.clone(), context: new_context.clone() });
+            vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
             let state = blank_state();
             vm.state = FrameState {
               contract: new_addr.clone(),
@@ -2217,7 +2232,7 @@ fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError>
 
 fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
   let code = &vm.state.code;
-  let self_addr = vm.state.code_contract;
+  let self_addr = vm.state.code_contract.clone();
   let contract = vm.env.contracts.get(&self_addr).expect("self not found in current contracts");
 
   let op = match code {
@@ -2225,12 +2240,12 @@ fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
     ContractCode::InitCode(ops, _) => ops.get(x).cloned(),
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => ops.get(x).cloned(),
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
-      ops.get(x).and_then(|&byte| maybe_lit_byte(byte))
+      ops.get(x).and_then(|byte| maybe_lit_byte(byte.clone()))
     }
   };
 
   match op {
-    Some(0x5b) if contract.code_ops[contract.op_ix_map[x]].1 == Op::Jumpdest => true,
+    Some(0x5b) if contract.code_ops[contract.op_idx_map[x as usize] as usize].1 == Op::Jumpdest => true,
     _ => false,
   }
 }
@@ -2302,3 +2317,29 @@ fn with_trace_location(vm: &mut VM, trace_data: TraceData) -> Trace {
   let op_ix = current_contract.op_idx_map.get(vm.state.pc).cloned().unwrap_or(0);
   Trace { tracedata: trace_data, contract: current_contract.clone(), op_ix: op_ix }
 }
+
+fn account_empty(c: &Contract) -> bool {
+  let cc = match &c.code {
+    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(rc)) => rc.len() == 0,
+    ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(b)) => false,
+    _ => false,
+  };
+  cc && c.nonce == Some(0) && c.balance == Expr::Lit(W256(1, 0))
+}
+
+fn create2_address(expr: Expr, s: W256, b: ByteString) -> Expr {
+  match (expr, s, b) {
+    (Expr::LitAddr(a), s, b) => todo!(),
+    (Expr::SymAddr(_), _, _) => todo!(),
+    (Expr::GVar(_), _, _) => panic!("Unexpected GVar"),
+    _ => panic!("unexpected expr"),
+  }
+}
+
+/*
+create2Address :: Expr EAddr -> W256 -> ByteString -> EVM t s (Expr EAddr)
+create2Address (LitAddr a) s b = pure $ Concrete.create2Address a s b
+create2Address (SymAddr _) _ _ = freshSymAddr
+create2Address (GVar _) _ _ = internalError "Unexpected GVar"
+
+*/

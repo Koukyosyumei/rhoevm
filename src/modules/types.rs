@@ -15,6 +15,7 @@ use std::vec::Vec; // Assuming state crate is used for the State monad
 
 use crate::modules::etypes::Buf;
 use crate::modules::feeschedule::FeeSchedule;
+use crate::modules::op::Op;
 
 pub type Word8 = u8;
 pub type Word32 = u32;
@@ -1212,89 +1213,6 @@ impl fmt::Display for EvmError {
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
-pub enum Op<A> {
-  OpStop,
-  OpAdd,
-  OpMul,
-  OpSub,
-  OpDiv,
-  OpSdiv,
-  OpMod,
-  OpSmod,
-  OpAddmod,
-  OpMulmod,
-  OpExp,
-  OpSignextend,
-  OpLt,
-  OpGt,
-  OpSlt,
-  OpSgt,
-  OpEq,
-  OpIszero,
-  OpAnd,
-  OpOr,
-  OpXor,
-  OpNot,
-  OpByte,
-  OpShl,
-  OpShr,
-  OpSar,
-  OpSha3,
-  OpAddress,
-  OpBalance,
-  OpOrigin,
-  OpCaller,
-  OpCallvalue,
-  OpCalldataload,
-  OpCalldatasize,
-  OpCalldatacopy,
-  OpCodesize,
-  OpCodecopy,
-  OpGasprice,
-  OpExtcodesize,
-  OpExtcodecopy,
-  OpReturndatasize,
-  OpReturndatacopy,
-  OpExtcodehash,
-  OpBlockhash,
-  OpCoinbase,
-  OpTimestamp,
-  OpNumber,
-  OpPrevRandao,
-  OpGaslimit,
-  OpChainid,
-  OpSelfbalance,
-  OpBaseFee,
-  OpPop,
-  OpMload,
-  OpMstore,
-  OpMstore8,
-  OpSload,
-  OpSstore,
-  OpJump,
-  OpJumpi,
-  OpPc,
-  OpMsize,
-  OpGas,
-  OpJumpdest,
-  OpCreate,
-  OpCall,
-  OpStaticcall,
-  OpCallcode,
-  OpReturn,
-  OpDelegatecall,
-  OpCreate2,
-  OpRevert,
-  OpSelfdestruct,
-  OpDup(u8),
-  OpSwap(u8),
-  OpLog(u8),
-  OpPush0,
-  OpPush(A),
-  OpUnknown(u8),
-}
-
-#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum TraceData {
   EventTrace(Expr, Expr, Vec<Expr>),
   FrameTrace(FrameContext),
@@ -1313,7 +1231,7 @@ pub struct Contract {
   pub codehash: Expr,
   pub op_idx_map: Vec<i32>,
   pub external: bool,
-  pub code_ops: Vec<(i32, Op<Expr>)>,
+  pub code_ops: Vec<(i32, Op)>,
 }
 
 pub fn update_balance(c: Contract, new_balance: Expr) -> Contract {
@@ -1464,12 +1382,12 @@ pub struct Cache {
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum FrameContext {
   CreationContext { address: Expr, codehash: Expr, createversion: ExprContractMap, substate: SubState },
-  CallCOntext { target: Expr, context: Expr, offset: Expr },
+  CallContext { target: Expr, context: Expr, offset: Expr },
 }
 
 pub struct Frame {
-  context: FrameContext,
-  state: FrameState,
+  pub context: FrameContext,
+  pub state: FrameState,
 }
 
 #[derive(Debug, Clone)]
@@ -1844,6 +1762,17 @@ pub fn pad_right(n: usize, mut xs: Vec<u8>) -> Vec<u8> {
   let padding_length = n - xs.len();
   xs.extend(iter::repeat(0u8).take(padding_length));
   xs
+}
+
+pub fn maybe_lit_word(word: Expr) -> Option<W256> {
+  match (word) {
+    Expr::Lit(w) => Some(w),
+    Expr::WAddr(addr) => match *addr {
+      Expr::LitAddr(w) => Some(w),
+      _ => None,
+    },
+    _ => None,
+  }
 }
 
 pub fn maybe_lit_byte(byte: Expr) -> Option<Word8> {

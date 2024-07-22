@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use crate::modules::types::Expr;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Hash)]
 pub enum Op {
   Stop,
   Add,
