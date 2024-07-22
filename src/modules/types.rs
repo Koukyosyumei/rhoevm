@@ -1416,15 +1416,15 @@ pub type EVM<A> = (VM, A);
 
 // Define the Query enum
 pub enum Query {
-  PleaseFetchContract(Addr, BaseState, Arc<dyn Fn(Contract) -> EVM<()> + Send + Sync>),
-  PleaseFetchSlot(Addr, W256, Arc<dyn Fn(W256) -> EVM<()> + Send + Sync>),
-  PleaseAskSMT(Expr, Vec<Prop>, Arc<dyn Fn(BranchCondition) -> EVM<()> + Send + Sync>),
-  PleaseDoFFI(Vec<String>, Arc<dyn Fn(ByteString) -> EVM<()> + Send + Sync>),
+  PleaseFetchContract(Addr, BaseState, Box<dyn Fn(Contract) -> ()>),
+  PleaseFetchSlot(Addr, W256, Box<dyn Fn(W256) -> ()>),
+  PleaseAskSMT(Expr, Vec<Prop>, Box<dyn Fn(BranchCondition) -> ()>),
+  PleaseDoFFI(Vec<String>, Box<dyn Fn(ByteString) -> ()>),
 }
 
 // Define the Choose enum
 pub enum Choose {
-  PleaseChoosePath(Expr, Arc<dyn Fn(bool) -> EVM<()> + Send + Sync>),
+  PleaseChoosePath(Expr, Arc<dyn Fn(bool) -> EVM<()>>),
 }
 
 // Define the Effect enum

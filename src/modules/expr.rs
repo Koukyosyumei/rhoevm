@@ -969,7 +969,7 @@ fn conc_keccak_one_pass(expr: &Expr) -> Expr {
 }
 
 // Main simplify function
-fn simplify(expr: &Expr) -> Expr {
+pub fn simplify(expr: &Expr) -> Expr {
   let simplified = map_expr(go_expr, expr.clone());
   if &simplified == expr {
     simplified

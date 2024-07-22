@@ -3,19 +3,21 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::hash::Hash;
 use std::iter;
+use std::sync::Arc;
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::expr::{
   add, conc_keccak_simp_expr, emin, geq, gt, index_word, leq, lt, read_byte, read_bytes, read_storage,
-  read_word_from_bytes, sub, word256_bytes, write_byte, write_storage, write_word,
+  read_word_from_bytes, simplify, sub, word256_bytes, write_byte, write_storage, write_word,
 };
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::types::{
   from_list, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left, pad_left_prime, pad_right, to_int,
-  unbox, Addr, BaseState, Block, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState,
-  Frame, FrameContext, FrameState, GVar, Gas, Memory, MutableMemory, PartialExec, RuntimeCodeStruct, RuntimeConfig,
-  SubState, Trace, TraceData, Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM,
+  unbox, Addr, BaseState, Block, BranchCondition, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr,
+  ExprSet, ForkState, Frame, FrameContext, FrameState, GVar, Gas, Memory, MutableMemory, PartialExec, Query,
+  RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, Tree, TxState, VMOpts, VMResult, W256W256Map, Word8,
+  VM,
 };
 
 use super::types::{ByteString, W256};
@@ -838,7 +840,7 @@ impl VM {
                       })
                     }
                   };
-                  branch(y, jump);
+                  branch(self, y, jump);
                 });
               });
             } else {
@@ -899,7 +901,7 @@ impl VM {
           if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
             &self.state.stack[..]
           {
-            branch(true, |gt0| {
+            branch(self, true, |gt0| {
               if gt0 {
                 not_static(self, || {});
               } else {
@@ -1913,43 +1915,58 @@ where
   F: FnOnce(Expr),
 {
   if c.external {
-    force_concrete_addr(
-      vm,
-      addr.clone(),
-      "cannot read storage from symbolic addresses via rpc".to_string(),
-      move |addr_| {
-        force_concrete(&slot_conc.clone(), "cannot read symbolic slots via RPC", move |slot_| {
-          let slot_val = if let Expr::Lit(s_) = slot_ { s_ } else { panic!("unexpected expr") };
-          match vm.cache.fetched.get(&addr_) {
-            Some(fetched) => match read_storage(&slot, &fetched.storage) {
-              Some(val) => continue_fn(val),
-              None => mk_query(addr, slot_val.0 as u64, continue_fn),
-            },
-            None => internal_error("contract marked external not found in cache"),
-          }
-        })
-      },
-    )
+    if let Some(addr_) = maybe_lit_addr(addr.clone()) {
+      force_concrete(&slot_conc.clone(), "cannot read symbolic slots via RPC", move |slot_| {
+        let slot_val = if let Expr::Lit(s_) = slot_ { s_ } else { panic!("unexpected expr") };
+        match vm.cache.fetched.clone().get(&addr_) {
+          Some(fetched) => match read_storage(&slot, &fetched.storage) {
+            Some(val) => continue_fn(val),
+            None => mk_query(vm, addr, slot_val.0 as u64, continue_fn),
+          },
+          None => internal_error("contract marked external not found in cache"),
+        }
+      })
+    } else {
+      vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+        pc: vm.state.pc,
+        msg: "cannot read storage from symbolic addresses via rpc".to_string(),
+        args: vec![addr.clone()],
+      }));
+    }
   } else {
-    write_storage(slot, Expr::Lit(W256(0, 0)), vm.env.contracts.entry(addr).or_insert(empty_contract()).storage);
+    vm.env.contracts.entry(addr).or_insert(empty_contract()).storage =
+      write_storage(slot, Expr::Lit(W256(0, 0)), vm.env.contracts.get(&addr).unwrap().storage.clone());
     continue_fn(Expr::Lit(W256(0, 0)))
   }
 }
 
-fn mk_query<F>(addr: Address, slot: u64, continue_fn: F)
+/*
+query :: Query t s -> EVM t s ()
+query = assign #result . Just . HandleEffect . Query
+*/
+
+fn query(q: Query) {}
+
+fn mk_query<F>(vm: &mut VM, addr: Expr, slot: u64, continue_fn: F)
 where
   F: FnOnce(Expr),
 {
-  query(PleaseFetchSlot {
-    addr,
-    slot,
-    callback: Box::new(move |x| {
-      modify_storage(addr.clone(), slot, Expr::Lit(x))?;
-      modify_cache(addr, slot, Expr::Lit(x))?;
-      assign_result(None)?;
+  let a = if let Expr::LitAddr(a_) = addr { a_ } else { panic!("unuexpected expr") };
+  /*
+  let q = Query::PleaseFetchSlot(
+    a,
+    W256(slot as u128, 0),
+    Box::new(|x| {
+      vm.cache.fetched.entry(a).or_insert(empty_contract()).storage =
+        write_storage(Expr::Lit(W256(slot as u128, 0)), Expr::Lit(x), vm.cache.fetched.get(&a).unwrap().storage);
+      // modify_storage(addr.clone(), slot, Expr::Lit(x))?;
+      vm.env.contracts.entry(addr).or_insert(empty_contract()).storage =
+        write_storage(Expr::Lit(W256(slot as u128, 0)), Expr::Lit(x), vm.env.contracts.get(&addr).unwrap().storage);
+      vm.result = None;
       continue_fn(Expr::Lit(x))
     }),
-  })
+  );
+  */
 }
 
 fn is_precompile_addr(addr: &Expr) -> bool {
@@ -2336,10 +2353,41 @@ fn create2_address(expr: Expr, s: W256, b: ByteString) -> Expr {
   }
 }
 
-/*
-create2Address :: Expr EAddr -> W256 -> ByteString -> EVM t s (Expr EAddr)
-create2Address (LitAddr a) s b = pure $ Concrete.create2Address a s b
-create2Address (SymAddr _) _ _ = freshSymAddr
-create2Address (GVar _) _ _ = internalError "Unexpected GVar"
+fn branch<F>(vm: &mut VM, cond: &Expr, continue_fn: F)
+where
+  F: FnOnce(Expr),
+{
+  let loc = codeloc(vm);
+  let pathconds = vm.constraints.clone();
+  let cond_simp = simplify(cond);
+  let cond_simp_conc = conc_keccak_simp_expr(cond_simp);
+}
 
+fn choose_path(loc: CodeLocation, bc: BranchCondition) {
+  match (loc, bc) {
+    (loc, BranchCondition::Case(v)) => {}
+    (loc, BranchCondition::Unknown) => {}
+  }
+}
+
+/*
+  branch cond continue = do
+    loc <- codeloc
+    pathconds <- use #constraints
+    query $ PleaseAskSMT cond pathconds (choosePath loc)
+    where
+      condSimp = Expr.simplify cond
+      condSimpConc = Expr.concKeccakSimpExpr condSimp
+      choosePath loc (Case v) = do
+        assign #result Nothing
+        pushTo #constraints $ if v then Expr.simplifyProp (condSimpConc ./= Lit 0)
+                                   else Expr.simplifyProp (condSimpConc .== Lit 0)
+        (iteration, _) <- use (#iterations % at loc % non (0,[]))
+        stack <- use (#state % #stack)
+        assign (#cache % #path % at (loc, iteration)) (Just v)
+        assign (#iterations % at loc) (Just (iteration + 1, stack))
+        continue v
+      -- Both paths are possible; we ask for more input
+      choosePath loc Unknown =
+        choose . PleaseChoosePath condSimp $ choosePath loc . Case
 */
