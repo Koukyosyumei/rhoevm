@@ -5,14 +5,17 @@ use std::hash::Hash;
 use std::iter;
 use tiny_keccak::{Hasher, Keccak};
 
-use crate::modules::expr::{emin, index_word, read_word_from_bytes, word256_bytes, write_byte, write_word};
+use crate::modules::expr::{
+  add, conc_keccak_simp_expr, emin, geq, gt, index_word, leq, lt, read_byte, read_bytes, read_word_from_bytes, sub,
+  word256_bytes, write_byte, write_storage, write_word,
+};
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::types::{
-  from_list, len_buf, maybe_lit_addr, maybe_lit_byte, pad_left, pad_left_prime, pad_right, unbox, Addr, Block, Cache,
-  CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, FrameState, GVar, Gas, Memory,
-  MutableMemory, PartialExec, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts, VMResult, W256W256Map,
-  Word8, VM,
+  from_list, len_buf, maybe_lit_addr, maybe_lit_byte, pad_left, pad_left_prime, pad_right, to_int, unbox, Addr,
+  BaseState, Block, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame,
+  FrameState, GVar, Gas, Memory, MutableMemory, PartialExec, RuntimeCodeStruct, RuntimeConfig, SubState, Trace,
+  TraceData, Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM, FrameContext
 };
 
 use super::types::W256;
@@ -83,7 +86,7 @@ pub fn make_vm(opts: VMOpts) -> VM {
       tx_reversion: opts.other_contracts.iter().cloned().collect(),
     },
     logs: Vec::new(),
-    // traces: TreePos::<Trace>::new(),
+    traces: Vec::<Trace>::new(),
     block: Block {
       coinbase: opts.coinbase.clone(),
       time_stamp: opts.time_stamp.clone(),
@@ -262,7 +265,7 @@ impl VM {
         }
       }
     } else if self.state.pc >= opslen(&self.state.code) {
-      finish_frame("FrameReturned", vec![]);
+      finish_frame(self, FrameResult::FrameReturned(Expr::Mempty));
     } else {
       let op = match &self.state.code {
         ContractCode::UnKnownCode(_) => panic!("cannot execute unknown code"),
@@ -364,7 +367,7 @@ impl VM {
           }
         }
         Op::Stop => {
-          finish_frame("FrameReturned", vec![]);
+          finish_frame(self, FrameResult::FrameReturned(Expr::Mempty));
         }
         Op::Add => stack_op2(self, fees.g_verylow, "add"),
         Op::Mul => stack_op2(self, fees.g_low, "mul"),
@@ -806,7 +809,7 @@ impl VM {
         Op::Jump => {
           if let Some((x, xs)) = self.state.stack.split_first() {
             burn(self, fees.g_mid, || {
-              force_concrete(x, "JUMP: symbolic jumpdest", |x_| match to_int(x_) {
+              force_concrete(x, "JUMP: symbolic jumpdest", |x_| match to_int(&x_) {
                 None => EvmError::BadJumpDestination,
                 Some(i) => check_jump(self, i, xs),
               });
@@ -822,7 +825,7 @@ impl VM {
                 burn(self, fees.g_high, || {
                   let jump = |condition: bool| {
                     if condition {
-                      match to_int(x_) {
+                      match to_int(&x_) {
                         None => EvmError::BadJumpDestination,
                         Some(i) => check_jump(self, i, xs),
                       }
@@ -870,7 +873,7 @@ impl VM {
                 let _ = access_account_for_gas(self, &new_addr);
                 burn(self, cost, || {
                   let init_code = read_memory(x_offset, x_size);
-                  create(self, self_contract, *this_contract, *x_size, gas, *x_value, vec![], new_addr, init_code);
+                  create(self, op, self_contract, *this_contract, *x_size, gas, *x_value, vec![], new_addr, init_code);
                 });
               });
             } else {
@@ -972,17 +975,17 @@ impl VM {
               let creation = false; // Determine if creation context
               if creation {
                 if codesize > maxsize {
-                  finish_frame(frame_errored("MaxCodeSizeExceeded"));
+                  finish_frame(self, FrameResult::FrameErrored(EvmError::MaxCodeSizeExceeded(codesize, maxsize)));
                 } else {
-                  let frame_returned = burn(0, || finish_frame(FrameResult::Returned(output.clone())));
-                  let frame_errored = finish_frame(frame_errored("InvalidFormat"));
-                  match read_byte(0, output) {
+                  let frame_returned = burn(self, 0, || finish_frame(self, FrameResult::FrameReturned(output.clone())));
+                  let frame_errored = finish_frame(self, FrameResult::FrameErrored(EvmError::InvalidFormat));
+                  match read_byte(Expr::Lit(W256(0, 0)), output) {
                     0xef => frame_errored,
                     _ => frame_returned,
                   }
                 }
               } else {
-                finish_frame(FrameResult::Returned(output));
+                finish_frame(self, FrameResult::FrameReturned(output));
               }
             });
           } else {
@@ -995,10 +998,10 @@ impl VM {
             match 0 {
               // wordToAddr(x_to)
               0 => {
-                let loc = codeloc();
+                let loc = codeloc(self);
                 let msg = "Unable to determine a call target";
                 self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
-                  pc: loc.1,
+                  pc: loc.1 as usize,
                   msg: msg.to_string(),
                   args: vec![],
                 }));
@@ -1047,6 +1050,7 @@ impl VM {
                   burn(self, cost, || {
                     create(
                       self,
+                      op,
                       self_contract,
                       *this_contract,
                       *x_size,
@@ -1071,10 +1075,10 @@ impl VM {
             match 0 {
               // wordToAddr(x_to)
               0 => {
-                let loc = codeloc();
+                let loc = codeloc(self);
                 let msg = "Unable to determine a call target";
                 self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
-                  pc: loc.1,
+                  pc: loc.1 as usize,
                   msg: msg.to_string(),
                   args: vec![],
                 }));
@@ -1166,7 +1170,7 @@ impl VM {
           if let [x_offset, x_size, ..] = &stk[..] {
             access_memory_range(self, *x_offset, *x_size, || {
               let output = read_memory(x_offset, x_size);
-              finish_frame(FrameResult::Reverted(output));
+              finish_frame(self, FrameResult::FrameReverted(output));
             });
           } else {
             underrun();
@@ -1370,8 +1374,130 @@ fn vm_error(error: &str) {
   // Implement VM error handling
 }
 
-fn finish_frame(result: &str, out: Vec<u8>) {
-  // Implement frame finishing logic
+// FrameResult definition
+#[derive(Debug)]
+enum FrameResult {
+  FrameReturned(Expr),
+  FrameReverted(Expr),
+  FrameErrored(EvmError),
+}
+
+// This function defines how to pop the current stack frame in either of the ways specified by 'FrameResult'.
+// It also handles the case when the current stack frame is the only one;
+// in this case, we set the final '_result' of the VM execution.
+fn finish_frame(vm: &mut VM, result: FrameResult) {
+  todo!()
+  /*
+  match vm.frames.as_slice() {
+    // Is the current frame the only one?
+    [] => {
+      match result {
+        FrameResult::FrameReturned(output) => vm.assign_result(Some(VMSuccess(output))),
+        FrameResult::FrameReverted(buffer) => vm.assign_result(Some(VMFailure(Revert(buffer)))),
+        FrameResult::FrameErrored(e) => vm.assign_result(Some(VMFailure(e))),
+      }
+      vm.finalize();
+    }
+    // Are there some remaining frames?
+    [next_frame, remaining_frames @ ..] => {
+      // Insert a debug trace.
+      vm.insert_trace(match result {
+        FrameResult::FrameErrored(e) => Trace::ErrorTrace(e),
+        FrameResult::FrameReverted(e) => Trace::ErrorTrace(Revert(e)),
+        FrameResult::FrameReturned(output) => Trace::ReturnTrace(output, next_frame.context.clone()),
+      });
+      // Pop to the previous level of the debug trace stack.
+      vm.pop_trace();
+
+      // Pop the top frame.
+      vm.assign_frames(remaining_frames.to_vec());
+      // Install the state of the frame to which we shall return.
+      vm.assign_state(next_frame.state.clone());
+
+      // Now dispatch on whether we were creating or calling,
+      // and whether we shall return, revert, or internalError (six cases).
+      match &next_frame.context {
+        // Were we calling?
+        Context::CallContext(_, _, out_offset, out_size, _, _, _, reversion, substate) => {
+          let touched_accounts = vm.use_touched_accounts();
+          let substate_modified = substate.clone().touch_address(3);
+          let revert_contracts = || vm.assign_contracts(reversion.clone());
+          let revert_substate = || vm.assign_substate(substate_modified.clone());
+
+          match result {
+            // Case 1: Returning from a call?
+            FrameResult::FrameReturned(output) => {
+              vm.assign_returndata(output.clone());
+              vm.copy_call_bytes_to_memory(output, *out_size, *out_offset);
+              vm.reclaim_remaining_gas_allowance(&old_vm);
+              vm.push(1);
+            }
+            // Case 2: Reverting during a call?
+            FrameResult::FrameReverted(output) => {
+              revert_contracts();
+              revert_substate();
+              vm.assign_returndata(output.clone());
+              vm.copy_call_bytes_to_memory(output, *out_size, *out_offset);
+              vm.reclaim_remaining_gas_allowance(&old_vm);
+              vm.push(0);
+            }
+            // Case 3: Error during a call?
+            FrameResult::FrameErrored(_) => {
+              revert_contracts();
+              revert_substate();
+              vm.assign_returndata(Expr::mempty());
+              vm.push(0);
+            }
+          }
+        }
+        // Or were we creating?
+        Context::CreationContext(_, _, reversion, substate) => {
+          let creator = vm.use_state_contract();
+          let createe = old_vm.state.contract.clone();
+          let revert_contracts = || vm.assign_contracts(adjust_nonce(&creator, reversion.clone()));
+          let revert_substate = || vm.assign_substate(substate.clone());
+
+          match result {
+            // Case 4: Returning during a creation?
+            FrameResult::FrameReturned(output) => {
+              let on_contract_code = |contract_code| {
+                vm.replace_code(&createe, contract_code);
+                vm.assign_returndata(Expr::mempty());
+                vm.reclaim_remaining_gas_allowance(&old_vm);
+                vm.push_addr(createe.clone());
+              };
+              match output {
+                Expr::ConcreteBuf(bs) => on_contract_code(RuntimeCode::ConcreteRuntimeCode(bs)),
+                _ => match Expr::to_list(&output) {
+                  None => vm.partial(UnexpectedSymbolicArg {
+                    pc: old_vm.state.pc.clone(),
+                    msg: "runtime code cannot have an abstract length".to_string(),
+                    args: vec![wrap(output)],
+                  }),
+                  Some(new_code) => on_contract_code(RuntimeCode::SymbolicRuntimeCode(new_code)),
+                },
+              }
+            }
+            // Case 5: Reverting during a creation?
+            FrameResult::FrameReverted(output) => {
+              revert_contracts();
+              revert_substate();
+              vm.assign_returndata(output.clone());
+              vm.reclaim_remaining_gas_allowance(&old_vm);
+              vm.push(0);
+            }
+            // Case 6: Error during a creation?
+            FrameResult::FrameErrored(_) => {
+              revert_contracts();
+              revert_substate();
+              vm.assign_returndata(Expr::mempty());
+              vm.push(0);
+            }
+          }
+        }
+      }
+    }
+  }*/
 }
 
 fn opslen(code: &ContractCode) -> usize {
@@ -1708,10 +1834,6 @@ fn codelen(cc: &ContractCode) -> Expr {
   }
 }
 
-fn add(a: Expr, b: Expr) -> Expr {
-  Expr::Add(Box::new(a), Box::new(b))
-}
-
 pub fn buf_length(buf: Expr) -> Expr {
   buf_length_env(HashMap::new(), false, buf)
 }
@@ -1778,24 +1900,30 @@ where
   }
 }
 
-fn rpc_call<F>(c: Contract, slot_conc: Expr, continue_fn: F)
+fn rpc_call<F>(vm: &mut VM, addr: Expr, c: Contract, slot_conc: Expr, continue_fn: F)
 where
   F: FnOnce(Expr),
 {
   if c.external {
-    force_concrete_addr(c.addr.clone(), "cannot read storage from symbolic addresses via rpc", move |addr| {
-      force_concrete(slot_conc.clone(), "cannot read symbolic slots via RPC", move |slot| {
-        match preuse_contract(addr.clone())? {
-          Some(fetched) => match read_storage(&Expr::Lit(slot.clone()), &fetched.storage) {
-            Some(val) => continue_fn(val),
-            None => mk_query(addr, slot, continue_fn),
-          },
-          None => internal_error("contract marked external not found in cache"),
-        }
-      })
-    })
+    force_concrete_addr(
+      vm,
+      addr.clone(),
+      "cannot read storage from symbolic addresses via rpc".to_string(),
+      move |addr| {
+        force_concrete(&slot_conc.clone(), "cannot read symbolic slots via RPC", move |slot| {
+          match preuse_contract(addr.clone())? {
+            Some(fetched) => match read_storage(&Expr::Lit(slot.clone()), &fetched.storage) {
+              Some(val) => continue_fn(val),
+              None => mk_query(addr, slot, continue_fn),
+            },
+            None => internal_error("contract marked external not found in cache"),
+          }
+        })
+      },
+    )
   } else {
-    modify_storage(c.addr.clone(), slot.clone(), Expr::Lit(W256(0, 0)))?;
+    vm.env.contracts.entry(addr).or_insert(empty_contract()).storage;
+    modify_storage(addr.clone(), slot.clone(), Expr::Lit(W256(0, 0)))?;
     continue_fn(Expr::Lit(W256(0, 0)))
   }
 }
@@ -1837,21 +1965,26 @@ fn delegate_call(
   continue_fn: impl FnOnce(Expr),
 ) {
   if is_precompile_addr(&x_to) {
-    force_concrete_addr2(&x_to, &x_context, "Cannot call precompile with symbolic addresses", |(x_to, x_context)| {
-      precompiled_contract(
-        vm,
-        &this,
-        gas_given,
-        x_to,
-        x_context,
-        x_value,
-        x_in_offset,
-        x_in_size,
-        x_out_offset,
-        x_out_size,
-        xs,
-      );
-    });
+    force_concrete_addr2(
+      vm,
+      (x_to, x_context),
+      "Cannot call precompile with symbolic addresses".to_string(),
+      |(x_to, x_context)| {
+        precompiled_contract(
+          vm,
+          &this,
+          gas_given,
+          x_to,
+          x_context,
+          x_value,
+          x_in_offset,
+          x_in_size,
+          x_out_offset,
+          x_out_size,
+          xs,
+        );
+      },
+    );
   } else if x_to == vm.cheat_code {
     vm.state.stack = xs;
     cheat(vm, x_in_offset, x_in_size, x_out_offset, x_out_size);
@@ -1870,7 +2003,7 @@ fn delegate_call(
       xs,
       |x_gas| {
         vm.fetch_account(x_to.clone(), |target| match &target.code {
-          Code::UnknownCode => {
+          ContractCode::UnKnownCode => {
             let pc = vm.state.pc;
             vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
               pc: pc,
@@ -1880,22 +2013,22 @@ fn delegate_call(
           }
           _ => {
             burn(vm, gas_given, || {
-              let calldata = read_memory(vm, x_in_offset, x_in_size);
-              let abi = maybe_lit_word(read_bytes(vm, 4, 0, x_in_offset, 4));
+              let calldata = read_memory(&x_in_offset, &x_in_size);
+              let abi = maybe_lit_word(read_bytes(4, 0, x_in_offset, 4));
               let new_context = CallContext {
                 target: x_to.clone(),
                 context: x_context.clone(),
                 offset: x_out_offset,
                 size: x_out_size,
                 codehash: target.codehash.clone(),
-                callreversion: vm0.env.contracts.clone(),
-                substate: vm0.tx.substate.clone(),
+                callreversion: vm.env.contracts.clone(),
+                substate: vm.tx.substate.clone(),
                 abi,
                 calldata,
               };
               vm.push_trace(Trace);
               vm.next();
-              vm.push_to(vm1.frames.clone(), Frame { state: vm1.state.clone(), context: new_context.clone() });
+              vm.push_to(vm1.frames.clone(), Frame { state: vm.state.clone(), context: new_context.clone() });
               let new_memory = ConcreteMemory::new(0);
               vm.state = FrameState {
                 gas: x_gas.clone(),
@@ -1907,6 +2040,7 @@ fn delegate_call(
                 memory_size: 0,
                 returndata: Expr::Mempty,
                 calldata: new_context.calldata.clone(),
+                ..vm.state
               };
               continue_fn(x_to);
             });
@@ -1920,6 +2054,7 @@ fn delegate_call(
 // Implement the create function in Rust
 fn create(
   vm: &mut VM,
+  op: u8,
   self_addr: Expr,
   this: Contract,
   x_size: Expr,
@@ -1929,64 +2064,67 @@ fn create(
   new_addr: Expr,
   init_code: Expr,
 ) {
-  if x_size > Expr::Lit(vm.block.max_code_size * 2) {
+  let x_size_val = match x_size {
+    Expr::Lit(v) => v,
+    _ => W256(0, 0)
+  }
+  if x_size_val > vm.block.max_code_size * W256(2, 0) {
     vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
     vm.state.returndata = Expr::Mempty;
-    vm_error(EvmError::MaxInitCodeSizeExceeded(vm0.block.max_code_size * 2, x_size));
-  } else if this.nonce == Some(u128::max_value()) {
+    // vm_error(EvmError::MaxInitCodeSizeExceeded(vm0.block.max_code_size * 2, x_size));
+  } else if this.nonce == Some(u64::max_value()) {
     vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
     vm.state.returndata = Expr::Mempty;
-    vm.push_trace(Trace);
-    vm.next();
+    vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::NonceOverflow)));
+    next(vm, op);
   } else if vm.frames.len() >= 1024 {
     vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
     vm.state.returndata = Expr::Mempty;
-    vm.push_trace(Trace);
-    vm.next();
+    vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::CallDepthLimitReached)));
+    next(vm, op);
   } else if collision(&vm.env.contracts.get(&new_addr)) {
-    vm.burn(x_gas, || {
+    burn(vm, x_gas, || {
       vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
       vm.state.returndata = Expr::Mempty;
       vm.modifying(self_addr.clone(), 1);
-      vm.next();
+      next(vm, op);
     });
   } else {
     vm.branch(x_value > this.balance, |condition| {
       if condition {
         vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
         vm.state.returndata = Expr::Mempty;
-        vm.push_trace(Trace);
-        vm.next();
+        vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::BalanceTooLow(Box::new(x_value), Box::new(this.balance)))));
+        next(vm, op);
         touch_account(&self_addr.clone());
         touch_account(&new_addr.clone());
       } else {
-        vm.burn(x_gas, || match parse_init_code(init_code.clone()) {
+        burn(vm, x_gas, || match parse_init_code(init_code.clone()) {
           None => {
-            vm.partial(PartialExec::UnexpectedSymbolicArg(
-              vm0.state.pc,
-              "initcode must have a concrete prefix".to_string(),
-              vec![],
-            ));
+            vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+              pc: vm.state.pc,
+              msg: "initcode must have a concrete prefix".to_string(),
+              args: vec![],
+            }));
           }
           Some(c) => {
             let new_contract = initial_contract(c);
-            let new_context = CallContext {
+            let new_context = FrameContext::CreationContext {
               address: new_addr.clone(),
               codehash: new_contract.codehash.clone(),
-              createreversion: vm0.env.contracts.clone(),
-              substate: vm0.tx.substate.clone(),
+              createversion: vm.env.contracts.clone(),
+              substate: vm.tx.substate.clone(),
             };
-            vm.modifying(vm.env.contracts.clone(), |contracts| {
-              let old_acc = contracts.get(&new_addr).cloned();
-              let old_bal = old_acc.map_or(Expr::Lit(0), |acc| acc.balance.clone());
-              contracts.insert(new_addr.clone(), Contract { balance: old_bal.clone(), ..new_contract });
-              contracts.insert(self_addr.clone(), Contract { nonce: this.nonce.map(|n| n + 1), ..this });
-            });
-            vm.transfer(self_addr.clone(), new_addr.clone(), x_value.clone());
-            vm.push_trace(Trace);
-            vm.next();
-            let vm1 = vm.get();
-            vm.push_to(vm1.frames.clone(), Frame { state: vm1.state.clone(), context: new_context.clone() });
+
+            let old_acc = vm.env.contracts.get(&new_addr).cloned();
+            let old_bal = old_acc.map_or(Expr::Lit(W256(0, 0)), |acc| acc.balance.clone());
+            vm.env.contracts.insert(new_addr.clone(), Contract { balance: old_bal.clone(), ..new_contract });
+            vm.env.contracts.insert(self_addr.clone(), Contract { nonce: this.nonce.map(|n| n + 1), ..this });
+
+            transfer(vm, self_addr.clone(), new_addr.clone(), x_value.clone());
+            vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context)));
+            next(vm, op);
+            vm.push_to(vm.frames.clone(), Frame { state: vm.state.clone(), context: new_context.clone() });
             let state = blank_state();
             vm.state = FrameState {
               contract: new_addr.clone(),
@@ -2031,4 +2169,136 @@ where
       }));
     }
   }
+}
+
+fn codeloc(vm: &VM) -> CodeLocation {
+  (vm.state.contract.clone(), vm.state.pc as i64)
+}
+
+fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError> {
+  match &vm.state.code {
+    ContractCode::InitCode(ops, buf_) => match *buf_.clone() {
+      Expr::ConcreteBuf(b) if b.len() == 0 => {
+        if (is_valid_jump_dest(vm, x)) {
+          vm.state.stack = xs;
+          vm.state.pc = x;
+          return Ok(());
+        } else {
+          return Err(EvmError::BadJumpDestination);
+        }
+        // return Ok(());
+      }
+      _ => {
+        if x > ops.len() {
+          vm.result = Some(VMResult::Unfinished((PartialExec::JumpIntoSymbolicCode { pc: vm.state.pc, jump_dst: x })));
+          return Ok(());
+        } else {
+          if (is_valid_jump_dest(vm, x)) {
+            vm.state.stack = xs;
+            vm.state.pc = x;
+            return Ok(());
+          } else {
+            return Err(EvmError::BadJumpDestination);
+          }
+        }
+      }
+    },
+    _ => {
+      if (is_valid_jump_dest(vm, x)) {
+        vm.state.stack = xs;
+        vm.state.pc = x;
+        return Ok(());
+      } else {
+        return Err(EvmError::BadJumpDestination);
+      }
+    }
+  }
+}
+
+fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
+  let code = &vm.state.code;
+  let self_addr = vm.state.code_contract;
+  let contract = vm.env.contracts.get(&self_addr).expect("self not found in current contracts");
+
+  let op = match code {
+    ContractCode::UnKnownCode(_) => panic!("Cannot analyze jumpdests for unknown code"),
+    ContractCode::InitCode(ops, _) => ops.get(x).cloned(),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => ops.get(x).cloned(),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
+      ops.get(x).and_then(|&byte| maybe_lit_byte(byte))
+    }
+  };
+
+  match op {
+    Some(0x5b) if contract.code_ops[contract.op_ix_map[x]].1 == Op::Jumpdest => true,
+    _ => false,
+  }
+}
+
+// Handles transfers of value between accounts
+fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr) -> Result<(), EvmError> {
+  if let Expr::Lit(W256(0, 0)) = val {
+    return Ok(());
+  }
+
+  let src_balance = vm.env.contracts.get(&src).map(|contract| contract.balance.clone());
+  let dst_balance = vm.env.contracts.get(&dst).map(|contract| contract.balance.clone());
+  let base_state = vm.config.base_state;
+
+  let mkc = match base_state {
+    BaseState::AbstractBase => unknown_contract,
+    BaseState::EmptyBase => |addr| empty_contract(),
+  };
+
+  match (src_balance, dst_balance) {
+    (Some(src_bal), Some(_)) => {
+      if gt(val.clone(), src_bal) {
+        Err(EvmError::BalanceTooLow(Box::new(val), Box::new(src_bal)))
+      } else {
+        vm.env.contracts.entry(src).or_insert(empty_contract()).balance = sub(src_bal, val.clone());
+        vm.env.contracts.entry(dst).or_insert(empty_contract()).balance = add(dst_balance.unwrap(), val.clone());
+        Ok(())
+      }
+    }
+    (None, Some(_)) => match src {
+      Expr::LitAddr(_) => {
+        vm.env.contracts.insert(src.clone(), mkc(src.clone()));
+        transfer(vm, src, dst, val)
+      }
+      Expr::SymAddr(_) => {
+        let pc = vm.state.pc;
+        vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+          pc,
+          msg: "Attempting to transfer eth from a symbolic address that is not present in the state".to_string(),
+          args: vec![src],
+        }));
+        Ok(())
+      }
+      Expr::GVar(_) => panic!("Unexpected GVar"),
+      _ => panic!("unexpected error"),
+    },
+    (_, None) => match dst {
+      Expr::LitAddr(_) => {
+        vm.env.contracts.insert(dst.clone(), mkc(dst.clone()));
+        transfer(vm, src, dst, val)
+      }
+      Expr::SymAddr(_) => {
+        let pc = vm.state.pc;
+        vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+          pc: pc,
+          msg: "Attempting to transfer eth to a symbolic address that is not present in the state".to_string(),
+          args: vec![dst],
+        }));
+        Ok(())
+      }
+      Expr::GVar(_) => panic!("Unexpected GVar"),
+      _ => panic!("unexpected error"),
+    },
+  }
+}
+
+fn with_trace_location(vm: &mut VM, trace_data: TraceData) -> Trace {
+  let current_contract = vm.env.contracts.get(&vm.state.code_contract).unwrap();
+  let op_ix = current_contract.op_idx_map.get(vm.state.pc).cloned().unwrap_or(0);
+  Trace { tracedata: trace_data, contract: current_contract.clone(), op_ix: op_ix }
 }

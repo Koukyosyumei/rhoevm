@@ -114,6 +114,25 @@ impl W256 {
 }
 
 impl W256 {
+  pub fn to_int(&self) -> Option<i32> {
+    let max_int: W256 = W256(i32::MAX as u128, 0);
+    if self <= &max_int {
+      let W256(n, _) = *self;
+      Some(n as i32)
+    } else {
+      None
+    }
+  }
+}
+
+pub fn to_int(e: &Expr) -> Option<i32> {
+  match e {
+    Expr::Lit(v) => v.to_int(),
+    _ => None,
+  }
+}
+
+impl W256 {
   pub fn from_bytes(bytes: Vec<u8>) -> Self {
     let padded_bytes = pad_left_prime_vec(32, bytes);
 
@@ -1338,17 +1357,17 @@ pub enum RuntimeCodeStruct {
 // Define the Trace struct
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct Trace {
-  op_ix: i32,           // Operation index
-  contract: Contract,   // Contract associated with the trace
-  tracedata: TraceData, // Data associated with the trace
+  pub op_ix: i32,           // Operation index
+  pub contract: Contract,   // Contract associated with the trace
+  pub tracedata: TraceData, // Data associated with the trace
 }
 
 // Define TraceContext struct
 #[derive(Debug, Clone, PartialEq, Hash)]
 struct TraceContext {
-  traces: Vec<Trace>,         // Assuming Trace is a suitable type like struct Trace;
-  contracts: ExprContractMap, // Using HashMap for contracts
-  labels: AddrStringMap,      // Using HashMap for labels
+  pub traces: Vec<Trace>,         // Assuming Trace is a suitable type like struct Trace;
+  pub contracts: ExprContractMap, // Using HashMap for contracts
+  pub labels: AddrStringMap,      // Using HashMap for labels
 }
 
 // Implement Monoid trait for TraceContext
@@ -1383,6 +1402,7 @@ impl Memory {
 }
 
 // The "registers" of the VM along with memory and data stack
+#[derive(Clone)]
 pub struct FrameState {
   pub contract: Expr,
   pub code_contract: Expr,
@@ -1421,7 +1441,7 @@ pub struct VM {
   pub block: Block,
   pub tx: TxState,
   pub logs: Vec<Expr>,
-  // pub traces: TreePos<Trace>,
+  pub traces: Vec<Trace>,
   pub cache: Cache,
   pub burned: Gas,
   pub constraints: Vec<Prop>,

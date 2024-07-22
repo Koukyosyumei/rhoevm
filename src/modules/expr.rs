@@ -884,7 +884,7 @@ pub fn is_lit_byte(e: &Expr) -> bool {
 }
 
 // Concretize & simplify Keccak expressions until fixed-point.
-fn conc_keccak_simp_expr(expr: Expr) -> Expr {
+pub fn conc_keccak_simp_expr(expr: Expr) -> Expr {
   until_fixpoint(|e| map_expr(|expr: &Expr| conc_keccak_one_pass(expr), e.clone()), expr)
 }
 
@@ -985,7 +985,7 @@ fn go_expr(expr: &Expr) -> Expr {
     Expr::Success(a, b, c, d) => Expr::Success(simplify_props(a.clone()), b.clone(), c.clone(), d.clone()),
 
     Expr::SLoad(slot, store) => read_storage(slot.clone(), store.clone()),
-    Expr::SStore(slot, val, store) => write_storage(slot.clone(), val.clone(), store.clone()),
+    Expr::SStore(slot, val, store) => write_storage(*slot.clone(), *val.clone(), *store.clone()),
 
     Expr::ReadWord(idx_, buf_) => match (**idx_, **buf_) {
       (Expr::Lit(_), _) => simplify_reads(expr),
@@ -1020,7 +1020,7 @@ fn go_expr(expr: &Expr) -> Expr {
         if let Expr::WriteWord(w_off, value, box Expr::ConcreteBuf(buf)) = **src {
           let n = if let Expr::Lit(n) = src_off { n } else { W256(0, 0) };
           let sz = if let Expr::Lit(sz) = size { sz } else { W256(0, 0) };
-          if n + sz >= n && n + sz >= sz && n + sz <= max_bytes() {
+          if n + sz >= n && n + sz >= sz && n + sz <= MAX_BYTES {
             let simplified_buf = pad_and_concat_buffers(n + sz, &buf);
             return copy_slice(
               src_off.clone(),
@@ -1246,5 +1246,35 @@ fn go_prop(prop: Prop) -> Prop {
     }
     o @ Prop::PEq(ref l, ref r) if l == r => Prop::PBool(true),
     _ => prop,
+  }
+}
+
+pub fn write_storage(k: Expr, v: Expr, store: Expr) -> Expr {
+  match (k.clone(), v.clone(), store.clone()) {
+    (Expr::Lit(key), Expr::Lit(val), store) => match (store) {
+      Expr::ConcreteStore(s) => {
+        let mut s_ = s.clone();
+        s_.insert(key, val);
+        Expr::ConcreteStore(s_)
+      }
+      _ => Expr::SStore(Box::new(k), Box::new(v), Box::new(store)),
+    },
+    (key, val, Expr::SStore(key_, val_, prev)) => {
+      if (key == *key_) {
+        Expr::SStore(Box::new(key), Box::new(val), prev)
+      } else {
+        match (key.clone(), *key_.clone()) {
+          (Expr::Lit(k), Expr::Lit(k_)) => {
+            if (k > k_) {
+              Expr::SStore(key_, val_, Box::new(write_storage(key, val, *prev)))
+            } else {
+              Expr::SStore(Box::new(key), Box::new(val), Box::new(store))
+            }
+          }
+          _ => Expr::SStore(Box::new(key), Box::new(val), Box::new(store)),
+        }
+      }
+    }
+    _ => Expr::SStore(Box::new(k), Box::new(v), Box::new(store)),
   }
 }
