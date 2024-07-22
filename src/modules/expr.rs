@@ -987,18 +987,26 @@ fn go_expr(expr: &Expr) -> Expr {
     Expr::SLoad(slot, store) => read_storage(slot.clone(), store.clone()),
     Expr::SStore(slot, val, store) => write_storage(slot.clone(), val.clone(), store.clone()),
 
-    Expr::ReadWord(box Expr::Lit(_), _) => simplify_reads(expr),
-    Expr::ReadWord(idx, buf) => read_word(*idx.clone(), *buf.clone()),
-    Expr::ReadByte(box Expr::Lit(_), _) => simplify_reads(expr),
-    Expr::ReadByte(idx, buf) => read_byte(*idx.clone(), *buf.clone()),
+    Expr::ReadWord(idx_, buf_) => match (**idx_, **buf_) {
+      (Expr::Lit(_), _) => simplify_reads(expr),
+      (idx, buf) => read_word(idx.clone(), buf.clone()),
+    },
 
-    Expr::BufLength(buf) => buf_length(buf.clone()),
+    Expr::ReadByte(idx_, buf_) => match (**idx_, **buf_) {
+      (Expr::Lit(_), _) => simplify_reads(expr),
+      (idx, buf) => read_byte(idx.clone(), buf.clone()),
+    },
 
-    Expr::WriteWord(box Expr::Lit(idx), val, box Expr::ConcreteBuf(b)) if *idx < max_bytes() => {
-      let simplified_buf = pad_and_concat_buffers(*idx, &b);
-      write_word((Expr::Lit(*idx)), *val.clone(), (Expr::ConcreteBuf(simplified_buf)))
-    }
-    Expr::WriteWord(a, b, c) => write_word(*a.clone(), *b.clone(), *c.clone()),
+    Expr::BufLength(buf) => buf_length(**buf),
+
+    Expr::WriteWord(a_, b_, c_) => match (**a_, **b_, **c_) {
+      (Expr::Lit(idx), val, Expr::ConcreteBuf(b)) if idx < MAX_BYTES => {
+        let simplified_buf = pad_and_concat_buffers(*idx, &b);
+        write_word((Expr::Lit(idx)), val.clone(), (Expr::ConcreteBuf(simplified_buf)))
+      }
+      (a, b, c) => write_word(a.clone(), b.clone(), c.clone()),
+    },
+
     Expr::WriteByte(a, b, c) => write_byte(*a.clone(), *b.clone(), *c.clone()),
 
     Expr::CopySlice(src_off_, dst_off_, size_, src_, dst_) => match (**src_off_, **dst_off_, **size_, **src_, **dst_) {
@@ -1028,15 +1036,17 @@ fn go_expr(expr: &Expr) -> Expr {
     },
     Expr::IndexWord(a, b) => index_word(*a.clone(), *b.clone()),
 
-    Expr::LT(box Expr::Lit(a), box Expr::Lit(b)) => {
-      if a < b {
-        Expr::Lit(1)
-      } else {
-        Expr::Lit(W256(0, 0))
+    Expr::LT(a_, b_) => match (**a_, **b_) {
+      (Expr::Lit(a), Expr::Lit(b)) => {
+        if a < b {
+          Expr::Lit(W256(1, 0))
+        } else {
+          Expr::Lit(W256(0, 0))
+        }
       }
-    }
-    Expr::LT(_, box Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
-    Expr::LT(a, b) => lt(*a.clone(), *b.clone()),
+      (a_, Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
+      (a, b) => lt(a.clone(), b.clone()),
+    },
 
     Expr::GT(a, b) => gt(*a.clone(), *b.clone()),
     Expr::GEq(a, b) => geq(*a.clone(), *b.clone()),
@@ -1135,13 +1145,14 @@ fn simplify_prop(prop: Prop) -> Prop {
 }
 
 fn go_prop(prop: Prop) -> Prop {
+  let v: W256 = W256::from_dec_str("1461501637330902918203684832716283019655932542975").unwrap();
   match prop {
     // LT/LEq comparisons
     Prop::PGT(a, b) => Prop::PLT(b, a),
     Prop::PGEq(a, b) => Prop::PLEq(b, a),
 
     Prop::PLEq(Expr::Lit(W256(0, 0)), _) => Prop::PBool(true),
-    Prop::PLEq(Expr::WAddr(_), Expr::Lit(W256(1461501637330902918203684832716283019655932542975))) => Prop::PBool(true),
+    Prop::PLEq(Expr::WAddr(_), Expr::Lit(v)) => Prop::PBool(true),
     Prop::PLEq(_, Expr::Lit(x)) if x == max_lit() => Prop::PBool(true),
 
     Prop::PLEq(Expr::Var(_), Expr::Lit(val)) if val == max_lit() => Prop::PBool(true),

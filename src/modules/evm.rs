@@ -10,8 +10,8 @@ use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::types::{
   from_list, len_buf, maybe_lit_addr, maybe_lit_byte, pad_left, pad_left_prime, pad_right, unbox, Addr, Block, Cache,
-  CodeLocation, Contract, ContractCode, Env, Expr, ExprSet, ForkState, FrameState, GVar, Gas, Memory, MutableMemory,
-  RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts, W256W256Map, Word8, VM,
+  CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, FrameState, GVar, Gas, Memory,
+  MutableMemory, RuntimeCodeStruct, RuntimeConfig, SubState, TxState, VMOpts, W256W256Map, Word8, VM,
 };
 
 use super::types::W256;
@@ -793,7 +793,7 @@ impl VM {
             let acc = access_storage_for_gas(self, x);
             let cost = if acc { fees.g_warm_storage_read } else { fees.g_cold_sload };
             burn(self, cost, || {
-              access_storage(self, x, |y| {
+              access_storage(self, **x, |y| {
                 next(self, op);
                 self.state.stack = std::iter::once(Box::new(y)).chain(xs.iter().cloned()).collect();
               });
@@ -806,7 +806,7 @@ impl VM {
           if let Some((x, xs)) = self.state.stack.split_first() {
             burn(self, fees.g_mid, || {
               force_concrete(x, "JUMP: symbolic jumpdest", |x_| match to_int(x_) {
-                None => vm_error(BadJumpDestination),
+                None => EvmError::BadJumpDestination,
                 Some(i) => check_jump(self, i, xs),
               });
             });
@@ -822,7 +822,7 @@ impl VM {
                   let jump = |condition: bool| {
                     if condition {
                       match to_int(x_) {
-                        None => vm_error(BadJumpDestination),
+                        None => EvmError::BadJumpDestination,
                         Some(i) => check_jump(self, i, xs),
                       }
                     } else {
@@ -858,16 +858,16 @@ impl VM {
           // stackOp2(g_low, Expr::Sex);
         }
         Op::Create => {
-          not_static(|| {
+          not_static(self, || {
             let stk = vec![]; // Example stack
             if let [x_value, x_offset, x_size, xs @ ..] = &stk[..] {
-              access_memory_range(x_offset, x_size, || {
+              access_memory_range(self, *x_offset, *x_size, || {
                 // let available_gas = use(state.gas);
                 let available_gas = 0; // Example available gas
                 let (cost, gas) = cost_of_create(0, available_gas, x_size, false); // Example fees
                 let new_addr = create_address("self", 0); // Example self and nonce
-                let _ = access_account_for_gas(&new_addr);
-                burn(cost, || {
+                let _ = access_account_for_gas(self, &new_addr);
+                burn(self, cost, || {
                   let init_code = read_memory(x_offset, x_size);
                   create("self", "this", x_size, gas, x_value, vec![], new_addr, init_code);
                 });
@@ -882,7 +882,7 @@ impl VM {
           if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &stk[..] {
             branch(true, |gt0| {
               if gt0 {
-                not_static(|| {});
+                not_static(self, || {});
               } else {
                 force_addr(x_to, "unable to determine a call target", |x_to| {
                   match 0 {
@@ -962,7 +962,7 @@ impl VM {
         Op::Return => {
           let stk = vec![]; // Example stack
           if let [x_offset, x_size, _] = &stk[..] {
-            access_memory_range(x_offset, x_size, || {
+            access_memory_range(self, *x_offset, *x_size, || {
               let output = read_memory(x_offset, x_size);
               let codesize = output.len() as i64;
               let maxsize = 0; // vm.block.maxCodeSize
@@ -1008,7 +1008,7 @@ impl VM {
                       0,
                       x_to,
                       "self",
-                      &Expr::Lit(0),
+                      &Expr::Lit(W256(0, 0)),
                       x_in_offset,
                       x_in_size,
                       x_out_offset,
@@ -1027,18 +1027,18 @@ impl VM {
           }
         }
         Op::Create2 => {
-          not_static(|| {
+          not_static(self, || {
             let stk = vec![]; // Example stack
             if let [x_value, x_offset, x_size, x_salt, xs @ ..] = &stk[..] {
               // forceConcrete(x_salt, "CREATE2", |x_salt| {
-              access_memory_range(x_offset, x_size, || {
+              access_memory_range(self, *x_offset, *x_size, || {
                 let available_gas = 0; // use(state.gas)
                 let buf = read_memory(x_offset, x_size);
                 force_concrete_buf(buf, "CREATE2", |init_code| {
                   let (cost, gas) = cost_of_create(0, available_gas, x_size, true);
                   let new_addr = create2_address("self", x_salt, init_code);
-                  let _ = access_account_for_gas(&new_addr);
-                  burn(cost, || {
+                  let _ = access_account_for_gas(self, &new_addr);
+                  burn(self, cost, || {
                     create("self", "this", x_size, gas, x_value, vec![], new_addr, init_code.to_vec());
                   });
                 });
@@ -1071,7 +1071,7 @@ impl VM {
                       0,
                       x_to,
                       x_to,
-                      &Expr::Lit(0),
+                      &Expr::Lit(W256(0, 0)),
                       x_in_offset,
                       x_in_size,
                       x_out_offset,
@@ -1079,7 +1079,7 @@ impl VM {
                       vec![],
                       |callee| {
                         // zoom(state, || {
-                        //     assign(callvalue, Expr::Lit(0));
+                        //     assign(callvalue, Expr::Lit(W256(0, 0)));
                         //     assign(caller, fromMaybe(self, vm.config.overrideCaller));
                         //     assign(contract, callee);
                         //     assign(static, true);
@@ -1099,12 +1099,12 @@ impl VM {
           }
         }
         Op::Selfdestruct => {
-          not_static(|| {
+          not_static(self, || {
             let stk = vec![]; // Example stack
             if let [x_to, ..] = &stk[..] {
               force_addr(x_to, "SELFDESTRUCT", |x_to| {
                 if let Expr::WAddr(_) = x_to {
-                  let acc = access_account_for_gas(x_to);
+                  let acc = access_account_for_gas(self, x_to);
                   let cost = if acc { 0 } else { 0 }; // g_cold_account_access
                   let funds = 0; // this.balance
                   let recipient_exists = false; // accountExists(x_to, vm)
@@ -1114,13 +1114,13 @@ impl VM {
                     } else {
                       0
                     };
-                    burn(0 + c_new + cost, || {
+                    burn(self, 0 + c_new + cost, || {
                       selfdestruct("self");
                       touch_account(x_to);
                       if has_funds {
                         // fetchAccount(x_to, |_| {
                         //     env.contracts[x_to].balance += funds;
-                        //     env.contracts[self].balance = Expr::Lit(0);
+                        //     env.contracts[self].balance = Expr::Lit(W256(0, 0));
                         //     doStop();
                         // });
                       } else {
@@ -1143,7 +1143,7 @@ impl VM {
         Op::Revert => {
           let stk = vec![]; // Example stack
           if let [x_offset, x_size, ..] = &stk[..] {
-            access_memory_range(x_offset, x_size, || {
+            access_memory_range(self, *x_offset, *x_size, || {
               let output = read_memory(x_offset, x_size);
               finish_frame(FrameResult::Reverted(output));
             });
@@ -1155,9 +1155,9 @@ impl VM {
           let stk = vec![]; // Example stack
           if let [ext_account, mem_offset, code_offset, code_size, xs @ ..] = &stk[..] {
             force_addr(ext_account, "EXTCODECOPY", |ext_account| {
-              burn_extcodecopy(ext_account, code_size, || {
-                access_memory_range(mem_offset, code_size, || {
-                  fetch_account(ext_account, |account| {
+              burn_extcodecopy(self, ext_account, code_size, || {
+                access_memory_range(self, *mem_offset, *code_size, || {
+                  fetch_account(&ext_account, |account| {
                     next();
                     assign("state.stack", xs);
                     if let Some(bytecode) = &account.bytecode {
@@ -1178,17 +1178,17 @@ impl VM {
         }
         Op::Returndatasize => {
           limit_stack(1, || {
-            burn(0, || {
+            burn(self, 0, || {
               next();
-              push_sym(Expr::Lit(buf_length(&vm.state.returndata)));
+              push_sym(self, Box::new(buf_length(self.state.returndata)));
             });
           });
         }
         Op::Returndatacopy => {
           let stk = vec![]; // Example stack
           if let [x_to, x_from, x_size, xs @ ..] = &stk[..] {
-            burn(0, || {
-              access_memory_range(x_to, x_size, || {
+            burn(self, 0, || {
+              access_memory_range(self, *x_to, *x_size, || {
                 next();
                 assign("state.stack", xs);
 
@@ -1196,20 +1196,20 @@ impl VM {
                   if out_of_bounds {
                     vm_error("ReturnDataOutOfBounds");
                   } else {
-                    copy_bytes_to_memory(&vm.state.returndata, x_size, x_from, x_to);
+                    copy_bytes_to_memory(self.state.returndata, *x_size, *x_from, *x_to, self);
                   }
                 };
 
-                match (x_from, buf_length(&vm.state.returndata), x_size) {
+                match (x_from, buf_length(self.state.returndata), x_size) {
                   (Expr::Lit(f), Expr::Lit(l), Expr::Lit(sz)) => {
-                    jump(l < f + sz || f + sz < f);
+                    jump(l < *f + *sz || *f + *sz < *f);
                   }
                   _ => {
-                    let oob = Expr::Lt(
-                      Box::new(Expr::Lit(buf_length(&vm.state.returndata))),
+                    let oob = Expr::LT(
+                      Box::new((buf_length(self.state.returndata))),
                       Box::new(Expr::Add(Box::new(x_from.clone()), Box::new(x_size.clone()))),
                     );
-                    let overflow = Expr::Lt(
+                    let overflow = Expr::LT(
                       Box::new(Expr::Add(Box::new(x_from.clone()), Box::new(x_size.clone()))),
                       Box::new(x_from.clone()),
                     );
@@ -1226,16 +1226,16 @@ impl VM {
           let stk = vec![]; // Example stack
           if let [x, xs @ ..] = &stk[..] {
             force_addr(x, "EXTCODEHASH", |addr| {
-              access_and_burn(addr, || {
+              access_and_burn(&addr, || {
                 next();
                 assign("state.stack", xs);
-                fetch_account(addr, |account| {
+                fetch_account(&addr, |account| {
                   if account_empty(account) {
-                    push(Expr::Lit(0));
+                    push(self, (W256(0, 0)));
                   } else {
                     match &account.bytecode {
-                      Some(bytecode) => push_sym(keccak(bytecode)),
-                      None => push_sym(Expr::Var(format!("CodeHash({})", addr))),
+                      Some(bytecode) => push_sym(self, Box::new(keccak(bytecode).unwrap())),
+                      None => push_sym(self, Box::new(Expr::Var(format!("CodeHash({})", addr)))),
                     }
                   }
                 });
@@ -1250,15 +1250,15 @@ impl VM {
           if let [i, ..] = &stk[..] {
             match i {
               Expr::Lit(block_number) => {
-                let current_block_number = vm.block.number;
+                let current_block_number = self.block.number;
                 if block_number + 256 < current_block_number || block_number >= current_block_number {
-                  push(Expr::Lit(0));
+                  push(self, (W256(0, 0)));
                 } else {
                   let block_number_str = block_number.to_string();
-                  push(keccak_str(&block_number_str));
+                  push(self, keccak_str(&block_number_str));
                 }
               }
-              _ => push(Expr::Var(format!("BlockHash({:?})", i))),
+              _ => push(self, Expr::Var(format!("BlockHash({:?})", i))),
             }
           } else {
             underrun();
@@ -1747,13 +1747,13 @@ where
       },
       None => rpc_call(c, slot_conc, continue_fn),
     },
-    None => fetch_account(addr.clone(), move |_| access_storage(addr, slot, continue_fn)),
+    None => fetch_account(&addr.clone(), move |_| access_storage(addr, slot, continue_fn)),
   }
 }
 
-fn rpc_call<F>(c: Contract, slot_conc: Expr, continue_fn: F) -> EvmResult<()>
+fn rpc_call<F>(c: Contract, slot_conc: Expr, continue_fn: F)
 where
-  F: FnOnce(Expr) -> EvmResult<()>,
+  F: FnOnce(Expr),
 {
   if c.external {
     force_concrete_addr(c.addr.clone(), "cannot read storage from symbolic addresses via rpc", move |addr| {
@@ -1773,9 +1773,9 @@ where
   }
 }
 
-fn mk_query<F>(addr: Address, slot: u64, continue_fn: F) -> EvmResult<()>
+fn mk_query<F>(addr: Address, slot: u64, continue_fn: F)
 where
-  F: FnOnce(Expr) -> EvmResult<()>,
+  F: FnOnce(Expr),
 {
   query(PleaseFetchSlot {
     addr,

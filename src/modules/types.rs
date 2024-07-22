@@ -1,3 +1,5 @@
+use num_bigint::BigInt;
+use num_traits::cast::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -30,6 +32,28 @@ pub type Nibble = i32;
 
 pub type ByteString = Vec<u8>;
 pub type FunctionSelector = u32;
+
+impl W256 {
+  // Method to convert a decimal string to W256
+  pub fn from_dec_str(s: &str) -> Result<Self, &'static str> {
+    // Parse the decimal string into a BigInt
+    let big_int = BigInt::from_str(s).map_err(|_| "Invalid decimal string")?;
+
+    // Split the BigInt into two u128 values
+    let (lower, upper) = Self::split_bigint(big_int);
+
+    // Create and return a W256 instance
+    Ok(W256(lower, upper))
+  }
+
+  // Helper method to split BigInt into two u128 values
+  fn split_bigint(value: BigInt) -> (u128, u128) {
+    let mask: BigInt = BigInt::from(u128::MAX);
+    let lower = (&value & &mask).to_u128().unwrap_or(0);
+    let upper = ((&value >> 128 as u64) & mask).to_u128().unwrap_or(0);
+    (lower, upper)
+  }
+}
 
 // Implement Display for W256
 impl fmt::Display for W256 {
