@@ -1,3 +1,4 @@
+use byteorder::{BigEndian, ReadBytesExt};
 use num_bigint::BigInt;
 use num_traits::cast::ToPrimitive;
 use serde::{Deserialize, Serialize};
@@ -5,13 +6,16 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::fmt::{self};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
+use std::io::Cursor;
 use std::iter;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Rem, Shl, Shr, Sub};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::vec::Vec; // Assuming state crate is used for the State monad
+use tiny_keccak::{Hasher, Keccak};
+use tokio::io::AsyncWriteExt;
 
 use crate::modules::etypes::Buf;
 use crate::modules::feeschedule::FeeSchedule;
@@ -73,7 +77,7 @@ impl Default for W256 {
 
 // Implement the Hash trait
 impl Hash for W256 {
-  fn hash<H: Hasher>(&self, state: &mut H) {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
     self.0.hash(state);
     self.1.hash(state);
   }
@@ -163,7 +167,7 @@ impl fmt::Display for W512 {
 
 // Implement Hash for W512
 impl Hash for W512 {
-  fn hash<H: Hasher>(&self, state: &mut H) {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
     self.0.hash(state);
     self.1.hash(state);
   }
@@ -789,7 +793,7 @@ impl PartialEq for Expr {
 }
 
 impl Hash for Expr {
-  fn hash<H: Hasher>(&self, state: &mut H) {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
     use Expr::*;
 
     match self {
@@ -1631,7 +1635,7 @@ macro_rules! impl_hashset_traits {
     impl Eq for $name {}
 
     impl Hash for $name {
-      fn hash<H: Hasher>(&self, state: &mut H) {
+      fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         let vec: Vec<_> = self.0.iter().collect();
         // vec.sort();
         for elem in vec {
@@ -1714,7 +1718,7 @@ macro_rules! impl_hashmap_traits {
     impl Eq for $name {}
 
     impl Hash for $name {
-      fn hash<H: Hasher>(&self, state: &mut H) {
+      fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         let vec: Vec<_> = self.0.iter().collect();
         // vec.sort_by(|a, b| a.0.cmp(b.0)); // Sort by keys
         for (key, value) in vec {
@@ -1803,4 +1807,65 @@ where
     }
     x = x_new;
   }
+}
+
+pub fn word256(xs: &ByteString) -> W256 {
+  // If the length of xs is 1, optimize for one-byte pushes
+  if xs.len() == 1 {
+    let value = xs[0] as u128;
+    return W256(0, value);
+  }
+
+  // Otherwise, pad the input and deserialize
+  let padded_xs = pad_left(32, xs.to_vec());
+  let mut cursor = Cursor::new(padded_xs);
+
+  let a = cursor.read_u64::<BigEndian>().unwrap() as u128;
+  let b = cursor.read_u64::<BigEndian>().unwrap() as u128;
+  let c = cursor.read_u64::<BigEndian>().unwrap() as u128;
+  let d = cursor.read_u64::<BigEndian>().unwrap() as u128;
+
+  W256((a << 64) | b, (c << 64) | d)
+}
+
+pub fn word256_bytes(w256: W256) -> Vec<u8> {
+  /*
+  let W256(a, b) = w256;
+  let mut buffer = Vec::with_capacity(32);
+
+  // Encode each 128-bit portion
+  buffer.write_u128(a);
+  buffer.write_u128(b);
+
+  buffer*/
+  let W256(high, low) = w256;
+  let mut buffer = Vec::with_capacity(32);
+  buffer.extend_from_slice(&high.to_be_bytes());
+  buffer.extend_from_slice(&low.to_be_bytes());
+  buffer
+}
+
+pub fn keccak_bytes(input: &ByteString) -> ByteString {
+  let mut keccak = Keccak::v256();
+  keccak.update(input);
+  let mut result = vec![0u8; 32]; // Keccak-256 produces a 256-bit (32-byte) hash
+  keccak.finalize(&mut result);
+  result
+}
+
+pub fn keccak(buf: Expr) -> Result<Expr, &'static str> {
+  match buf {
+    Expr::ConcreteBuf(bs) => {
+      let hash_result = keccak_bytes(&bs);
+      let byte_array: [u8; 4] = hash_result[..4].try_into().map_err(|_| "Conversion failed")?;
+      // Convert the byte array to a u32 (assuming the bytes are in little-endian order)
+      Ok(Expr::Lit(W256(u32::from_le_bytes(byte_array) as u128, 0)))
+    }
+    _ => Ok(Expr::Keccak(Box::new(buf))), // Assuming Expr has a variant for Keccak
+  }
+}
+
+pub fn keccak_prime(input: &ByteString) -> W256 {
+  let hash_result = keccak_bytes(input);
+  word256(&hash_result[..32].to_vec())
 }

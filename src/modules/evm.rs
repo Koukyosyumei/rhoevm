@@ -7,17 +7,17 @@ use std::sync::Arc;
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::expr::{
-  add, conc_keccak_simp_expr, emin, eq, geq, gt, index_word, iszero, leq, lt, read_byte, read_bytes, read_storage,
-  read_word_from_bytes, simplify, sub, word256_bytes, write_byte, write_storage, write_word,
+  add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, geq, gt, index_word, iszero, leq, lt,
+  read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, sub, write_byte, write_storage, write_word,
 };
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::types::{
-  from_list, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left, pad_left_prime, pad_right, to_int,
-  unbox, Addr, BaseState, Block, BranchCondition, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr,
-  ExprSet, ForkState, Frame, FrameContext, FrameState, GVar, Gas, Memory, MutableMemory, PartialExec, Query,
-  RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, Tree, TxState, VMOpts, VMResult, W256W256Map, Word8,
-  VM,
+  from_list, keccak, keccak_bytes, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left,
+  pad_left_prime, pad_right, to_int, unbox, word256_bytes, Addr, BaseState, Block, BranchCondition, Cache,
+  CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, GVar,
+  Gas, Memory, MutableMemory, PartialExec, Query, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, Tree,
+  TxState, VMOpts, VMResult, W256W256Map, Word8, VM, W64,
 };
 
 use super::types::{ByteString, W256};
@@ -874,8 +874,8 @@ impl VM {
                 // let available_gas = use(state.gas);
                 let available_gas = 0; // Example available gas
                 let (cost, gas) = (0, Gas::Symbolic); //cost_of_create(0, available_gas, x_size, false); // Example fees
-                let new_addr = create_address("self", 0); // Example self and nonce
-                let _ = access_account_for_gas(self, &new_addr);
+                let new_addr = create_address(self, self_contract, this_contract.nonce); // Example self and nonce
+                let _ = access_account_for_gas(self, new_addr);
                 burn(self, cost, || {
                   let init_code = read_memory(x_offset, x_size);
                   create(
@@ -1063,8 +1063,9 @@ impl VM {
                 let buf = read_memory(x_offset, x_size);
                 force_concrete_buf(buf, "CREATE2", |init_code| {
                   let (cost, gas) = (0, Gas::Symbolic); // cost_of_create(0, available_gas, x_size, true);
-                  let new_addr = create2_address("self", x_salt, init_code);
-                  let _ = access_account_for_gas(self, &new_addr);
+                  let x_salt_val = if let Expr::Lit(v) = **x_salt { v } else { panic!("unexpected expr") };
+                  let new_addr = create2_address(self, self_contract, x_salt_val, init_code);
+                  let _ = access_account_for_gas(self, new_addr);
                   burn(self, cost, || {
                     create(
                       self,
@@ -1786,40 +1787,15 @@ fn to_buf(code: &ContractCode) -> Option<&[u8]> {
 
 // Define other necessary structs, enums, and functions here...
 
-fn keccak_bytes(input: &[u8]) -> Vec<u8> {
-  let mut keccak = Keccak::v256();
-  keccak.update(input);
-  let mut result = vec![0u8; 32]; // Keccak-256 produces a 256-bit (32-byte) hash
-  keccak.finalize(&mut result);
-  result
-}
-
 fn word32(xs: &[u8]) -> u32 {
   xs.iter().enumerate().fold(0, |acc, (n, &x)| acc | (u32::from(x) << (8 * n)))
-}
-
-pub fn keccak(buf: Expr) -> Result<Expr, &'static str> {
-  match buf {
-    Expr::ConcreteBuf(bs) => {
-      let hash_result = keccak_bytes(&bs);
-      let byte_array: [u8; 4] = hash_result[..4].try_into().map_err(|_| "Conversion failed")?;
-      // Convert the byte array to a u32 (assuming the bytes are in little-endian order)
-      Ok(Expr::Lit(W256(u32::from_le_bytes(byte_array) as u128, 0)))
-    }
-    _ => Ok(Expr::Keccak(Box::new(buf))), // Assuming Expr has a variant for Keccak
-  }
-}
-
-pub fn keccak_prime(input: &[u8]) -> Vec<u8> {
-  let hash_result = keccak_bytes(input);
-  hash_result[..32].to_vec()
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct FunctionSelector(u32); // Define FunctionSelector appropriately
 
 pub fn abi_keccak(input: &[u8]) -> FunctionSelector {
-  let hash_result = keccak_bytes(input);
+  let hash_result = keccak_bytes(&input.to_vec());
   let selector_bytes = &hash_result[..4];
   let selector = word32(selector_bytes);
   FunctionSelector(selector)
@@ -2012,8 +1988,8 @@ fn delegate_call(
         );
       },
     );
-  } else if x_to == vm.cheat_code {
-    vm.state.stack = xs;
+  } else if x_to == cheat_code() {
+    vm.state.stack = xs.into_iter().map(Box::new).collect();
     cheat(vm, x_in_offset, x_in_size, x_out_offset, x_out_size);
   } else {
     call_checks(
@@ -2351,22 +2327,6 @@ fn account_empty(c: &Contract) -> bool {
   cc && c.nonce == Some(0) && c.balance == Expr::Lit(W256(1, 0))
 }
 
-/*
-createAddress :: Expr EAddr -> Maybe W64 -> EVM t s (Expr EAddr)
-createAddress (LitAddr a) (Just n) = pure $ Concrete.createAddress a n
-createAddress (GVar _) _ = internalError "Unexpected GVar"
-createAddress _ _ = freshSymAddr
-*/
-
-fn create2_address(expr: Expr, s: W256, b: ByteString) -> Expr {
-  match (expr, s, b) {
-    (Expr::LitAddr(a), s, b) => todo!(),
-    (Expr::SymAddr(_), _, _) => todo!(),
-    (Expr::GVar(_), _, _) => panic!("Unexpected GVar"),
-    _ => panic!("unexpected expr"),
-  }
-}
-
 fn branch<F>(vm: &mut VM, cond: &Expr, continue_fn: F)
 where
   F: FnOnce(bool) -> Result<(), EvmError>,
@@ -2399,34 +2359,36 @@ fn collision(c_: Option<Contract>) -> bool {
   }
 }
 
-/*
-collision :: Maybe Contract -> Bool
-collision c' = case c' of
-  Just c -> c.nonce /= Just 0 || case c.code of
-    RuntimeCode (ConcreteRuntimeCode "") -> False
-    RuntimeCode (SymbolicRuntimeCode b) -> not $ null b
-    _ -> True
-  Nothing -> False
-*/
+fn create_address(vm: &mut VM, e: Expr, n_: Option<W64>) -> Expr {
+  match (e, n_) {
+    (Expr::LitAddr(a), Some(n)) => create_address_(a, n),
+    (Expr::GVar(_), _) => panic!("unexpected GVar"),
+    _ => fresh_sym_addr(vm),
+  }
+}
+
+fn create2_address(vm: &mut VM, e: Expr, s: W256, b: &ByteString) -> Expr {
+  match (e, s, b) {
+    (Expr::LitAddr(a), s, b) => create2_address_(a, s, b.to_vec()),
+    (Expr::SymAddr(_), _, _) => fresh_sym_addr(vm),
+    (Expr::GVar(_), _, _) => panic!("unexpected GVar"),
+    _ => fresh_sym_addr(vm),
+  }
+}
 
 /*
-  branch cond continue = do
-    loc <- codeloc
-    pathconds <- use #constraints
-    query $ PleaseAskSMT cond pathconds (choosePath loc)
-    where
-      condSimp = Expr.simplify cond
-      condSimpConc = Expr.concKeccakSimpExpr condSimp
-      choosePath loc (Case v) = do
-        assign #result Nothing
-        pushTo #constraints $ if v then Expr.simplifyProp (condSimpConc ./= Lit 0)
-                                   else Expr.simplifyProp (condSimpConc .== Lit 0)
-        (iteration, _) <- use (#iterations % at loc % non (0,[]))
-        stack <- use (#state % #stack)
-        assign (#cache % #path % at (loc, iteration)) (Just v)
-        assign (#iterations % at loc) (Just (iteration + 1, stack))
-        continue v
-      -- Both paths are possible; we ask for more input
-      choosePath loc Unknown =
-        choose . PleaseChoosePath condSimp $ choosePath loc . Case
+create2Address :: Expr EAddr -> W256 -> ByteString -> EVM t s (Expr EAddr)
+create2Address (LitAddr a) s b = pure $ Concrete.create2Address a s b
+create2Address (SymAddr _) _ _ = freshSymAddr
+create2Address (GVar _) _ _ = internalError "Unexpected GVar"
 */
+
+fn fresh_sym_addr(vm: &mut VM) -> Expr {
+  vm.env.fresh_address += 1;
+  let n = vm.env.fresh_address;
+  Expr::SymAddr(format!("freshSymAddr {}", n))
+}
+
+fn cheat_code() -> Expr {
+  Expr::LitAddr(keccak_prime(&"hevm cheat code".as_bytes().to_vec()))
+}

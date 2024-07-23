@@ -8,6 +8,7 @@ pub mod feeschedule;
 pub mod fetch;
 pub mod format;
 pub mod op;
+pub mod rlp;
 pub mod transactions;
 pub mod traversals;
 pub mod types;

@@ -1,10 +1,15 @@
 use core::panic;
 use std::{clone, cmp::min};
 
+use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{map_expr, map_prop};
-use crate::modules::types::{maybe_lit_addr, maybe_lit_byte, pad_right, until_fixpoint, Expr, Prop, W256};
+use crate::modules::types::{
+  keccak, keccak_prime, maybe_lit_addr, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, Prop,
+  W256, W64,
+};
 
-use super::evm::{buf_length, keccak};
+use super::evm::buf_length;
+use super::types::{word256, ByteString};
 // ** Constants **
 
 const MAX_LIT: W256 = W256(0xffffffffffffffffffffffffffffffff, 0xffffffffffffffffffffffffffffffff);
@@ -719,17 +724,6 @@ pub fn write_word(offset: Expr, value: Expr, buf: Expr) -> Expr {
   }
 }
 
-pub fn word256_bytes(val: W256) -> Vec<u8> {
-  let W256(low, high) = val;
-  let mut bytes = Vec::with_capacity(32); // Each u128 is 16 bytes
-
-  // Convert each u128 to bytes and extend the vector
-  bytes.extend_from_slice(&low.to_be_bytes());
-  bytes.extend_from_slice(&high.to_be_bytes());
-
-  bytes
-}
-
 pub fn copy_slice(src_offset: Expr, dst_offset: Expr, size: Expr, src: Expr, dst: Expr) -> Expr {
   match (src_offset.clone(), dst_offset.clone(), size.clone(), src.clone(), dst.clone()) {
     // Copies from empty buffers
@@ -1281,4 +1275,20 @@ pub fn write_storage(k: Expr, v: Expr, store: Expr) -> Expr {
     }
     _ => Expr::SStore(Box::new(k), Box::new(v), Box::new(store)),
   }
+}
+
+pub fn create_address_(a: Addr, n: W64) -> Expr {
+  Expr::LitAddr(keccak_prime(&rlp_list(vec![rlp_addr_full(a), rlp_word_256(W256(n as u128, 0))])))
+}
+
+pub fn create2_address_(a: Addr, s: W256, b: ByteString) -> Expr {
+  let prefix = [0xff];
+  let addr_bytes = word256_bytes(a);
+  let salt_bytes = word256_bytes(s);
+  let code_hash_bytes = word256_bytes(keccak_prime(&b));
+
+  let data: Vec<u8> = [&prefix[..], &addr_bytes[..], &salt_bytes[..], &code_hash_bytes[..]].concat();
+
+  let hash = keccak_prime(&data);
+  Expr::LitAddr(hash)
 }
