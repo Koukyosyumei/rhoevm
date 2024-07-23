@@ -1,4 +1,5 @@
 use core::panic;
+use std::collections::HashSet;
 use std::{clone, cmp::min};
 
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
@@ -1144,7 +1145,7 @@ fn simplify_prop(prop: Prop) -> Prop {
 
 fn go_prop(prop: Prop) -> Prop {
   let v: W256 = W256::from_dec_str("1461501637330902918203684832716283019655932542975").unwrap();
-  match prop {
+  match prop.clone() {
     // LT/LEq comparisons
     Prop::PGT(a, b) => Prop::PLT(b, a),
     Prop::PGEq(a, b) => Prop::PLEq(b, a),
@@ -1159,7 +1160,7 @@ fn go_prop(prop: Prop) -> Prop {
     Prop::PLEq(a, Expr::Max(_, b)) if a == *b => Prop::PBool(true),
     Prop::PLEq(Expr::Sub(a, b), c) if *a == c => Prop::PLEq(*b, *a),
 
-    Prop::PLT(a, b) => match (a, b) {
+    Prop::PLT(a, b) => match (a, b.clone()) {
       (Expr::Var(_), Expr::Lit(W256(0, 0))) => Prop::PBool(false),
       (Expr::Lit(l), Expr::Lit(r)) => Prop::PBool(l < r),
       (Expr::Max(a_, b_), Expr::Lit(c)) => match *a_ {
@@ -1240,9 +1241,15 @@ fn go_prop(prop: Prop) -> Prop {
         (Expr::Sub(a, b), Expr::Lit(W256(0, 0))) => Prop::PEq(*a, *b),
         (Expr::LT(a, b), Expr::Lit(W256(0, 0))) => Prop::PLEq(*b, *a),
         (Expr::Lit(l), Expr::Lit(r)) => Prop::PBool(l == r),
+        (l, r) => {
+          if l == r {
+            Prop::PBool(true)
+          } else {
+            Prop::PEq(l, r)
+          }
+        }
       }
     }
-    o @ Prop::PEq(ref l, ref r) if l == r => Prop::PBool(true),
     _ => prop,
   }
 }
@@ -1295,4 +1302,36 @@ pub fn create2_address_(a: Addr, s: W256, b: ByteString) -> Expr {
 
   let hash = keccak_prime(&data);
   Expr::LitAddr(hash)
+}
+
+// Function to flatten PAnd
+fn flatten_props(props: Vec<Prop>) -> Vec<Prop> {
+  let mut result = Vec::new();
+
+  for prop in props {
+    match prop {
+      Prop::PAnd(x1, x2) => {
+        result.push(*x1);
+        result.push(*x2);
+      }
+      x => result.push(x),
+    }
+  }
+
+  result
+}
+
+// Function to remove redundant props
+fn rem_redundant_props(props: Vec<Prop>) -> Vec<Prop> {
+  // Filter out PBool(true)
+  let filtered: Vec<Prop> = props.into_iter().filter(|x| *x != Prop::PBool(true)).collect();
+
+  // Check if PBool(false) is present
+  if filtered.iter().any(|x| *x == Prop::PBool(false)) {
+    vec![Prop::PBool(false)] // Return only PBool(false) if it exists
+  } else {
+    // Use HashSet to remove duplicates
+    let unique: HashSet<Prop> = filtered.into_iter().collect();
+    unique.into_iter().collect()
+  }
 }
