@@ -2106,7 +2106,7 @@ fn create(
     Expr::Lit(v) => v,
     _ => W256(0, 0),
   };
-  if x_size_val > vm.block.max_code_size * W256(2, 0) {
+  if x_size_val > vm.block.max_code_size.clone() * W256(2, 0) {
     vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
     vm.state.returndata = Expr::Mempty;
     // vm_error(EvmError::MaxInitCodeSizeExceeded(vm0.block.max_code_size * 2, x_size));
@@ -2122,70 +2122,69 @@ fn create(
     next(vm, op);
   } else if collision(vm.env.contracts.get(&new_addr).cloned()) {
     let x_gas_val = if let Gas::Concerete(g) = x_gas { g } else { 0 };
-    burn(vm, x_gas_val, || {
+    burn(vm, x_gas_val, || {});
+    vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
+    vm.state.returndata = Expr::Mempty;
+    let n = vm.env.contracts.entry(self_addr.clone()).or_insert(empty_contract()).nonce;
+    let new_nonce = if let Some(n_) = n { Some(n_ + 1) } else { None };
+    vm.env.contracts.entry(self_addr).or_insert(empty_contract()).nonce = new_nonce;
+    next(vm, op);
+  } else {
+    let mut condition = false;
+    branch(vm, &gt(x_value.clone(), this.balance.clone()), |condition_| Ok(condition = condition_));
+    if condition {
       vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
       vm.state.returndata = Expr::Mempty;
-      let n = vm.env.contracts.entry(self_addr).or_insert(empty_contract()).nonce;
-      let new_nonce = if let Some(n_) = n { Some(n_ + 1) } else { None };
-      vm.env.contracts.entry(self_addr).or_insert(empty_contract()).nonce = new_nonce;
+      vm.traces.push(with_trace_location(
+        vm,
+        TraceData::ErrorTrace(EvmError::BalanceTooLow(Box::new(x_value), Box::new(this.balance))),
+      ));
       next(vm, op);
-    });
-  } else {
-    branch(vm, &gt(x_value, this.balance), |condition| {
-      if condition {
-        vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
-        vm.state.returndata = Expr::Mempty;
-        vm.traces.push(with_trace_location(
-          vm,
-          TraceData::ErrorTrace(EvmError::BalanceTooLow(Box::new(x_value), Box::new(this.balance))),
-        ));
-        next(vm, op);
-        touch_account(&self_addr.clone());
-        touch_account(&new_addr.clone());
-        Ok(())
-      } else {
-        Ok({
-          burn(vm, 0, || match parse_init_code(init_code.clone()) {
-            None => {
-              vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
-                pc: vm.state.pc,
-                msg: "initcode must have a concrete prefix".to_string(),
-                args: vec![],
-              }));
-            }
-            Some(c) => {
-              let new_contract = initial_contract(c);
-              let new_context = FrameContext::CreationContext {
-                address: new_addr.clone(),
-                codehash: new_contract.codehash.clone(),
-                createversion: vm.env.contracts.clone(),
-                substate: vm.tx.substate.clone(),
-              };
+      touch_account(&self_addr.clone());
+      touch_account(&new_addr.clone());
+    } else {
+      {
+        burn(vm, 0, || {});
+        match parse_init_code(init_code.clone()) {
+          None => {
+            vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+              pc: vm.state.pc,
+              msg: "initcode must have a concrete prefix".to_string(),
+              args: vec![],
+            }));
+          }
+          Some(c) => {
+            let new_contract = initial_contract(c.clone());
+            let new_context = FrameContext::CreationContext {
+              address: new_addr.clone(),
+              codehash: new_contract.codehash.clone(),
+              createversion: vm.env.contracts.clone(),
+              substate: vm.tx.substate.clone(),
+            };
 
-              let old_acc = vm.env.contracts.get(&new_addr).cloned();
-              let old_bal = old_acc.map_or(Expr::Lit(W256(0, 0)), |acc| acc.balance.clone());
-              vm.env.contracts.insert(new_addr.clone(), Contract { balance: old_bal.clone(), ..new_contract });
-              vm.env.contracts.insert(self_addr.clone(), Contract { nonce: this.nonce.map(|n| n + 1), ..this });
+            let old_acc = vm.env.contracts.get(&new_addr).cloned();
+            let old_bal = old_acc.map_or(Expr::Lit(W256(0, 0)), |acc| acc.balance.clone());
+            vm.env.contracts.insert(new_addr.clone(), Contract { balance: old_bal.clone(), ..new_contract });
+            vm.env.contracts.insert(self_addr.clone(), Contract { nonce: this.nonce.map(|n| n + 1), ..this });
 
-              transfer(vm, self_addr.clone(), new_addr.clone(), x_value.clone());
-              vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context)));
-              next(vm, op);
-              vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
-              let state = blank_state();
-              vm.state = FrameState {
-                contract: new_addr.clone(),
-                code_contract: new_addr.clone(),
-                code: c.clone(),
-                callvalue: x_value.clone(),
-                caller: self_addr.clone(),
-                gas: x_gas.clone(),
-                ..state
-              };
-            }
-          });
-        })
+            transfer(vm, self_addr.clone(), new_addr.clone(), x_value.clone());
+            vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context.clone())));
+            next(vm, op);
+            vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
+            let state = blank_state();
+            vm.state = FrameState {
+              contract: new_addr.clone(),
+              code_contract: new_addr.clone(),
+              code: c.clone(),
+              callvalue: x_value.clone(),
+              caller: self_addr.clone(),
+              gas: x_gas.clone(),
+              ..state
+            };
+          }
+        }
       }
-    });
+    }
   }
 }
 
@@ -2347,7 +2346,7 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr) -> Result<(), EvmError
   }
 }
 
-fn with_trace_location(vm: &mut VM, trace_data: TraceData) -> Trace {
+fn with_trace_location(vm: &VM, trace_data: TraceData) -> Trace {
   let current_contract = vm.env.contracts.get(&vm.state.code_contract).unwrap();
   let op_ix = current_contract.op_idx_map.get(vm.state.pc).cloned().unwrap_or(0);
   Trace { tracedata: trace_data, contract: current_contract.clone(), op_ix: op_ix }
@@ -2426,4 +2425,21 @@ fn fresh_sym_addr(vm: &mut VM) -> Expr {
 
 fn cheat_code() -> Expr {
   Expr::LitAddr(keccak_prime(&"hevm cheat code".as_bytes().to_vec()))
+}
+
+fn parse_init_code(buf: Expr) -> Option<ContractCode> {
+  todo!()
+  /*
+  match buf {
+    Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(b, Box::new(Expr::Mempty))),
+    _ => {
+      let conc = buf.concrete_prefix();
+      if conc.is_empty() {
+        None
+      } else {
+        let sym = buf.drop(conc.len());
+        Some(InitCode::new(conc, sym))
+      }
+    }
+  }*/
 }

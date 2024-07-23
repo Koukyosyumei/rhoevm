@@ -1583,3 +1583,7 @@ fn strip_writes(off: W256, size: W256, buffer: Expr) -> Expr {
     _ => buffer,
   }
 }
+
+pub fn concrete_prefix(e: &Expr) -> Vec<u8> {
+  todo!()
+}
