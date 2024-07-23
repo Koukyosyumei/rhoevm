@@ -887,7 +887,7 @@ pub fn conc_keccak_simp_expr(expr: Expr) -> Expr {
 // Only concretize Keccak in Props
 // Needed because if it also simplified, we may not find some simplification errors, as
 // simplification would always be ON
-fn conc_keccak_props(props: Vec<Prop>) -> Vec<Prop> {
+pub fn conc_keccak_props(props: Vec<Prop>) -> Vec<Prop> {
   until_fixpoint(|ps| ps.into_iter().map(|p| map_prop(&conc_keccak_one_pass, p.clone())).collect(), props)
 }
 
@@ -928,7 +928,7 @@ fn get_len_of_bs_in_ww(expr: &Expr) -> usize {
 fn conc_keccak_one_pass(expr: &Expr) -> Expr {
   match expr.clone() {
     Expr::Keccak(expr_) if is_concretebuf(&expr_) => match *expr_.clone() {
-      Expr::ConcreteBuf(bs) => keccak(*expr_.clone()).unwrap(),
+      Expr::ConcreteBuf(_) => keccak(*expr_.clone()).unwrap(),
       _ => panic!(""),
     },
     Expr::Keccak(orig) => match orig.as_ref() {
@@ -1193,7 +1193,7 @@ fn go_expr(expr: &Expr) -> Expr {
   }
 }
 
-fn simplify_prop(prop: Prop) -> Prop {
+pub fn simplify_prop(prop: Prop) -> Prop {
   let fp: &dyn Fn(&Prop) -> Prop = &go_prop;
   let new_prop = map_prop_prime(fp, simp_inner_expr(prop.clone()));
 
@@ -1499,7 +1499,7 @@ fn const_fold_prop(ps: Vec<Prop>) -> bool {
   one_run(ps.into_iter().map(simplify_prop).collect(), &mut ConstState::new())
 }
 
-fn simplify_props(ps: Vec<Prop>) -> Vec<Prop> {
+pub fn simplify_props(ps: Vec<Prop>) -> Vec<Prop> {
   let simplified = rem_redundant_props(flatten_props(ps).into_iter().map(simplify_prop).collect());
   let can_be_sat = const_fold_prop(simplified.clone());
   if can_be_sat {

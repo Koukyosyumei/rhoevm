@@ -9,7 +9,7 @@ use futures::Future;
 use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
 use crate::modules::evm::buf_length;
-use crate::modules::expr::{add, conc_keccak_props, in_range, sub, write_byte};
+use crate::modules::expr::{add, conc_keccak_props, in_range, simplify_props, sub, write_byte};
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};
 use crate::modules::traversals::{map_prop_m, TraversableTerm};
 use crate::modules::types::{Addr, Block, Expr, Frame, FrameContext, GVar, Prop, W256W256Map, W256};
@@ -92,15 +92,8 @@ enum BufModel {
 // CompressedBuf enum
 #[derive(Debug, PartialEq, Eq)]
 enum CompressedBuf {
-  Base {
-    byte: u8,
-    length: W256,
-  },
-  Write {
-    byte: u8,
-    idx: W256,
-    next: Box<CompressedBuf>,
-  },
+  Base { byte: u8, length: W256 },
+  Write { byte: u8, idx: W256, next: Box<CompressedBuf> },
 }
 
 // SMTCex struct
@@ -236,13 +229,7 @@ fn flatten_bufs(cex: SMTCex) -> Option<SMTCex> {
   let bs = cex
     .buffers
     .into_iter()
-    .map(|(k, v)| {
-      if let Some(b) = collapse(v) {
-        (k, b)
-      } else {
-        (k, BufModel::Flat(vec![]))
-      }
-    })
+    .map(|(k, v)| if let Some(b) = collapse(v) { (k, b) } else { (k, BufModel::Flat(vec![])) })
     .collect();
 
   Some(SMTCex {
@@ -261,8 +248,8 @@ fn unbox<T>(value: Box<T>) -> T {
 
 fn to_buf(model: BufModel) -> Option<Expr> {
   match model {
-    BufModel::Comp(CompressedBuf::Base { byte, length }) if length <= 120_000_000 => {
-      let bytes = vec![byte; length as usize];
+    BufModel::Comp(CompressedBuf::Base { byte, length }) if length <= W256(120_000_000, 0) => {
+      let bytes = vec![byte; length.0 as usize];
       Some(Expr::ConcreteBuf(bytes))
     }
     BufModel::Comp(CompressedBuf::Write { byte, idx, next }) => {
@@ -291,7 +278,7 @@ struct AbstState {
   count: i32,
 }
 
-fn get_var(cex: &SMTCex, name: &str) -> u32 {
+fn get_var(cex: &SMTCex, name: &str) -> W256 {
   cex.vars.get(&Expr::Var(name.to_string())).unwrap().clone()
 }
 
@@ -303,12 +290,8 @@ fn declare_intermediates(bufs: &BufEnv, stores: &StoreEnv) -> SMT2 {
   sorted.sort_by(|SMT2(l, _, _, _), SMT2(r, _, _, _)| l.cmp(r));
 
   let decls = sorted; //.iter().map(|SMT2(_, decl, _, _)| decl.clone()).collect::<Vec<_>>();
-  let mut smt2 = SMT2(
-    vec![(&"; intermediate buffers & stores").to_string()],
-    RefinementEqs::new(),
-    CexVars::new(),
-    vec![],
-  );
+  let mut smt2 =
+    SMT2(vec![(&"; intermediate buffers & stores").to_string()], RefinementEqs::new(), CexVars::new(), vec![]);
   for decl in decls.iter().rev() {
     smt2 = smt2 + decl.clone();
   }
@@ -340,10 +323,7 @@ fn encode_buf(n: usize, expr: &Expr) -> SMT2 {
 }
 
 fn abstract_away_props(conf: &Config, ps: Vec<Prop>) -> (Vec<Prop>, AbstState) {
-  let mut state = AbstState {
-    words: HashMap::new(),
-    count: 0,
-  };
+  let mut state = AbstState { words: HashMap::new(), count: 0 };
   let abstracted = ps.iter().map(|prop| abstract_away(conf, prop, &mut state)).collect::<Vec<_>>();
   (abstracted, state)
 }
@@ -425,7 +405,7 @@ fn referenced_abstract_stores<T: TraversableTerm>(term: &T) -> HashSet<Builder> 
     |x| match x {
       Expr::AbstractStore(s, idx) => {
         let mut set = HashSet::new();
-        set.insert(store_name(unbox(s.clone()), *idx));
+        set.insert(store_name(unbox(s.clone()), idx.clone()));
         set
       }
       _ => HashSet::new(),
@@ -481,31 +461,24 @@ fn referenced_vars<T: TraversableTerm>(expr: &T) -> Vec<Builder> {
 }
 
 fn referenced_frame_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<Prop>)> {
-  // let mut context_set = HashSet::new();
-  let context = expr.fold_term(
-    |x| match x {
+  fn go(x: Expr) -> Vec<(Builder, Vec<Prop>)> {
+    match x.clone() {
       Expr::TxValue => {
-        // context_set.insert((("txvalue"), vec![]));
-        vec![(("txvalue"), vec![])]
+        vec![("txvalue".to_string(), vec![])]
       }
       Expr::Balance(a) => {
-        /*[(fromString "balance_" <> formatEAddr a, [PLT v (Lit $ 2 ^ (96 :: Int))])] */
-        //context_set.insert((
-        //  (&format!("balance_{}", format_e_addr(**a))),
-        // vec![Prop::PLT(v.clone(), Expr::Lit(2 ^ 96))],
-        //));
         vec![(
-          (&format!("balance_{}", format_e_addr(unbox(a)))),
-          vec![Prop::PLT(x.clone(), Expr::Lit(2 ^ 96))],
+          format!("balance_{}", format_e_addr(*a.clone())),
+          vec![Prop::PLT(x.clone(), Expr::Lit(W256(2, 0) ^ W256(96, 0)))],
         )]
       }
       Expr::Gas { .. } => {
         panic!("TODO: GAS");
       }
       _ => vec![],
-    },
-    vec![],
-  );
+    }
+  }
+  let context = expr.fold_term(|x: &Expr| go(x.clone()), vec![]);
 
   context.into_iter().map(|(b, p)| (b.to_string(), p)).collect()
 }
@@ -658,20 +631,17 @@ fn create_read_assumptions(ps_elim: &[Prop], bufs: &BufEnv, stores: &StoreEnv) -
 }
 
 fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
-  let ps = conc_keccak_props(ps_pre_conc);
-  let (ps_elim, bufs, stores) = eliminate_props(ps);
+  let simplified_ps = decompose(simplify_props(ps_pre_conc), config);
 
+  let ps = conc_keccak_props(simplified_ps);
+  let (ps_elim, bufs, stores) = eliminate_props(ps);
   let (ps_elim_abst, abst) = if config.abst_refine_arith || config.abst_refine_mem {
     abstract_away_props(config, ps_elim.clone())
   } else {
-    (
-      ps_elim.clone(),
-      AbstState {
-        words: HashMap::new(),
-        count: 0,
-      },
-    )
+    (ps_elim.clone(), AbstState { words: HashMap::new(), count: 0 })
   };
+
+  let abst_props = abst_expr_to_int(&abst).into_iter().map(|(e, num)| to_prop(e, num)).collect::<Vec<Prop>>();
 
   let buf_vals = bufs.values().cloned().collect::<Vec<_>>();
   let store_vals = stores.values().cloned().collect::<Vec<_>>();
@@ -680,10 +650,13 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   let kecc_comp = keccak_compute(&ps_pre_conc, &buf_vals, &store_vals);
   let keccak_assertions = create_keccak_assertions(&kecc_assump, &kecc_comp);
 
-  let abst_props = abst_expr_to_int(&abst).into_iter().map(|(e, num)| to_prop(e, num)).collect::<Vec<Prop>>();
-
+  // Props storing info that need declaration(s)
   let to_declare_ps = concatenate_props(&ps, &kecc_assump, &kecc_comp);
   let to_declare_ps_elim = concatenate_props(&ps_elim, &kecc_assump, &kecc_comp);
+
+  let storage_reads = find_storage_reads(&to_declare_ps);
+  let abstract_stores = find_abstract_stores(&to_declare_ps);
+  let addresses = find_addresses(&to_declare_ps);
 
   /*allVars = fmap referencedVars toDeclarePsElim <> fmap referencedVars bufVals <> fmap referencedVars storeVals <> [abstrVars abst] */
 
@@ -691,23 +664,15 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   let frame_ctx = gather_frame_context(&to_declare_ps_elim, &buf_vals, &store_vals);
   let block_ctx = gather_block_context(&to_declare_ps_elim, &buf_vals, &store_vals);
 
-  let storage_reads = find_storage_reads(&to_declare_ps);
-  let abstract_stores = find_abstract_stores(&to_declare_ps);
-  let addresses = find_addresses(&to_declare_ps);
-
+  // assert that reads beyond size of buffer & storage is zero
   let read_assumes = create_read_assumptions(&ps_elim, &bufs, &stores);
 
-  let intermediates = declare_intermediates(&bufs, &stores);
-
-  /*
-      ps = Expr.concKeccakProps psPreConc
-      (psElim, bufs, stores) = eliminateProps ps
-  */
-
-  let simplified_ps = decompose(simplify_props(ps), config);
-  let decls = declare_intermediates(&bufs, &stores);
-  let encs = ps.iter().map(|p| prop_to_smt(p.clone())).collect::<Vec<_>>();
+  // ----------------------------------------------------- //
+  let encs = ps_elim_abst.iter().map(|p| prop_to_smt(p.clone())).collect::<Vec<_>>();
   let abst_smt = abst_props.iter().map(|p| prop_to_smt(p)).collect::<Vec<_>>();
+  let intermediates = declare_intermediates(&bufs, &stores);
+  // let decls = declare_intermediates(&bufs, &stores);
+
   let smt2 = SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![])
     + (smt2_line("; intermediate buffers & stores".to_owned()))
     + (decls)
@@ -744,13 +709,7 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
     + (smt2_line("".to_owned()));
 
   encs.iter().for_each(|p| {
-    smt2
-      + (SMT2(
-        vec![(format!("(assert {})", p))],
-        RefinementEqs::new(),
-        CexVars::new(),
-        vec![],
-      ));
+    smt2 + (SMT2(vec![(format!("(assert {})", p))], RefinementEqs::new(), CexVars::new(), vec![]));
   });
   SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![])
     + (smt2_line("; keccak assumptions".to_owned()))

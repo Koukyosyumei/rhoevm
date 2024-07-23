@@ -8,7 +8,8 @@ use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::expr::{
   add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, geq, gt, index_word, iszero, leq, lt, or,
-  read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, sub, write_byte, write_storage, write_word,
+  read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, simplify_prop, sub, write_byte, write_storage,
+  write_word,
 };
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
@@ -16,8 +17,8 @@ use crate::modules::types::{
   from_list, keccak, keccak_bytes, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left,
   pad_left_prime, pad_right, to_int, unbox, word256_bytes, Addr, BaseState, Block, BranchCondition, Cache,
   CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, GVar,
-  Gas, Memory, MutableMemory, PartialExec, Query, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, Tree,
-  TxState, VMOpts, VMResult, W256W256Map, Word8, VM, W64,
+  Gas, Memory, MutableMemory, PartialExec, Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData,
+  Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM, W64,
 };
 
 use super::expr::not;
@@ -2371,6 +2372,20 @@ where
   let pathconds = vm.constraints.clone();
   let cond_simp = simplify(cond);
   let cond_simp_conc = conc_keccak_simp_expr(cond_simp);
+
+  vm.result = None;
+
+  let v = false;
+  vm.constraints.push(if v {
+    simplify_prop(Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0))))))
+  } else {
+    simplify_prop(Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0))))
+  });
+  let binding = (0, vec![]);
+  let (iteration, _) = vm.iterations.get(&loc).unwrap_or(&binding);
+  *vm.cache.path.entry((loc.clone(), *iteration)).or_insert(v) = v;
+  *vm.iterations.entry(loc).or_insert((0, vec![])) = (iteration + 1, vm.state.stack.clone());
+  continue_fn(v);
 }
 
 fn choose_path(loc: CodeLocation, bc: BranchCondition) {

@@ -1368,7 +1368,7 @@ pub struct VM {
   pub burned: Gas,
   pub constraints: Vec<Prop>,
   pub config: RuntimeConfig,
-  pub iterations: HashMap<i64, Vec<Expr>>,
+  pub iterations: HashMap<CodeLocation, (i64, Vec<Box<Expr>>)>,
   pub forks: Vec<ForkState>,
   pub current_fork: i32,
   pub labels: HashMap<Addr, String>,
