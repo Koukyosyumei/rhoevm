@@ -3,7 +3,7 @@ use std::fmt;
 use crate::modules::types::{Addr, ByteString, W256};
 
 #[derive(PartialEq, Debug)]
-enum RLP {
+pub enum RLP {
   BS(ByteString),
   List(Vec<RLP>),
 }

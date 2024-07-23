@@ -1286,7 +1286,7 @@ pub struct Trace {
 
 // Define TraceContext struct
 #[derive(Debug, Clone, PartialEq, Hash)]
-struct TraceContext {
+pub struct TraceContext {
   pub traces: Vec<Trace>,         // Assuming Trace is a suitable type like struct Trace;
   pub contracts: ExprContractMap, // Using HashMap for contracts
   pub labels: AddrStringMap,      // Using HashMap for labels

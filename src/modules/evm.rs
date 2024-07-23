@@ -20,6 +20,7 @@ use crate::modules::types::{
   TxState, VMOpts, VMResult, W256W256Map, Word8, VM, W64,
 };
 
+use super::expr::not;
 use super::types::{ByteString, W256};
 
 fn initial_gas() -> u64 {
@@ -2022,70 +2023,72 @@ fn delegate_call(
     todo!()
     // cheat(vm, x_in_offset, x_in_size, x_out_offset, x_out_size);
   } else {
+    let mut x_gas = Gas::Concerete(0);
     call_checks(
       vm,
+      op,
       &this,
       gas_given,
-      x_context,
-      x_to,
+      x_context.clone(),
+      x_to.clone(),
       x_value,
-      x_in_offset,
-      x_in_size,
-      x_out_offset,
+      x_in_offset.clone(),
+      x_in_size.clone(),
+      x_out_offset.clone(),
       x_out_size,
-      xs,
-      |x_gas| {
-        fetch_account(&x_to.clone(), |target| match &target.code {
-          ContractCode::UnKnownCode(_) => {
-            let pc = vm.state.pc;
-            vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
-              pc: pc,
-              msg: "call target has unknown code".to_string(),
-              args: vec![x_to.clone()],
-            }));
-          }
-          _ => {
-            burn(vm, 0, || {
-              let calldata = read_memory(&x_in_offset, &x_in_size);
-              let abi =
-                maybe_lit_word(read_bytes(4, Expr::Lit(W256(0, 0)), read_memory(&x_in_offset, &Expr::Lit(W256(4, 0)))));
-              let new_context = FrameContext::CallContext {
-                target: x_to.clone(),
-                context: x_context.clone(),
-                offset: x_out_offset,
-                //size: x_out_size,
-                //codehash: target.codehash.clone(),
-                //callreversion: vm.env.contracts.clone(),
-                //substate: vm.tx.substate.clone(),
-                //abi,
-                //calldata,
-              };
-              vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context)));
-              next(vm, op);
-              vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
-              let new_memory = Memory::ConcreteMemory(vec![]);
-              let cleared_init_code = match target.code {
-                ContractCode::InitCode(_, _) => ContractCode::InitCode(vec![], Box::new(Expr::Mempty)),
-                a => a,
-              };
-              vm.state = FrameState {
-                gas: x_gas.clone(),
-                pc: 0,
-                code: cleared_init_code,
-                code_contract: x_to.clone(),
-                stack: vec![],
-                memory: new_memory,
-                memory_size: 0,
-                returndata: Expr::Mempty,
-                calldata: calldata.clone(),
-                ..vm.state
-              };
-              continue_fn(x_to);
-            });
-          }
-        });
-      },
+      &xs.into_iter().map(|x| Box::new(x)).collect(),
+      |x_gas_| x_gas = x_gas_,
     );
+    fetch_account(&x_to.clone(), |target| match &target.code {
+      ContractCode::UnKnownCode(_) => {
+        vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+          pc: vm.state.pc,
+          msg: "call target has unknown code".to_string(),
+          args: vec![x_to.clone()],
+        }));
+      }
+      _ => {
+        //burn(vm, 0, || {});
+        let calldata = read_memory(&x_in_offset, &x_in_size);
+        let abi =
+          maybe_lit_word(read_bytes(4, Expr::Lit(W256(0, 0)), read_memory(&x_in_offset, &Expr::Lit(W256(4, 0)))));
+        let new_context = FrameContext::CallContext {
+          target: x_to.clone(),
+          context: x_context.clone(),
+          offset: x_out_offset,
+          //size: x_out_size,
+          //codehash: target.codehash.clone(),
+          //callreversion: vm.env.contracts.clone(),
+          //substate: vm.tx.substate.clone(),
+          //abi,
+          //calldata,
+        };
+        vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context.clone())));
+        next(vm, op);
+        vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
+        let new_memory = Memory::ConcreteMemory(vec![]);
+        let cleared_init_code = match &target.code {
+          ContractCode::InitCode(_, _) => ContractCode::InitCode(vec![], Box::new(Expr::Mempty)),
+          a => a.clone(),
+        };
+        vm.state = FrameState {
+          gas: x_gas.clone(),
+          pc: 0,
+          code: cleared_init_code,
+          code_contract: x_to.clone(),
+          stack: vec![],
+          memory: new_memory,
+          memory_size: 0,
+          returndata: Expr::Mempty,
+          calldata: calldata.clone(),
+          contract: vm.state.contract.clone(),
+          callvalue: vm.state.callvalue.clone(),
+          caller: vm.state.caller.clone(),
+          static_flag: vm.state.static_flag.clone(),
+        };
+        continue_fn(x_to);
+      }
+    });
   }
 }
 
@@ -2442,4 +2445,124 @@ fn parse_init_code(buf: Expr) -> Option<ContractCode> {
       }
     }
   }*/
+}
+
+/*
+accountExists :: Expr EAddr -> VM t s -> Bool
+accountExists addr vm =
+  case Map.lookup addr vm.env.contracts of
+    Just c -> not (accountEmpty c)
+    Nothing -> False
+*/
+
+fn account_exists(addr: Expr, vm: &VM) -> bool {
+  match vm.env.contracts.get(&addr) {
+    Some(c) => !(account_empty(c)),
+    None => false,
+  }
+}
+
+// Checks a *CALL for failure; OOG, too many callframes, memory access etc.
+fn call_checks<F>(
+  vm: &mut VM,
+  op: u8,
+  this: &Contract,
+  x_gas: Gas,
+  x_context: Expr,
+  x_to: Expr,
+  x_value: Expr,
+  x_in_offset: Expr,
+  x_in_size: Expr,
+  x_out_offset: Expr,
+  x_out_size: Expr,
+  xs: &Vec<Box<Expr>>,
+  continue_fn: F,
+) where
+  F: FnOnce(Gas),
+{
+  let fees = vm.block.schedule.clone();
+  access_memory_range(vm, x_in_offset.clone(), x_in_size.clone(), || {});
+  access_memory_range(vm, x_out_offset.clone(), x_out_size.clone(), || {});
+  let available_gas = vm.state.gas.clone();
+  let recipient_exists = account_exists(x_context.clone(), vm);
+  let from = vm.config.override_caller.clone().unwrap_or(vm.state.contract.clone());
+  let from_maybe = vm.env.contracts.get(&from);
+  let from_balance = if let Some(fm) = from_maybe { Some(fm.balance.clone()) } else { None };
+
+  let cost = 0;
+  let gas_left = 0;
+
+  match (from_balance.clone(), x_value.clone()) {
+    (_, Expr::Lit(W256(0, 0))) => {
+      burn(vm, cost - gas_left, || {});
+      if vm.frames.len() >= 1024 {
+        vm.state.stack = xs.to_vec();
+        vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
+        vm.state.returndata = Expr::Mempty;
+        vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::CallDepthLimitReached)));
+        next(vm, op);
+      } else {
+        continue_fn(Gas::Concerete(gas_left));
+      }
+    }
+    (Some(fb), _) => {
+      burn(vm, cost - gas_left, || {});
+      let mut is_greater = false;
+      branch(vm, &gt(x_value.clone(), fb), |is_greater_| Ok(is_greater = is_greater_));
+      if is_greater {
+        vm.state.stack = xs.to_vec();
+        vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
+        vm.state.returndata = Expr::Mempty;
+        vm.traces.push(with_trace_location(
+          vm,
+          TraceData::ErrorTrace(EvmError::BalanceTooLow(Box::new(x_value), Box::new(this.balance.clone()))),
+        ));
+        next(vm, op);
+      } else {
+        if vm.frames.len() >= 1024 {
+          vm.state.stack = xs.to_vec();
+          vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
+          vm.state.returndata = Expr::Mempty;
+          vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::CallDepthLimitReached)));
+          next(vm, op);
+        } else {
+          continue_fn(Gas::Concerete(gas_left));
+        }
+      }
+    }
+    (None, _) => match from.clone() {
+      Expr::LitAddr(_) => {
+        let contract = match vm.config.base_state {
+          BaseState::AbstractBase => unknown_contract(from.clone()),
+          BaseState::EmptyBase => empty_contract(),
+        };
+        vm.env.contracts.insert(from, contract);
+        call_checks(
+          vm,
+          op,
+          this,
+          x_gas,
+          x_context,
+          x_to,
+          x_value,
+          x_in_offset,
+          x_in_size,
+          x_out_offset,
+          x_out_size,
+          xs,
+          continue_fn,
+        );
+      }
+      Expr::SymAddr(_) => {
+        vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+          pc: vm.state.pc,
+          msg: "Attempting to transfer eth from a symbolic address that is not present in the state".to_string(),
+          args: vec![from],
+        }))
+      }
+      Expr::GVar(_) => internal_error("Unexpected GVar"),
+      _ => panic!("unexpected expr"),
+    },
+  }
+  //cost_of_call(fees, recipient_exists, x_value, available_gas, x_gas, x_to, |cost, gas_left| {});
 }
