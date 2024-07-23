@@ -497,6 +497,21 @@ pub fn map_prop(f: &dyn Fn(&Expr) -> Expr, prop: Prop) -> Prop {
   }
 }
 
+pub fn map_prop_prime(f: &dyn Fn(&Prop) -> Prop, prop: Prop) -> Prop {
+  match prop {
+    Prop::PBool(b) => f(&Prop::PBool(b)),
+    Prop::PEq(a, b) => f(&Prop::PEq(a, b)),
+    Prop::PLT(a, b) => f(&Prop::PLT(a, b)),
+    Prop::PGT(a, b) => f(&Prop::PGT(a, b)),
+    Prop::PLEq(a, b) => f(&Prop::PLEq(a, b)),
+    Prop::PGEq(a, b) => f(&Prop::PGEq(a, b)),
+    Prop::PNeg(a) => f(&Prop::PNeg(Box::new(map_prop_prime(f, *a)))),
+    Prop::PAnd(a, b) => f(&Prop::PAnd(Box::new(map_prop_prime(f, *a)), Box::new(map_prop_prime(f, *b)))),
+    Prop::POr(a, b) => f(&Prop::POr(Box::new(map_prop_prime(f, *a)), Box::new(map_prop_prime(f, *b)))),
+    Prop::PImpl(a, b) => f(&&Prop::PImpl(Box::new(map_prop_prime(f, *a)), Box::new(map_prop_prime(f, *b)))),
+  }
+}
+
 // MapPropM function
 pub fn map_prop_m(f: &dyn Fn(&Expr) -> Expr, prop: Prop) -> Prop {
   match prop {
