@@ -314,6 +314,48 @@ fn declare_bufs(props: Vec<Prop>, buf_env: BufEnv, store_env: StoreEnv) -> SMT2 
   todo!()
 }
 
+// Declare frame context
+fn declare_frame_context(names: &Vec<(Builder, Vec<Prop>)>) -> SMT2 {
+  let declarations = vec!["; frame context".to_string()]
+    .into_iter()
+    .chain(names.iter().flat_map(|(n, props)| {
+      let mut decls = vec![format!("(declare-fun {} () (_ BitVec 256))", n)];
+      decls.extend(props.iter().map(|p| format!("(assert {})", prop_to_smt(p.clone()))));
+      decls
+    }))
+    .collect();
+
+  let cexvars = CexVars { tx_context: names.iter().map(|(n, _)| n.clone()).collect(), ..CexVars::new() };
+
+  SMT2(declarations, RefinementEqs(vec![], vec![]), cexvars, vec![])
+}
+
+// Declare abstract stores
+fn declare_abstract_stores(names: &Vec<Builder>) -> SMT2 {
+  let declarations = vec!["; abstract base stores".to_string()]
+    .into_iter()
+    .chain(names.iter().map(|n| format!("(declare-fun {} () Storage)", n)))
+    .collect();
+
+  SMT2(declarations, RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
+}
+
+// Declare block context
+fn declare_block_context(names: &Vec<(Builder, Vec<Prop>)>) -> SMT2 {
+  let declarations = vec!["; block context".to_string()]
+    .into_iter()
+    .chain(names.iter().flat_map(|(n, props)| {
+      let mut decls = vec![format!("(declare-fun {} () (_ BitVec 256))", n)];
+      decls.extend(props.iter().map(|p| format!("(assert {})", prop_to_smt(p.clone()))));
+      decls
+    }))
+    .collect();
+
+  let cexvars = CexVars { block_context: names.iter().map(|(n, _)| n.clone()).collect(), ..CexVars::new() };
+
+  SMT2(declarations, RefinementEqs(vec![], vec![]), cexvars, vec![])
+}
+
 fn encode_store(n: usize, expr: &Expr) -> SMT2 {
   let expr_to_smt = expr_to_smt(expr.clone());
   let txt = format!("(define-fun store{} () Storage {})", n, expr_to_smt);
@@ -635,17 +677,18 @@ fn create_read_assumptions(ps_elim: &[Prop], bufs: &BufEnv, stores: &StoreEnv) -
 }
 
 fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
-  let simplified_ps = decompose(simplify_props(ps_pre_conc), config);
+  let simplified_ps = decompose(simplify_props(ps_pre_conc.clone()), config);
 
   let ps = conc_keccak_props(simplified_ps);
-  let (ps_elim, bufs, stores) = eliminate_props(ps);
-  let (ps_elim_abst, abst) = if config.abst_refine_arith || config.abst_refine_mem {
-    abstract_away_props(config, ps_elim.clone())
-  } else {
-    (ps_elim.clone(), AbstState { words: HashMap::new(), count: 0 })
-  };
+  let (ps_elim, bufs, stores) = eliminate_props(ps.clone());
+  let (ps_elim_abst, ref abst @ AbstState { words: ref abst_expr_to_int, count: _ }) =
+    if config.abst_refine_arith || config.abst_refine_mem {
+      abstract_away_props(config, ps_elim.clone())
+    } else {
+      (ps_elim.clone(), AbstState { words: HashMap::new(), count: 0 })
+    };
 
-  let abst_props = abst_expr_to_int(&abst).into_iter().map(|(e, num)| to_prop(e, num)).collect::<Vec<Prop>>();
+  let abst_props = abst_expr_to_int.into_iter().map(|(e, num)| to_prop(e.clone(), *num)).collect::<Vec<Prop>>();
 
   let buf_vals = bufs.values().cloned().collect::<Vec<_>>();
   let store_vals = stores.values().cloned().collect::<Vec<_>>();
@@ -660,14 +703,17 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
 
   //let storage_reads = to_declare_ps.into_iter().map(|p: Prop| find_storage_reads(&p)).collect();
   let storage_reads: HashMap<(Expr, Option<W256>), HashSet<Expr>> = to_declare_ps
+    .clone()
     .into_iter()
     .flat_map(|p: Prop| find_storage_reads(&p)) // Flatten HashMap into an iterator of tuples
     .fold(HashMap::new(), |mut acc, (key, value)| {
       acc.entry(key).or_insert_with(HashSet::new).extend(value);
       acc
     });
-  let abstract_stores = find_abstract_stores(&to_declare_ps);
-  let addresses = find_addresses(&to_declare_ps);
+  let abstract_stores_set: HashSet<Builder> =
+    to_declare_ps.clone().into_iter().flat_map(|term: Prop| referenced_abstract_stores(&term)).collect();
+  let abstract_stores: Vec<Builder> = abstract_stores_set.into_iter().collect();
+  let addresses = to_declare_ps.into_iter().flat_map(|term: Prop| referenced_waddrs(&term)).collect();
 
   /*allVars = fmap referencedVars toDeclarePsElim <> fmap referencedVars bufVals <> fmap referencedVars storeVals <> [abstrVars abst] */
 
@@ -680,13 +726,13 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
 
   // ----------------------------------------------------- //
   let encs = ps_elim_abst.iter().map(|p| prop_to_smt(p.clone())).collect::<Vec<_>>();
-  let abst_smt = abst_props.iter().map(|p| prop_to_smt(p)).collect::<Vec<_>>();
+  let abst_smt = abst_props.iter().map(|p| prop_to_smt(p.clone())).collect::<Vec<_>>();
   let intermediates = declare_intermediates(&bufs, &stores);
   // let decls = declare_intermediates(&bufs, &stores);
 
-  let smt2 = prelude()
+  let mut smt2 = prelude()
     + (smt2_line("; intermediate buffers & stores".to_owned()))
-    + (declare_abstract_stores(abstract_stores))
+    + (declare_abstract_stores(&abstract_stores))
     + (smt2_line("".to_owned()))
     + (declare_addrs(addresses))
     + (smt2_line("".to_owned()))
@@ -699,19 +745,20 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
       })),
     ))
     + (smt2_line("".to_owned()))
+    /* 
     + (declare_frame_context(
-      (frame_ctx.iter().fold(Vec::new(), |mut acc, x| {
+      (frame_ctx.clone().iter().fold(&Vec::new(), |mut acc, x| {
         acc.push(x.clone());
         acc
       })),
     ))
     + (smt2_line("".to_owned()))
     + (declare_block_context(
-      (block_ctx.iter().fold(Vec::new(), |mut acc, x| {
+      (block_ctx.iter().fold(&Vec::new(), |mut acc, x| {
         acc.push(x.clone());
         acc
       })),
-    ))
+    ))*/
     + (smt2_line("".to_owned()))
     + (intermediates)
     + (smt2_line("".to_owned()));
