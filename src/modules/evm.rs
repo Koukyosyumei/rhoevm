@@ -820,7 +820,7 @@ impl VM {
             force_concrete(self, x, "JUMP: symbolic jumpdest", |x_| {
               x_int = x_.to_int();
             });
-            match x_int {
+            let _ = match x_int {
               None => Err(EvmError::BadJumpDestination),
               Some(i) => check_jump(self, i as usize, xs.to_vec()),
             };
@@ -830,7 +830,7 @@ impl VM {
         }
         Op::Jumpi => {
           if let Some((x, rest)) = self.state.stack.clone().split_last() {
-            if let Some((y, xs)) = rest.clone().split_last() {
+            if let Some((y, xs)) = rest.split_last() {
               burn(self, fees.g_high, || {});
               let mut x_int = None;
               force_concrete(self, x, "JUMPI: symbolic jumpdest", |x_| x_int = x_.to_int());
@@ -1400,25 +1400,24 @@ enum FrameResult {
 // It also handles the case when the current stack frame is the only one;
 // in this case, we set the final '_result' of the VM execution.
 fn finish_frame(vm: &mut VM, result: FrameResult) {
-  todo!()
   /*
   match vm.frames.as_slice() {
     // Is the current frame the only one?
     [] => {
       match result {
-        FrameResult::FrameReturned(output) => vm.assign_result(Some(VMSuccess(output))),
-        FrameResult::FrameReverted(buffer) => vm.assign_result(Some(VMFailure(Revert(buffer)))),
-        FrameResult::FrameErrored(e) => vm.assign_result(Some(VMFailure(e))),
+        FrameResult::FrameReturned(output) => vm.result = Some(VMResult::VMSuccess(output)),
+        FrameResult::FrameReverted(buffer) => vm.result = Some(VMResult::VMFailure(EvmError::Revert(Box::new(buffer)))),
+        FrameResult::FrameErrored(e) => vm.result = Some(VMResult::VMFailure(e)),
       }
-      vm.finalize();
+      //vm.finalize();
     }
     // Are there some remaining frames?
     [next_frame, remaining_frames @ ..] => {
       // Insert a debug trace.
-      vm.insert_trace(match result {
-        FrameResult::FrameErrored(e) => Trace::ErrorTrace(e),
-        FrameResult::FrameReverted(e) => Trace::ErrorTrace(Revert(e)),
-        FrameResult::FrameReturned(output) => Trace::ReturnTrace(output, next_frame.context.clone()),
+      vm.traces.push(match result {
+        FrameResult::FrameErrored(e) => TraceData::ErrorTrace(e),
+        FrameResult::FrameReverted(e) => TraceData::ErrorTrace(EvmError::Revert(e)),
+        FrameResult::FrameReturned(output) => TraceData::ReturnTrace(output, next_frame.context.clone()),
       });
       // Pop to the previous level of the debug trace stack.
       vm.pop_trace();
