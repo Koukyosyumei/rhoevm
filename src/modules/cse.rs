@@ -31,7 +31,7 @@ fn go(state: &mut BuilderState, expr: Expr) -> (&mut BuilderState, Expr) {
       }
     }
     // Storage
-    e @ Expr::SStore(_, _, _, _) => {
+    e @ Expr::SStore(_, _, _) => {
       if let Some(&v) = state.stores.get(&e) {
         (state, Expr::GVar(GVar::StoreVar(v as i32)))
       } else {

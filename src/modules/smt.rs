@@ -674,9 +674,9 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   let intermediates = declare_intermediates(&bufs, &stores);
   // let decls = declare_intermediates(&bufs, &stores);
 
-  let smt2 = SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![])
+  let smt2 = prelude()
     + (smt2_line("; intermediate buffers & stores".to_owned()))
-    + (decls)
+    + (declare_abstract_stores(abstract_stores))
     + (smt2_line("".to_owned()))
     + (declare_addrs(addresses))
     + (smt2_line("".to_owned()))
@@ -684,56 +684,47 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
     + (smt2_line("".to_owned()))
     + (declare_vars(
       (all_vars.iter().fold(Vec::new(), |mut acc, x| {
-        acc.extend(x.clone());
+        acc.push(x.clone());
         acc
       })),
     ))
     + (smt2_line("".to_owned()))
     + (declare_frame_context(
       (frame_ctx.iter().fold(Vec::new(), |mut acc, x| {
-        acc.extend(x.clone());
+        acc.push(x.clone());
         acc
       })),
     ))
     + (smt2_line("".to_owned()))
     + (declare_block_context(
       (block_ctx.iter().fold(Vec::new(), |mut acc, x| {
-        acc.extend(x.clone());
+        acc.push(x.clone());
         acc
       })),
     ))
     + (smt2_line("".to_owned()))
     + (intermediates)
-    + (smt2_line("".to_owned()))
-    + (keccak_assertions)
-    + (read_assumes)
     + (smt2_line("".to_owned()));
 
+  for ka in keccak_assertions {
+    smt2 = smt2 + ka;
+  }
+  for ra in read_assumes {
+    smt2 = smt2 + ra;
+  }
+  smt2 = smt2 + (smt2_line("".to_owned()));
+
   encs.iter().for_each(|p| {
-    smt2 + (SMT2(vec![(format!("(assert {})", p))], RefinementEqs::new(), CexVars::new(), vec![]));
+    smt2 += SMT2(vec![(format!("(assert {})", p))], RefinementEqs::new(), CexVars::new(), vec![]);
   });
-  SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![])
-    + (smt2_line("; keccak assumptions".to_owned()))
-    + (SMT2(
-      kecc_assump.iter().map(|p| (&format!("(assert {})", prop_to_smt(p)))).collect::<Vec<_>>(),
-      RefinementEqs::new(),
-      CexVars::new(),
-      vec![],
-    ))
-    + (smt2_line("; keccak computations".to_owned()))
-    + (SMT2(
-      kecc_comp.iter().map(|p| (&format!("(assert {})", prop_to_smt(p)))).collect::<Vec<_>>(),
-      RefinementEqs::new(),
-      CexVars::new(),
-      vec![],
-    ))
-    + (smt2_line("".to_owned()))
+  smt2
+    + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![]))
     + (SMT2(vec![], RefinementEqs::new(), storage_reads, vec![]))
     + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), ps_pre_conc))
 }
 
 fn expr_to_smt(expr: Expr) -> String {
-  match expr {
+  match expr.clone() {
     Expr::Lit(w) => format!("(_ bv{} 256)", w),
     Expr::Var(s) => s,
     Expr::GVar(GVar::BufVar(n)) => format!("buf{}", n),
@@ -785,7 +776,7 @@ fn expr_to_smt(expr: Expr) -> String {
       format!("(ite {} {} {})", cond, one(), zero())
     }
     Expr::IsZero(a) => {
-      let cond = op2("=", *a, Expr::Lit(0));
+      let cond = op2("=", *a, Expr::Lit(W256(0, 0)));
       format!("(ite {} {} {})", cond, one(), zero())
     }
     Expr::And(a, b) => op2("bvand", *a, *b),
@@ -859,7 +850,7 @@ fn expr_to_smt(expr: Expr) -> String {
     Expr::LitByte(b) => format!("(_ bv{} 8)", b),
     Expr::IndexWord(idx, w) => match *idx {
       Expr::Lit(n) => {
-        if n >= 0 && n < 32 {
+        if n >= W256(0, 0) && n < W256(32, 0) {
           let enc = expr_to_smt(*w);
           format!("(indexWord{})", n)
         } else {
@@ -869,7 +860,7 @@ fn expr_to_smt(expr: Expr) -> String {
       _ => op2("indexWord", *idx, *w),
     },
     Expr::ReadByte(idx, src) => op2("select", *src, *idx),
-    Expr::ConcreteBuf("") => "((as const Buf) #b00000000)".to_string(),
+    Expr::ConcreteBuf(bs) if bs.len() == 0 => "((as const Buf) #b00000000)".to_string(),
     Expr::ConcreteBuf(bs) => write_bytes(&bs, Expr::Mempty),
     Expr::AbstractBuf(s) => s,
     Expr::ReadWord(idx, prev) => op2("readWord", *idx, *prev),
@@ -894,7 +885,7 @@ fn expr_to_smt(expr: Expr) -> String {
     Expr::CopySlice(src_idx, dst_idx, size, src, dst) => {
       copy_slice(*src_idx, *dst_idx, *size, expr_to_smt(*src), expr_to_smt(*dst))
     }
-    Expr::ConcreteStore(s) => encode_concrete_store(&mut &s),
+    Expr::ConcreteStore(s) => encode_concrete_store(&s),
     Expr::AbstractStore(a, idx) => store_name(*a, idx),
     Expr::SStore(idx, val, prev) => {
       let enc_idx = expr_to_smt(*idx);
@@ -986,9 +977,9 @@ fn copy_slice(src_offset: Expr, dst_offset: Expr, size0: Expr, src: Builder, dst
 
 fn internal(size: Expr, src_offset: Expr, dst_offset: Expr, dst: Builder) -> Builder {
   match size {
-    Expr::Lit(0) => dst,
+    Expr::Lit(W256(0, 0)) => dst,
     _ => {
-      let size_prime = sub(size, Expr::Lit(1));
+      let size_prime = sub(size, Expr::Lit(W256(1, 0)));
       let enc_dst_off = expr_to_smt(add(dst_offset.clone(), size_prime.clone()));
       let enc_src_off = expr_to_smt(add(src_offset.clone(), size_prime.clone()));
       let child = internal(size_prime, src_offset.clone(), dst_offset.clone(), dst);
@@ -999,11 +990,11 @@ fn internal(size: Expr, src_offset: Expr, dst_offset: Expr, dst: Builder) -> Bui
 
 // Unrolls an exponentiation into a series of multiplications
 fn expand_exp(base: Expr, expnt: W256) -> Builder {
-  if expnt == 1 {
+  if expnt == W256(1, 0) {
     expr_to_smt(base)
   } else {
     let b = expr_to_smt(base.clone());
-    let n = expand_exp(base, expnt - 1);
+    let n = expand_exp(base, expnt - W256(1, 0));
     format!("(bvmul {} {})", b, n)
   }
 }
@@ -1018,7 +1009,7 @@ fn write_bytes(bytes: &[u8], buf: Expr) -> Builder {
       idx += 1;
     } else {
       let byte_smt = expr_to_smt(Expr::LitByte(byte));
-      let idx_smt = expr_to_smt(Expr::Lit(idx));
+      let idx_smt = expr_to_smt(Expr::Lit(W256(idx, 0)));
       inner = format!("(store {} {} {})", inner, idx_smt, byte_smt);
       idx += 1;
     }
@@ -1026,12 +1017,12 @@ fn write_bytes(bytes: &[u8], buf: Expr) -> Builder {
   inner
 }
 
-fn encode_concrete_store(s: &mut W256W256Map) -> Builder {
-  s.iter().fold(
+fn encode_concrete_store(s: &W256W256Map) -> Builder {
+  s.clone().iter().fold(
     "((as const Storage) #x0000000000000000000000000000000000000000000000000000000000000000)".to_string(),
     |prev, (key, val)| {
-      let enc_key = expr_to_smt(Expr::Lit(*key));
-      let enc_val = expr_to_smt(Expr::Lit(*val));
+      let enc_key = expr_to_smt(Expr::Lit(key.clone()));
+      let enc_val = expr_to_smt(Expr::Lit(val.clone()));
       format!("(store {} {} {})", prev, enc_key, enc_val)
     },
   )

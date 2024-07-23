@@ -5,8 +5,9 @@ use std::collections::HashMap;
 /// Description: Functions to determine Keccak assumptions
 use std::collections::HashSet;
 
-use crate::modules::traversals::{map_expr_m, map_prop_m};
-use crate::modules::types::{unbox, Expr, Prop};
+use crate::modules::expr::simplify;
+use crate::modules::traversals::map_prop_m;
+use crate::modules::types::{keccak, keccak_prime, unbox, Expr, Prop, W256};
 
 #[derive(Debug, Clone)]
 struct KeccakStore {
@@ -15,9 +16,7 @@ struct KeccakStore {
 
 impl KeccakStore {
   fn new() -> Self {
-    KeccakStore {
-      keccak_eqs: HashSet::new(),
-    }
+    KeccakStore { keccak_eqs: HashSet::new() }
   }
 }
 
@@ -70,15 +69,15 @@ fn combine<T: Clone>(lst: &[T]) -> Vec<(T, T)> {
 
 fn min_prop(k: Expr) -> Prop {
   match k {
-    Expr::Keccak(_) => Prop::PGT(k, Expr::Lit(256)),
+    Expr::Keccak(_) => Prop::PGT(k, Expr::Lit(W256(256, 0))),
     _ => panic!("expected keccak expression"),
   }
 }
 
 fn conc_val(k: Expr) -> Prop {
-  match k {
+  match k.clone() {
     Expr::Keccak(cbuf) => match unbox(cbuf) {
-      Expr::ConcreteBuf(bs) => Prop::PEq(Expr::Lit(keccak(&bs)), k),
+      Expr::ConcreteBuf(bs) => Prop::PEq(Expr::Lit(keccak_prime(&bs)), k),
       _ => Prop::PBool(true),
     },
     _ => Prop::PBool(true),
@@ -90,10 +89,7 @@ fn inj_prop(k1: Expr, k2: Expr) -> Prop {
     (Expr::Keccak(b1), Expr::Keccak(b2)) => Prop::POr(
       Box::new(Prop::PAnd(
         Box::new(Prop::PEq(unbox(b1.clone()), unbox(b2.clone()))),
-        Box::new(Prop::PEq(
-          Expr::BufLength(Box::new(*b1)),
-          Expr::BufLength(Box::new(*b2)),
-        )),
+        Box::new(Prop::PEq(Expr::BufLength(Box::new(*b1)), Expr::BufLength(Box::new(*b2)))),
       )),
       Box::new(Prop::PNeg(Box::new(Prop::PEq(k1, k2)))),
     ),
@@ -128,11 +124,8 @@ fn min_distance(ka: Expr, kb: Expr) -> Prop {
     (Expr::Keccak(a), Expr::Keccak(b)) => Prop::PImpl(
       Box::new(Prop::PNeg(Box::new(Prop::PEq(*a, *b)))),
       Box::new(Prop::PAnd(
-        Box::new(Prop::PGEq(
-          (Expr::Sub(Box::new(ka.clone()), Box::new(kb.clone()))),
-          (Expr::Lit(256)),
-        )),
-        Box::new(Prop::PGEq((Expr::Sub(Box::new(kb), Box::new(ka))), (Expr::Lit(256)))),
+        Box::new(Prop::PGEq((Expr::Sub(Box::new(ka.clone()), Box::new(kb.clone()))), (Expr::Lit(W256(256, 0))))),
+        Box::new(Prop::PGEq((Expr::Sub(Box::new(kb), Box::new(ka))), (Expr::Lit(W256(256, 0))))),
       )),
     ),
     _ => panic!("expected Keccak expression"),
@@ -140,11 +133,11 @@ fn min_distance(ka: Expr, kb: Expr) -> Prop {
 }
 
 fn compute<A>(e: Expr) -> Vec<Prop> {
-  match e {
+  match e.clone() {
     Expr::Keccak(buf) => {
-      let b = simplify(buf);
-      match keccak(&b) {
-        Expr::Lit(_) => vec![Prop::PEq(e, Expr::Lit(keccak(&b)))],
+      let b = simplify(&buf);
+      match keccak(b).unwrap() {
+        lit @ Expr::Lit(_) => vec![Prop::PEq(e, lit)],
         _ => vec![],
       }
     }
