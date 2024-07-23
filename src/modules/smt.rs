@@ -1,6 +1,7 @@
 use core::prelude;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+use std::ops::Add;
 use std::str::FromStr;
 use std::{fmt, vec};
 
@@ -10,10 +11,12 @@ use futures::Future;
 use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
 use crate::modules::evm::buf_length;
-use crate::modules::expr::{add, conc_keccak_props, in_range, simplify_props, sub, write_byte};
+use crate::modules::expr::{
+  add, conc_keccak_props, contains_node, get_addr, get_logical_idx, in_range, simplify_props, sub, write_byte,
+};
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};
-use crate::modules::traversals::{map_prop_m, TraversableTerm};
-use crate::modules::types::{Addr, Block, Expr, Frame, FrameContext, GVar, Prop, W256W256Map, W256};
+use crate::modules::traversals::{fold_prop, map_prop_m, TraversableTerm};
+use crate::modules::types::{AddableVec, Addr, Block, Expr, Frame, FrameContext, GVar, Prop, W256W256Map, W256};
 
 use super::etypes::Buf;
 
@@ -655,7 +658,14 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   let to_declare_ps = concatenate_props(&ps, &kecc_assump, &kecc_comp);
   let to_declare_ps_elim = concatenate_props(&ps_elim, &kecc_assump, &kecc_comp);
 
-  let storage_reads = find_storage_reads(&to_declare_ps);
+  //let storage_reads = to_declare_ps.into_iter().map(|p: Prop| find_storage_reads(&p)).collect();
+  let storage_reads: HashMap<(Expr, Option<W256>), HashSet<Expr>> = to_declare_ps
+    .into_iter()
+    .flat_map(|p: Prop| find_storage_reads(&p)) // Flatten HashMap into an iterator of tuples
+    .fold(HashMap::new(), |mut acc, (key, value)| {
+      acc.entry(key).or_insert_with(HashSet::new).extend(value);
+      acc
+    });
   let abstract_stores = find_abstract_stores(&to_declare_ps);
   let addresses = find_addresses(&to_declare_ps);
 
@@ -719,7 +729,19 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   });
   smt2
     + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![]))
-    + (SMT2(vec![], RefinementEqs::new(), storage_reads, vec![]))
+    + (SMT2(
+      vec![],
+      RefinementEqs::new(),
+      CexVars {
+        store_reads: storage_reads,
+        calldata: vec![],
+        addrs: vec![],
+        buffers: HashMap::new(),
+        block_context: vec![],
+        tx_context: vec![],
+      },
+      vec![],
+    ))
     + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), ps_pre_conc))
 }
 
@@ -1451,4 +1473,34 @@ fn prelude() -> SMT2 {
 
 fn smt2_line(txt: Builder) -> SMT2 {
   SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
+}
+
+fn is_abstract_store(e: Expr) -> bool {
+  match e {
+    Expr::AbstractStore(_, _) => true,
+    _ => false,
+  }
+}
+
+/// Finds storage reads from an abstract storage property.
+fn find_storage_reads(p: &Prop) -> HashMap<(Expr, Option<W256>), HashSet<Expr>> {
+  let result = fold_prop(
+    &mut |expr| match expr {
+      Expr::SLoad(slot, store) => {
+        if contains_node(|e: &Expr| is_abstract_store(e.clone()), *store.clone()) {
+          let addr = get_addr(*store.clone()).unwrap_or_else(|| panic!("could not extract address from store"));
+          let idx = get_logical_idx(*store.clone());
+          let hs = HashSet::from([*slot.clone()]);
+          AddableVec::from_vec(vec![((addr, idx), hs)])
+        } else {
+          AddableVec::from_vec(vec![])
+        }
+      }
+      _ => AddableVec::from_vec(vec![]),
+    },
+    AddableVec::from_vec(vec![]),
+    p.clone(),
+  );
+
+  result.to_vec().into_iter().map(|item| (item.0, item.1)).collect()
 }

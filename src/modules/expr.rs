@@ -4,7 +4,7 @@ use std::u32;
 use std::{clone, cmp::min};
 
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
-use crate::modules::traversals::{map_expr, map_prop, map_prop_prime};
+use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
 use crate::modules::types::{
   keccak, keccak_prime, maybe_lit_addr, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, Prop,
   W256, W64,
@@ -1586,4 +1586,41 @@ fn strip_writes(off: W256, size: W256, buffer: Expr) -> Expr {
 
 pub fn concrete_prefix(e: &Expr) -> Vec<u8> {
   todo!()
+}
+
+pub fn get_addr(e: Expr) -> Option<Expr> {
+  match e {
+    Expr::SStore(_, _, p) => get_addr(*p),
+    Expr::AbstractStore(a, _) => Some(*a),
+    Expr::ConcreteStore(_) => None,
+    Expr::GVar(_) => panic!("cannot determine addr of a GVar"),
+    _ => panic!("unexpected expressions"),
+  }
+}
+
+pub fn get_logical_idx(e: Expr) -> Option<W256> {
+  match e {
+    Expr::SStore(_, _, p) => get_logical_idx(*p),
+    Expr::AbstractStore(_, idx) => idx,
+    Expr::ConcreteStore(_) => None,
+    Expr::GVar(_) => panic!("cannot determine addr of a GVar"),
+    _ => panic!("unexpected expressions"),
+  }
+}
+
+pub fn contains_node<F>(p: F, b: Expr) -> bool
+where
+  F: Fn(&Expr) -> bool,
+{
+  fold_expr(
+    &|a: &Expr| {
+      if p(&a) {
+        1
+      } else {
+        0
+      }
+    },
+    0,
+    &b,
+  ) > 0
 }

@@ -1609,6 +1609,73 @@ pub fn from_list(bs: Vec<Expr>) -> Expr {
   }
 }
 
+/*
+type AddableVec<T> = Vec<T>;
+
+impl<T> Add for AddableVec<T>
+where
+  T: Clone, // T must implement Clone
+{
+  type Output = AddableVec<T>; // The output type is also Vec<T>
+
+  fn add(self, other: AddableVec<T>) -> AddableVec<T> {
+    // Create a new vector with capacity to hold both input vectors
+    let mut result = AddableVec::with_capacity(self.len() + other.len());
+
+    // Extend the result vector with elements from the first vector
+    result.extend(self);
+
+    // Extend the result vector with elements from the second vector
+    result.extend(other);
+
+    result // Return the concatenated vector
+  }
+}
+*/
+
+#[derive(Clone, PartialEq, Hash)]
+pub struct AddableVec<T>(Vec<T>);
+
+impl<T> AddableVec<T> {
+  // Implement a from_vec method to create AddableVec from Vec<T>
+  pub fn from_vec(vec: Vec<T>) -> AddableVec<T> {
+    AddableVec(vec)
+  }
+
+  // Optionally, you can also implement other utility methods like to_vec
+  pub fn to_vec(self) -> Vec<T> {
+    self.0
+  }
+}
+
+// Implement the Default trait for AddableVec
+impl<T> Default for AddableVec<T> {
+  fn default() -> AddableVec<T> {
+    AddableVec(Vec::new()) // Return an empty vector
+  }
+}
+
+impl<T> Add for AddableVec<T>
+where
+  T: Clone,
+{
+  type Output = AddableVec<T>;
+
+  fn add(self, other: AddableVec<T>) -> AddableVec<T> {
+    let mut result = Vec::with_capacity(self.0.len() + other.0.len());
+    result.extend(self.0);
+    result.extend(other.0);
+    AddableVec(result)
+  }
+}
+
+// Implement Debug trait for easy printing
+impl<T: std::fmt::Debug> std::fmt::Debug for AddableVec<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_tuple("AddableVec").field(&self.0).finish()
+  }
+}
+
 macro_rules! impl_hashset_traits {
   ($name:ident, $inner:ty) => {
     #[derive(Debug, Clone)]
