@@ -1156,7 +1156,7 @@ impl VM {
                       0
                     };
                     burn(self, 0 + c_new + cost, || {
-                      selfdestruct(self_contract);
+                      self.tx.substate.selfdestructs.push(self_contract);
                       touch_account(&x_to);
                       if has_funds {
                         // fetchAccount(x_to, |_| {
@@ -1165,7 +1165,7 @@ impl VM {
                         //     doStop();
                         // });
                       } else {
-                        do_stop();
+                        finish_frame(self, FrameResult::FrameReturned(Expr::Mempty))
                       }
                     });
                     Ok(())
@@ -1237,8 +1237,10 @@ impl VM {
                 let jump = |out_of_bounds: bool| {
                   if out_of_bounds {
                     vm_error("ReturnDataOutOfBounds");
+                    Ok(())
                   } else {
                     copy_bytes_to_memory(self.state.returndata, **x_size, **x_from, **x_to, self);
+                    Ok(())
                   }
                 };
 
@@ -1255,7 +1257,7 @@ impl VM {
                       Box::new(Expr::Add(Box::new(*x_from.clone()), Box::new(*x_size.clone()))),
                       Box::new(*x_from.clone()),
                     );
-                    branch(oob | overflow, jump);
+                    branch(self, oob | overflow, jump);
                   }
                 }
               });
@@ -1304,6 +1306,7 @@ impl VM {
             underrun();
           }
         }
+        _ => todo!(),
       }
     }
   }

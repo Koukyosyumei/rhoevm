@@ -1147,9 +1147,9 @@ fn go_prop(prop: Prop) -> Prop {
 
     Prop::PLEq(Expr::Lit(W256(0, 0)), _) => Prop::PBool(true),
     Prop::PLEq(Expr::WAddr(_), Expr::Lit(v)) => Prop::PBool(true),
-    Prop::PLEq(_, Expr::Lit(x)) if x == max_lit() => Prop::PBool(true),
+    Prop::PLEq(_, Expr::Lit(x)) if x == MAX_LIT => Prop::PBool(true),
 
-    Prop::PLEq(Expr::Var(_), Expr::Lit(val)) if val == max_lit() => Prop::PBool(true),
+    Prop::PLEq(Expr::Var(_), Expr::Lit(val)) if val == MAX_LIT => Prop::PBool(true),
     Prop::PLEq(Expr::Lit(l), Expr::Lit(r)) => Prop::PBool(l <= r),
     Prop::PLEq(a, Expr::Max(b, _)) if a == *b => Prop::PBool(true),
     Prop::PLEq(a, Expr::Max(_, b)) if a == *b => Prop::PBool(true),
