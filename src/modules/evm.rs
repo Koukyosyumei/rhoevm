@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::expr::{
-  add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, geq, gt, index_word, iszero, leq, lt,
+  add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, geq, gt, index_word, iszero, leq, lt, or,
   read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, sub, write_byte, write_storage, write_word,
 };
 use crate::modules::feeschedule::FeeSchedule;
@@ -989,8 +989,8 @@ impl VM {
           if let [x_offset, x_size, _] = &self.state.stack[..] {
             access_memory_range(self, **x_offset, **x_size, || {
               let output = read_memory(x_offset, x_size);
-              let codesize = output.len() as i64;
-              let maxsize = 0; // vm.block.maxCodeSize
+              let codesize = maybe_lit_word(buf_length(output)).unwrap().0 as u32;
+              let maxsize = self.block.max_code_size.0 as u32;
               let creation = false; // Determine if creation context
               if creation {
                 if codesize > maxsize {
@@ -1257,7 +1257,7 @@ impl VM {
                       Box::new(Expr::Add(Box::new(*x_from.clone()), Box::new(*x_size.clone()))),
                       Box::new(*x_from.clone()),
                     );
-                    branch(self, oob | overflow, jump);
+                    branch(self, &or(oob, overflow), jump);
                   }
                 }
               });
@@ -1297,10 +1297,10 @@ impl VM {
                   push(self, (W256(0, 0)));
                 } else {
                   let block_number_str = block_number.to_string();
-                  push(self, keccak_str(&block_number_str));
+                  push(self, keccak_prime(&block_number_str.as_bytes().to_vec()));
                 }
               }
-              _ => push(self, Expr::Var(format!("BlockHash({:?})", i))),
+              _ => push_sym(self, Box::new(Expr::BlockHash(i.clone()))),
             }
           } else {
             underrun();
@@ -1976,6 +1976,7 @@ fn delegate_call(
       (x_to, x_context),
       "Cannot call precompile with symbolic addresses".to_string(),
       |(x_to, x_context)| {
+        /*
         precompiled_contract(
           vm,
           &this,
@@ -1989,11 +1990,13 @@ fn delegate_call(
           x_out_size,
           xs,
         );
+        */
       },
     );
   } else if x_to == cheat_code() {
     vm.state.stack = xs.into_iter().map(Box::new).collect();
-    cheat(vm, x_in_offset, x_in_size, x_out_offset, x_out_size);
+    todo!()
+    // cheat(vm, x_in_offset, x_in_size, x_out_offset, x_out_size);
   } else {
     call_checks(
       vm,
@@ -2018,7 +2021,7 @@ fn delegate_call(
             }));
           }
           _ => {
-            burn(vm, gas_given, || {
+            burn(vm, 0, || {
               let calldata = read_memory(&x_in_offset, &x_in_size);
               let abi = maybe_lit_word(read_bytes(4, 0, x_in_offset, 4));
               let new_context = FrameContext::CallContext {
@@ -2036,16 +2039,20 @@ fn delegate_call(
               next(vm, op);
               vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
               let new_memory = Memory::ConcreteMemory(vec![]);
+              let cleared_init_code = match target.code {
+                ContractCode::InitCode(_, _) => ContractCode::InitCode(vec![], Box::new(Expr::Mempty)),
+                a => a,
+              };
               vm.state = FrameState {
                 gas: x_gas.clone(),
                 pc: 0,
-                code: clear_init_code(target.code.clone()),
+                code: cleared_init_code,
                 code_contract: x_to.clone(),
                 stack: vec![],
                 memory: new_memory,
                 memory_size: 0,
                 returndata: Expr::Mempty,
-                calldata: new_context.calldata.clone(),
+                calldata: calldata.clone(),
                 ..vm.state
               };
               continue_fn(x_to);
@@ -2113,7 +2120,7 @@ fn create(
         Ok(())
       } else {
         Ok({
-          burn(vm, x_gas, || match parse_init_code(init_code.clone()) {
+          burn(vm, 0, || match parse_init_code(init_code.clone()) {
             None => {
               vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
                 pc: vm.state.pc,

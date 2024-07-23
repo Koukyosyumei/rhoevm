@@ -1062,9 +1062,9 @@ fn go_expr(expr: &Expr) -> Expr {
     },
 
     Expr::ITE(a_, b_, c_) => match (**a_, **b_, **c_) {
-      (Expr::Lit(W256(1, 0)), b, _) => b,
       (Expr::Lit(W256(0, 0)), _, c) => c,
-      (a, b, c) => ite(a.clone(), b.clone(), c.clone()),
+      (Expr::Lit(_), b, _) => b,
+      (a, b, c) => Expr::ITE(a_.clone(), b_.clone(), c_.clone()),
     },
 
     Expr::And(a_, b_) => match (**a_, **b_) {
@@ -1086,7 +1086,11 @@ fn go_expr(expr: &Expr) -> Expr {
 
     Expr::Div(a, b) => div(*a.clone(), *b.clone()),
     Expr::SDiv(a, b) => sdiv(*a.clone(), *b.clone()),
-    Expr::Mod(a, b) => modulo(*a.clone(), *b.clone()),
+    Expr::Mod(a_, b_) => match (**a_, **b_) {
+      (Expr::Lit(_), Expr::Lit(_)) => r#mod(**a_, **b_),
+      (_, Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
+      (a, b) if a == b => Expr::Lit(W256(0, 0)),
+    },
     Expr::SMod(a, b) => smod(*a.clone(), *b.clone()),
 
     Expr::Add(a_, b_) => match (**a_, **b_) {
