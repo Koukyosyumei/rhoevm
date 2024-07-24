@@ -303,7 +303,12 @@ fn declare_intermediates(bufs: &BufEnv, stores: &StoreEnv) -> SMT2 {
 }
 
 fn declare_addrs(names: Vec<Builder>) -> SMT2 {
-  todo!()
+  let mut result = vec!["; symbolic addresseses".to_string()];
+  for n in &names {
+    result.push(format!("declare-fun {} () Addr", n).to_string());
+  }
+
+  SMT2(result, RefinementEqs(vec![], vec![]), CexVars { addrs: names, ..CexVars::new() }, vec![])
 }
 
 fn declare_vars(names: Vec<Builder>) -> SMT2 {
@@ -730,6 +735,15 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   let intermediates = declare_intermediates(&bufs, &stores);
   // let decls = declare_intermediates(&bufs, &stores);
 
+  let mut concatenated_frame_ctx = vec![];
+  for fc in &frame_ctx {
+    concatenated_frame_ctx.push(fc.clone());
+  }
+  let mut concatenated_block_ctx = vec![];
+  for bc in &block_ctx {
+    concatenated_block_ctx.push(bc.clone());
+  }
+
   let mut smt2 = prelude()
     + (smt2_line("; intermediate buffers & stores".to_owned()))
     + (declare_abstract_stores(&abstract_stores))
@@ -745,20 +759,9 @@ fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
       })),
     ))
     + (smt2_line("".to_owned()))
-    /* 
-    + (declare_frame_context(
-      (frame_ctx.clone().iter().fold(&Vec::new(), |mut acc, x| {
-        acc.push(x.clone());
-        acc
-      })),
-    ))
+    + (declare_frame_context(&concatenated_frame_ctx))
     + (smt2_line("".to_owned()))
-    + (declare_block_context(
-      (block_ctx.iter().fold(&Vec::new(), |mut acc, x| {
-        acc.push(x.clone());
-        acc
-      })),
-    ))*/
+    + (declare_block_context(&concatenated_block_ctx))
     + (smt2_line("".to_owned()))
     + (intermediates)
     + (smt2_line("".to_owned()));
