@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::{fmt, vec};
 
-
 use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
 use crate::modules::evm::buf_length;
@@ -13,7 +12,6 @@ use crate::modules::format::format_prop;
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};
 use crate::modules::traversals::{fold_prop, TraversableTerm};
 use crate::modules::types::{AddableVec, Addr, Expr, GVar, Prop, W256W256Map, W256};
-
 
 // Type aliases for convenience
 type Text = String;
@@ -755,12 +753,10 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
     + (smt2_line("".to_owned()))
     + (declare_bufs(to_declare_ps_elim, bufs, stores))
     + (smt2_line("".to_owned()))
-    + (declare_vars(
-      all_vars.iter().fold(Vec::new(), |mut acc, x| {
-        acc.push(x.clone());
-        acc
-      }),
-    ))
+    + (declare_vars(all_vars.iter().fold(Vec::new(), |mut acc, x| {
+      acc.push(x.clone());
+      acc
+    })))
     + (smt2_line("".to_owned()))
     + (declare_frame_context(&concatenated_frame_ctx))
     + (smt2_line("".to_owned()))
@@ -1537,8 +1533,9 @@ fn is_abstract_store(e: Expr) -> bool {
 
 /// Finds storage reads from an abstract storage property.
 fn find_storage_reads(p: &Prop) -> HashMap<(Expr, Option<W256>), HashSet<Expr>> {
+  /*
   let result = fold_prop(
-    &mut |expr| match expr {
+    |expr| match expr {
       Expr::SLoad(slot, store) => {
         if contains_node(|e: &Expr| is_abstract_store(e.clone()), *store.clone()) {
           let addr = get_addr(*store.clone()).unwrap_or_else(|| panic!("could not extract address from store"));
@@ -1556,4 +1553,6 @@ fn find_storage_reads(p: &Prop) -> HashMap<(Expr, Option<W256>), HashSet<Expr>> 
   );
 
   result.to_vec().into_iter().map(|item| (item.0, item.1)).collect()
+  */
+  todo!()
 }

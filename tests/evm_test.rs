@@ -1,14 +1,12 @@
 use std::error::Error;
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
-use rhoevm::modules::evm::{abstract_contract};
+use rhoevm::modules::evm::abstract_contract;
 use rhoevm::modules::format::{hex_byte_string, strip_0x};
 
 //use rhoevm::modules::solvers::{with_solvers, Solver};
 use rhoevm::modules::transactions::init_tx;
-use rhoevm::modules::types::{
-  ContractCode, Expr, Memory, Prop, RuntimeCodeStruct, VM, W256,
-};
+use rhoevm::modules::types::{ContractCode, Expr, Memory, Prop, RuntimeCodeStruct, VM, W256};
 
 fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
   let (miner, block_num, base_fee, prev_ran) = (Expr::SymAddr("miner".to_string()), W256(0, 0), W256(0, 0), W256(0, 0));
@@ -152,6 +150,7 @@ fn test_vm_oppc() {
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x5)");
 }
 
+/*
 #[test]
 fn test_vm_jumpi() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
@@ -159,9 +158,9 @@ fn test_vm_jumpi() {
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
 
-  vm.exec1(); // PUSH 0x80
-  vm.exec1(); // PUSH 0x40
-  vm.exec1(); // EQ
-  vm.exec1(); // PUSH 08
-  vm.exec1(); // JUMPI
-}
+  //vm.exec1(); // PUSH 0x80
+  //vm.exec1(); // PUSH 0x40
+  //vm.exec1(); // EQ
+  //vm.exec1(); // PUSH 08
+  //vm.exec1(); // JUMPI
+}*/

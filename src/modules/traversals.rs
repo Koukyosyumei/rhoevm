@@ -8,14 +8,12 @@ use crate::modules::types::{Contract, ContractCode, EvmError, Expr, Prop, Runtim
 use super::types::ExprExprMap;
 
 // Function to recursively fold over a Prop type
-pub fn fold_prop<B, F>(f: &F, acc: B, p: Prop) -> B
+pub fn fold_prop<B>(f: &dyn Fn(&Expr) -> B, acc: B, p: Prop) -> B
 where
-  F: Fn(&Expr) -> B,
   B: Add<B, Output = B> + Clone + Default,
 {
-  fn go_prop<B, F>(f: &F, p: Prop) -> B
+  fn go_prop<B>(f: &dyn Fn(&Expr) -> B, p: Prop) -> B
   where
-    F: Fn(&Expr) -> B,
     B: Add<B, Output = B> + Clone + Default,
   {
     match p {
@@ -32,9 +30,8 @@ where
 }
 
 // Function to recursively fold over an Expr of EContract type
-pub fn fold_econtract<F, B>(f: &F, acc: B, g: &Expr) -> B
+pub fn fold_econtract<B>(f: &dyn Fn(&Expr) -> B, acc: B, g: &Expr) -> B
 where
-  F: Fn(&Expr) -> B,
   B: Add<B, Output = B> + Clone + Default,
 {
   match g {
@@ -60,9 +57,8 @@ where
 }
 
 // Function to recursively fold over a ContractCode type
-pub fn fold_code<F, B>(f: &F, code: &ContractCode) -> B
+pub fn fold_code<B>(f: &dyn Fn(&Expr) -> B, code: &ContractCode) -> B
 where
-  F: Fn(&Expr) -> B,
   B: Add<B, Output = B> + Clone + Default,
 {
   match code {
@@ -77,9 +73,8 @@ where
   }
 }
 
-fn go_expr<F, B>(f: &F, acc: B, expr: Expr) -> B
+fn go_expr<B>(f: &dyn Fn(&Expr) -> B, acc: B, expr: Expr) -> B
 where
-  F: Fn(&Expr) -> B,
   B: Add<B, Output = B> + Clone + Default,
 {
   match expr.clone() {
@@ -211,9 +206,8 @@ where
 }
 
 // Recursively folds a given function over a given expression
-pub fn fold_expr<F, B>(f: &F, acc: B, expr: &Expr) -> B
+pub fn fold_expr<B>(f: &dyn Fn(&Expr) -> B, acc: B, expr: &Expr) -> B
 where
-  F: Fn(&Expr) -> B,
   B: Add<B, Output = B> + Default + Clone,
 {
   acc.clone() + go_expr(f, acc.clone(), expr.clone())
