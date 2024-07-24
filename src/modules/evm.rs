@@ -434,11 +434,11 @@ impl VM {
           if let Some(x) = self.state.stack.clone().first() {
             force_addr(x, "BALANCE", |a| {
               access_and_burn(&a, || {
-                fetch_account(&a, |c| {
-                  next(self, op);
-                  self.state.stack = self.state.stack[1..].to_vec();
-                  push_sym(self, Box::new(c.balance.clone()));
-                });
+                let mut c = empty_contract();
+                fetch_account(self, &a, |c_| c = c_.clone());
+                next(self, op);
+                self.state.stack = self.state.stack[1..].to_vec();
+                push_sym(self, Box::new(c.balance.clone()));
               });
             });
           } else {
@@ -563,15 +563,15 @@ impl VM {
           if let Some(x) = self.state.stack.clone().first().clone() {
             force_addr(x, "EXTCODESIZE", |a| {
               access_and_burn(&a, || {
-                fetch_account(&a, |c| {
-                  next(self, op);
-                  self.state.stack = self.state.stack[1..].to_vec();
-                  if let Some(b) = &c.bytecode() {
-                    push_sym(self, Box::new(buf_length(b.clone())));
-                  } else {
-                    push_sym(self, Box::new(Expr::CodeSize(Box::new(a.clone()))));
-                  }
-                });
+                let mut c = empty_contract();
+                fetch_account(self, &a, |c_| c = c_.clone());
+                next(self, op);
+                self.state.stack = self.state.stack[1..].to_vec();
+                if let Some(b) = &c.bytecode() {
+                  push_sym(self, Box::new(buf_length(b.clone())));
+                } else {
+                  push_sym(self, Box::new(Expr::CodeSize(Box::new(a.clone()))));
+                }
               });
             });
           } else {
@@ -1145,25 +1145,25 @@ impl VM {
             force_addr(ext_account, "EXTCODECOPY", |ext_account| {
               burn_extcodecopy(self, ext_account.clone(), *code_size.clone(), self.block.schedule.clone(), || {});
               access_memory_range(self, *mem_offset.clone(), *code_size.clone(), || {});
-              fetch_account(&ext_account, |account| {
-                next(self, op);
-                self.state.stack = xs.to_vec();
-                if let Some(bytecode) = &account.bytecode() {
-                  copy_bytes_to_memory(
-                    bytecode.clone(),
-                    *code_size.clone(),
-                    *code_offset.clone(),
-                    *mem_offset.clone(),
-                    self,
-                  )
-                } else {
-                  self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
-                    pc: self.state.pc,
-                    msg: "Cannot copy from unknown code".to_string(),
-                    args: vec![ext_account.clone()],
-                  }))
-                }
-              });
+              let mut account = empty_contract();
+              fetch_account(self, &ext_account, |account_| account = account_.clone());
+              next(self, op);
+              self.state.stack = xs.to_vec();
+              if let Some(bytecode) = &account.bytecode() {
+                copy_bytes_to_memory(
+                  bytecode.clone(),
+                  *code_size.clone(),
+                  *code_offset.clone(),
+                  *mem_offset.clone(),
+                  self,
+                )
+              } else {
+                self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+                  pc: self.state.pc,
+                  msg: "Cannot copy from unknown code".to_string(),
+                  args: vec![ext_account.clone()],
+                }))
+              }
             });
           } else {
             underrun();
@@ -1224,16 +1224,16 @@ impl VM {
               access_and_burn(&addr, || {
                 next(self, op);
                 self.state.stack = xs.to_vec();
-                fetch_account(&addr, |account| {
-                  if account_empty(account) {
-                    push(self, (W256(0, 0)));
-                  } else {
-                    match &account.bytecode() {
-                      Some(bytecode) => push_sym(self, Box::new(keccak(bytecode.clone()).unwrap())),
-                      None => push_sym(self, Box::new(Expr::Var(format!("CodeHash({})", addr)))),
-                    }
+                let mut account = empty_contract();
+                fetch_account(self, &addr, |account_| account = account_.clone());
+                if account_empty(&account) {
+                  push(self, (W256(0, 0)));
+                } else {
+                  match &account.bytecode() {
+                    Some(bytecode) => push_sym(self, Box::new(keccak(bytecode.clone()).unwrap())),
+                    None => push_sym(self, Box::new(Expr::Var(format!("CodeHash({})", addr)))),
                   }
-                });
+                }
               });
             });
           } else {
@@ -1329,9 +1329,32 @@ fn execute_precompile(
   // Implement precompile logic
 }
 
-fn fetch_account<F: FnOnce(&Contract)>(addr: &Expr, f: F) {
+fn fetch_account<F: FnOnce(&Contract)>(vm: &mut VM, addr: &Expr, f: F) {
   // Implement account fetching logic
-  todo!()
+  match vm.env.contracts.get(&addr.clone()) {
+    Some(c) => f(c),
+    None => match addr.clone() {
+      Expr::SymAddr(_) => {
+        vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+          pc: vm.state.pc,
+          msg: "trying to access a symbolic address that isn't already present in storage".to_string(),
+          args: vec![addr.clone()],
+        }))
+      }
+      Expr::LitAddr(a) => match vm.cache.fetched.get(&a) {
+        Some(c) => {
+          *vm.env.contracts.entry(addr.clone()).or_insert(empty_contract()) = c.clone();
+          f(c)
+        }
+        None => {
+          let base = vm.config.base_state.clone();
+          vm.result = Some(VMResult::HandleEffect);
+        }
+      },
+      Expr::GVar(_) => panic!("unexpected GVar"),
+      _ => panic!("unexpected expr"),
+    },
+  }
 }
 
 fn touch_account(vm: &mut VM, addr: &Expr) {
@@ -1929,7 +1952,10 @@ where
       },
       None => rpc_call(vm, addr, slot.clone(), c.clone(), slot_conc, continue_fn),
     },
-    None => fetch_account(&addr.clone(), move |_| access_storage(vm, addr, slot, continue_fn)),
+    None => {
+      fetch_account(vm, &addr.clone(), |_| {});
+      access_storage(vm, addr, slot, continue_fn)
+    }
   }
 }
 
@@ -2056,7 +2082,13 @@ fn delegate_call(
       &xs.into_iter().map(|x| Box::new(x)).collect(),
       |x_gas_| x_gas = x_gas_,
     );
-    fetch_account(&x_to.clone(), |target| match &target.code {
+    let mut target_code = ContractCode::UnKnownCode(Box::new(Expr::Mempty));
+    let mut taregt_codehash = Expr::Mempty;
+    fetch_account(vm, &x_to.clone(), |target| {
+      target_code = target.code.clone();
+      taregt_codehash = target.codehash.clone();
+    });
+    match target_code {
       ContractCode::UnKnownCode(_) => {
         vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
           pc: vm.state.pc,
@@ -2074,7 +2106,7 @@ fn delegate_call(
           context: x_context.clone(),
           offset: x_out_offset,
           size: x_out_size,
-          codehash: target.codehash.clone(),
+          codehash: taregt_codehash,
           callreversion: vm.env.contracts.clone(),
           substate: vm.tx.substate.clone(),
           abi,
@@ -2084,7 +2116,7 @@ fn delegate_call(
         next(vm, op);
         vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
         let new_memory = Memory::ConcreteMemory(vec![]);
-        let cleared_init_code = match &target.code {
+        let cleared_init_code = match target_code {
           ContractCode::InitCode(_, _) => ContractCode::InitCode(vec![], Box::new(Expr::Mempty)),
           a => a.clone(),
         };
@@ -2105,7 +2137,7 @@ fn delegate_call(
         };
         continue_fn(x_to);
       }
-    });
+    }
   }
 }
 
