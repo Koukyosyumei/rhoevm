@@ -1,13 +1,12 @@
 use core::panic;
+use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::u32;
-use std::{cmp::min};
 
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
 use crate::modules::types::{
-  keccak, keccak_prime, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, Prop,
-  W256, W64,
+  keccak, keccak_prime, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, Prop, W256, W64,
 };
 
 use super::evm::buf_length;
@@ -573,42 +572,40 @@ fn join_bytes(bs: Vec<Expr>) -> Expr {
     Expr::Lit(bytes_to_w256(&lit_bytes))
   } else {
     let padded_bs = pad_bytes_left(32, bs);
-    Expr::JoinBytes(
-      vec![
-        padded_bs[0].clone(),
-        padded_bs[1].clone(),
-        padded_bs[2].clone(),
-        padded_bs[3].clone(),
-        padded_bs[4].clone(),
-        padded_bs[5].clone(),
-        padded_bs[6].clone(),
-        padded_bs[7].clone(),
-        padded_bs[8].clone(),
-        padded_bs[9].clone(),
-        padded_bs[10].clone(),
-        padded_bs[11].clone(),
-        padded_bs[12].clone(),
-        padded_bs[13].clone(),
-        padded_bs[14].clone(),
-        padded_bs[15].clone(),
-        padded_bs[16].clone(),
-        padded_bs[17].clone(),
-        padded_bs[18].clone(),
-        padded_bs[19].clone(),
-        padded_bs[20].clone(),
-        padded_bs[21].clone(),
-        padded_bs[22].clone(),
-        padded_bs[23].clone(),
-        padded_bs[24].clone(),
-        padded_bs[25].clone(),
-        padded_bs[26].clone(),
-        padded_bs[27].clone(),
-        padded_bs[28].clone(),
-        padded_bs[29].clone(),
-        padded_bs[30].clone(),
-        padded_bs[31].clone(),
-      ],
-    )
+    Expr::JoinBytes(vec![
+      padded_bs[0].clone(),
+      padded_bs[1].clone(),
+      padded_bs[2].clone(),
+      padded_bs[3].clone(),
+      padded_bs[4].clone(),
+      padded_bs[5].clone(),
+      padded_bs[6].clone(),
+      padded_bs[7].clone(),
+      padded_bs[8].clone(),
+      padded_bs[9].clone(),
+      padded_bs[10].clone(),
+      padded_bs[11].clone(),
+      padded_bs[12].clone(),
+      padded_bs[13].clone(),
+      padded_bs[14].clone(),
+      padded_bs[15].clone(),
+      padded_bs[16].clone(),
+      padded_bs[17].clone(),
+      padded_bs[18].clone(),
+      padded_bs[19].clone(),
+      padded_bs[20].clone(),
+      padded_bs[21].clone(),
+      padded_bs[22].clone(),
+      padded_bs[23].clone(),
+      padded_bs[24].clone(),
+      padded_bs[25].clone(),
+      padded_bs[26].clone(),
+      padded_bs[27].clone(),
+      padded_bs[28].clone(),
+      padded_bs[29].clone(),
+      padded_bs[30].clone(),
+      padded_bs[31].clone(),
+    ])
   }
 }
 
@@ -888,7 +885,7 @@ pub fn conc_keccak_simp_expr(expr: Expr) -> Expr {
 // Needed because if it also simplified, we may not find some simplification errors, as
 // simplification would always be ON
 pub fn conc_keccak_props(props: Vec<Prop>) -> Vec<Prop> {
-  until_fixpoint(|ps| ps.into_iter().map(|p| map_prop(&conc_keccak_one_pass, p.clone())).collect(), props)
+  until_fixpoint(|ps| ps.into_iter().map(|p| map_prop(&mut &conc_keccak_one_pass, p.clone())).collect(), props)
 }
 
 fn is_concretebuf(expr: &Expr) -> bool {
@@ -990,7 +987,16 @@ fn structure_array_slots(e: Expr) -> Expr {
 }
 
 fn lit_to_array_pre_image(val: W256) -> Option<(Word8, W256)> {
-  todo!()
+  fn go(pre_images: &Vec<(W256, Word8)>, val: W256) -> Option<(Word8, W256)> {
+    for (image, preimage) in pre_images {
+      if val.clone() >= image.clone() && val.clone() - image.clone() <= W256(255, 0) {
+        return Some((preimage.clone(), val.clone() - image.clone()));
+      }
+    }
+    None
+  }
+
+  go(&pre_images(), val)
 }
 
 /// Precompute the hashes and store them in a HashMap
@@ -1194,8 +1200,8 @@ fn go_expr(expr: &Expr) -> Expr {
 }
 
 pub fn simplify_prop(prop: Prop) -> Prop {
-  let fp: &dyn Fn(&Prop) -> Prop = &go_prop;
-  let new_prop = map_prop_prime(fp, simp_inner_expr(prop.clone()));
+  let mut fp: &dyn Fn(&Prop) -> Prop = &go_prop;
+  let new_prop = map_prop_prime(&mut fp, simp_inner_expr(prop.clone()));
 
   if new_prop == prop {
     prop
@@ -1613,7 +1619,7 @@ where
   F: Fn(&Expr) -> bool,
 {
   fold_expr(
-    &|a: &Expr| {
+    &mut &|a: &Expr| {
       if p(&a) {
         1
       } else {

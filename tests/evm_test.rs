@@ -150,7 +150,6 @@ fn test_vm_oppc() {
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x5)");
 }
 
-/*
 #[test]
 fn test_vm_jumpi() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
@@ -158,9 +157,9 @@ fn test_vm_jumpi() {
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
 
-  //vm.exec1(); // PUSH 0x80
-  //vm.exec1(); // PUSH 0x40
-  //vm.exec1(); // EQ
-  //vm.exec1(); // PUSH 08
-  //vm.exec1(); // JUMPI
-}*/
+  vm.exec1(); // PUSH 0x80
+  vm.exec1(); // PUSH 0x40
+  vm.exec1(); // EQ
+  vm.exec1(); // PUSH 08
+  vm.exec1(); // JUMPI
+}

@@ -1548,7 +1548,7 @@ fn find_storage_reads(p: &Prop) -> HashMap<(Expr, Option<W256>), HashSet<Expr>> 
       _ => AddableVec::from_vec(vec![]),
     }
   }
-  let result = fold_prop(&f, AddableVec::from_vec(vec![]), p.clone());
+  let result = fold_prop(&mut &f, AddableVec::from_vec(vec![]), p.clone());
 
   result.to_vec().into_iter().map(|item| (item.0, item.1)).collect()
 }

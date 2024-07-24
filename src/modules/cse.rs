@@ -1,9 +1,12 @@
-use crate::modules::types::{Expr, GVar, Prop};
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::result;
+
+use crate::modules::traversals::map_prop_m;
+use crate::modules::types::{Expr, GVar, Prop};
 
 #[derive(Debug, Default, Clone)]
-struct BuilderState {
+pub struct BuilderState {
   bufs: HashMap<Expr, usize>,
   stores: HashMap<Expr, usize>,
   count: usize,
@@ -52,38 +55,29 @@ where
   map.into_iter().map(|(k, v)| (v, k)).collect()
 }
 
-fn go_ep(a: Expr, s: &mut BuilderState) -> Expr {
-  match a {
-    e @ Expr::WriteWord(_, _, _) => match s.bufs.get(&e) {
-      Some(v) => Expr::GVar(GVar::BufVar(*v as i32)),
-      None => {
-        let next = s.count;
-        *s.bufs.entry(e).or_insert(0) = next;
-        s.count = next + 1;
-        Expr::GVar(GVar::BufVar(next as i32))
-      }
-    },
-    _ => a,
-  }
-}
-
 fn eliminate_expr<'a>(e: Expr) -> (Expr, BufEnv, StoreEnv) {
   let mut state = init_state();
   let (_, e_prime) = go(&mut state, e);
   (e_prime, invert_key_val(state.bufs.clone()), invert_key_val(state.stores.clone()))
 }
 
-fn eliminate_prop<'a>(prop: Prop) -> (BuilderState, Prop) {
-  todo!()
+fn eliminate_prop<'a>(mut state: &mut BuilderState, prop: Prop) -> (&mut BuilderState, Prop) {
+  let mut go_ = |expr: &Expr| go(&mut state, expr.clone()).1;
+  let new_prop = map_prop_m(&mut go_, prop);
+  (state, new_prop)
 }
 
-pub fn eliminate_props_prime<'a>(props: Vec<Prop>) -> (BuilderState, Vec<Prop>) {
-  map_m(eliminate_prop, props)
+pub fn eliminate_props_prime<'a>(state: &mut BuilderState, props: Vec<Prop>) -> (&mut BuilderState, Vec<Prop>) {
+  let mut result = vec![];
+  for p in props {
+    result.push(eliminate_prop(state, p).1);
+  }
+  (state, result)
 }
 
 pub fn eliminate_props(props: Vec<Prop>) -> (Vec<Prop>, BufEnv, StoreEnv) {
-  let state = init_state();
-  let (_, props_prime) = eliminate_props_prime(props);
+  let mut state = init_state();
+  let (_, props_prime) = eliminate_props_prime(&mut state, props);
   (props_prime, invert_key_val(state.bufs.clone()), invert_key_val(state.stores.clone()))
 }
 

@@ -8,18 +8,20 @@ use crate::modules::types::{Contract, ContractCode, EvmError, Expr, Prop, Runtim
 use super::types::ExprExprMap;
 
 // Function to recursively fold over a Prop type
-pub fn fold_prop<B>(f: &dyn Fn(&Expr) -> B, acc: B, p: Prop) -> B
+pub fn fold_prop<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, p: Prop) -> B
 where
   B: Add<B, Output = B> + Clone + Default,
 {
-  fn go_prop<B>(f: &dyn Fn(&Expr) -> B, p: Prop) -> B
+  fn go_prop<B>(f: &mut dyn FnMut(&Expr) -> B, p: Prop) -> B
   where
     B: Add<B, Output = B> + Clone + Default,
   {
     match p {
       Prop::PBool(_) => B::default(),
       Prop::PEq(a, b) | Prop::PLT(a, b) | Prop::PGT(a, b) | Prop::PGEq(a, b) | Prop::PLEq(a, b) => {
-        fold_expr(&f, B::default(), &a) + fold_expr(&f, B::default(), &b)
+        let fa = fold_expr(f, B::default(), &a);
+        let fb = fold_expr(f, B::default(), &b);
+        fa + fb
       }
       Prop::PNeg(a) => go_prop(f, *a),
       Prop::PAnd(a, b) | Prop::POr(a, b) | Prop::PImpl(a, b) => go_prop(f, *a) + go_prop(f, *b),
@@ -30,7 +32,7 @@ where
 }
 
 // Function to recursively fold over an Expr of EContract type
-pub fn fold_econtract<B>(f: &dyn Fn(&Expr) -> B, acc: B, g: &Expr) -> B
+pub fn fold_econtract<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, g: &Expr) -> B
 where
   B: Add<B, Output = B> + Clone + Default,
 {
@@ -44,9 +46,9 @@ where
 }
 
 // Function to recursively fold over a Contract type
-pub fn fold_contract<F, B>(f: &F, acc: B, c: &Contract) -> B
+pub fn fold_contract<F, B>(f: &mut F, acc: B, c: &Contract) -> B
 where
-  F: Fn(&Expr) -> B,
+  F: FnMut(&Expr) -> B,
   B: Add<B, Output = B> + Clone + Default,
 {
   acc
@@ -57,7 +59,7 @@ where
 }
 
 // Function to recursively fold over a ContractCode type
-pub fn fold_code<B>(f: &dyn Fn(&Expr) -> B, code: &ContractCode) -> B
+pub fn fold_code<B>(f: &mut dyn FnMut(&Expr) -> B, code: &ContractCode) -> B
 where
   B: Add<B, Output = B> + Clone + Default,
 {
@@ -73,7 +75,7 @@ where
   }
 }
 
-fn go_expr<B>(f: &dyn Fn(&Expr) -> B, acc: B, expr: Expr) -> B
+fn go_expr<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, expr: Expr) -> B
 where
   B: Add<B, Output = B> + Clone + Default,
 {
@@ -206,7 +208,7 @@ where
 }
 
 // Recursively folds a given function over a given expression
-pub fn fold_expr<B>(f: &dyn Fn(&Expr) -> B, acc: B, expr: &Expr) -> B
+pub fn fold_expr<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, expr: &Expr) -> B
 where
   B: Add<B, Output = B> + Default + Clone,
 {
@@ -214,11 +216,11 @@ where
 }
 
 pub trait ExprMappable {
-  fn map_expr_m(&self, f: &dyn Fn(&Expr) -> Expr) -> Expr;
+  fn map_expr_m(&self, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr;
 }
 
 impl ExprMappable for Expr {
-  fn map_expr_m(&self, f: &dyn Fn(&Expr) -> Expr) -> Expr {
+  fn map_expr_m(&self, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
     match self {
       Expr::Lit(a) => f(&Expr::Lit(a.clone())),
       Expr::LitByte(a) => f(&Expr::LitByte(*a)),
@@ -231,48 +233,56 @@ impl ExprMappable for Expr {
       Expr::LitAddr(a) => f(&Expr::LitAddr(a.clone())),
       Expr::SymAddr(a) => f(&Expr::SymAddr(a.clone())),
       Expr::WAddr(a) => {
-        let a = a.map_expr_m(&f);
+        let a = a.map_expr_m(f);
         f(&Expr::WAddr(Box::new(a)))
       }
 
       // Bytes
-      Expr::IndexWord(a, b) => f(&Expr::IndexWord(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::EqByte(a, b) => f(&Expr::EqByte(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::IndexWord(a, b) => {
+        let af = a.map_expr_m(f);
+        let bf = b.map_expr_m(f);
+        f(&Expr::IndexWord(Box::new(af), Box::new(bf)))
+      }
+      Expr::EqByte(a, b) => {
+        let af = a.map_expr_m(f);
+        let bf = b.map_expr_m(f);
+        f(&Expr::EqByte(Box::new(af), Box::new(bf)))
+      }
 
       Expr::JoinBytes(vec) => {
         let mut parts = vec![
-          vec[0].map_expr_m(&f),
-          vec[1].map_expr_m(&f),
-          vec[2].map_expr_m(&f),
-          vec[3].map_expr_m(&f),
-          vec[4].map_expr_m(&f),
-          vec[5].map_expr_m(&f),
-          vec[6].map_expr_m(&f),
-          vec[7].map_expr_m(&f),
-          vec[8].map_expr_m(&f),
-          vec[9].map_expr_m(&f),
-          vec[10].map_expr_m(&f),
-          vec[11].map_expr_m(&f),
-          vec[12].map_expr_m(&f),
-          vec[13].map_expr_m(&f),
-          vec[14].map_expr_m(&f),
-          vec[15].map_expr_m(&f),
-          vec[16].map_expr_m(&f),
-          vec[17].map_expr_m(&f),
-          vec[18].map_expr_m(&f),
-          vec[19].map_expr_m(&f),
-          vec[20].map_expr_m(&f),
-          vec[21].map_expr_m(&f),
-          vec[22].map_expr_m(&f),
-          vec[23].map_expr_m(&f),
-          vec[24].map_expr_m(&f),
-          vec[25].map_expr_m(&f),
-          vec[26].map_expr_m(&f),
-          vec[27].map_expr_m(&f),
-          vec[28].map_expr_m(&f),
-          vec[29].map_expr_m(&f),
-          vec[30].map_expr_m(&f),
-          vec[31].map_expr_m(&f),
+          vec[0].map_expr_m(f),
+          vec[1].map_expr_m(f),
+          vec[2].map_expr_m(f),
+          vec[3].map_expr_m(f),
+          vec[4].map_expr_m(f),
+          vec[5].map_expr_m(f),
+          vec[6].map_expr_m(f),
+          vec[7].map_expr_m(f),
+          vec[8].map_expr_m(f),
+          vec[9].map_expr_m(f),
+          vec[10].map_expr_m(f),
+          vec[11].map_expr_m(f),
+          vec[12].map_expr_m(f),
+          vec[13].map_expr_m(f),
+          vec[14].map_expr_m(f),
+          vec[15].map_expr_m(f),
+          vec[16].map_expr_m(f),
+          vec[17].map_expr_m(f),
+          vec[18].map_expr_m(f),
+          vec[19].map_expr_m(f),
+          vec[20].map_expr_m(f),
+          vec[21].map_expr_m(f),
+          vec[22].map_expr_m(f),
+          vec[23].map_expr_m(f),
+          vec[24].map_expr_m(f),
+          vec[25].map_expr_m(f),
+          vec[26].map_expr_m(f),
+          vec[27].map_expr_m(f),
+          vec[28].map_expr_m(f),
+          vec[29].map_expr_m(f),
+          vec[30].map_expr_m(f),
+          vec[31].map_expr_m(f),
         ];
         f(&Expr::JoinBytes(vec![
           parts.remove(0),
@@ -321,67 +331,178 @@ impl ExprMappable for Expr {
       }
       Expr::Success(a, b, c, d) => {
         let a_ = (a.iter().map(|x| map_prop_m(f, x.clone()))).into_iter().collect();
-        let c_ = c.map_expr_m(&f);
-        let d_: ExprExprMap = ExprExprMap::from(
-          (d.clone().iter().map(|(k, v)| (f(k), map_econtract_m(f, v.clone())))).into_iter().collect(),
-        );
-        f(&Expr::Success(a_, b.clone(), Box::new(c_), d_))
+        let c_ = c.map_expr_m(f);
+        //let mut r = vec![];
+        /*
+        for (k, v) in d.clone().iter() {
+          let fk = f(k);
+          let fv = map_econtract_m(f, v.clone());
+          r.push((fk, fv));
+        }
+        let d_: ExprExprMap = ExprExprMap::from(r.into_iter().collect());
+        */
+        f(&Expr::Success(a_, b.clone(), Box::new(c_), d.clone()))
       }
       Expr::ITE(a, b, c) => {
-        f(&Expr::ITE(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        let cm = c.map_expr_m(f);
+        f(&Expr::ITE(Box::new(am), Box::new(bm), Box::new(cm)))
       }
 
       // Integers
-      Expr::Add(a, b) => f(&Expr::Add(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::Sub(a, b) => f(&Expr::Sub(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::Mul(a, b) => f(&Expr::Mul(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::Div(a, b) => f(&Expr::Div(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::SDiv(a, b) => f(&Expr::SDiv(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::Mod(a, b) => f(&Expr::Mod(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::SMod(a, b) => f(&Expr::SMod(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Add(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Add(Box::new(am), Box::new(bm)))
+      }
+      Expr::Sub(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Sub(Box::new(am), Box::new(bm)))
+      }
+      Expr::Mul(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Mul(Box::new(am), Box::new(bm)))
+      }
+      Expr::Div(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Div(Box::new(am), Box::new(bm)))
+      }
+      Expr::SDiv(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::SDiv(Box::new(am), Box::new(bm)))
+      }
+      Expr::Mod(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Mod(Box::new(am), Box::new(bm)))
+      }
+      Expr::SMod(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::SMod(Box::new(am), Box::new(bm)))
+      }
       Expr::AddMod(a, b, c) => {
-        f(&Expr::AddMod(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        let cm = c.map_expr_m(f);
+        f(&Expr::AddMod(Box::new(am), Box::new(bm), Box::new(cm)))
       }
       Expr::MulMod(a, b, c) => {
-        f(&Expr::MulMod(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        let cm = c.map_expr_m(f);
+        f(&Expr::MulMod(Box::new(am), Box::new(bm), Box::new(cm)))
       }
-      Expr::Exp(a, b) => f(&Expr::Exp(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::SEx(a, b) => f(&Expr::SEx(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::Min(a, b) => f(&Expr::Min(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::Max(a, b) => f(&Expr::Max(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::Exp(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Exp(Box::new(am), Box::new(bm)))
+      }
+      Expr::SEx(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::SEx(Box::new(am), Box::new(bm)))
+      }
+      Expr::Min(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Min(Box::new(am), Box::new(bm)))
+      }
+      Expr::Max(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Max(Box::new(am), Box::new(bm)))
+      }
 
       // Booleans
-      Expr::LT(a, b) => f(&Expr::LT(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::GT(a, b) => f(&Expr::GT(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::LEq(a, b) => f(&Expr::LEq(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::GEq(a, b) => f(&Expr::GEq(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::SLT(a, b) => f(&Expr::SLT(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::SGT(a, b) => f(&Expr::SGT(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::Eq(a, b) => f(&Expr::Eq(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::LT(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::LT(Box::new(am), Box::new(bm)))
+      }
+      Expr::GT(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::GT(Box::new(am), Box::new(bm)))
+      }
+      Expr::LEq(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::LEq(Box::new(am), Box::new(bm)))
+      }
+      Expr::GEq(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::GEq(Box::new(am), Box::new(bm)))
+      }
+      Expr::SLT(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::SLT(Box::new(am), Box::new(bm)))
+      }
+      Expr::SGT(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::SGT(Box::new(am), Box::new(bm)))
+      }
+      Expr::Eq(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Eq(Box::new(am), Box::new(bm)))
+      }
       Expr::IsZero(a) => {
-        let a = a.map_expr_m(&f);
+        let a = a.map_expr_m(f);
         f(&Expr::IsZero(Box::new(a)))
       }
 
       // Bits
-      Expr::And(a, b) => f(&Expr::And(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::Or(a, b) => f(&Expr::Or(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::Xor(a, b) => f(&Expr::Xor(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::And(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::And(Box::new(am), Box::new(bm)))
+      }
+      Expr::Or(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Or(Box::new(am), Box::new(bm)))
+      }
+      Expr::Xor(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::Xor(Box::new(am), Box::new(bm)))
+      }
       Expr::Not(a) => {
-        let a = a.map_expr_m(&f);
+        let a = a.map_expr_m(f);
         f(&Expr::Not(Box::new(a)))
       }
-      Expr::SHL(a, b) => f(&Expr::SHL(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::SHR(a, b) => f(&Expr::SHR(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::SAR(a, b) => f(&Expr::SAR(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::SHL(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::SHL(Box::new(am), Box::new(bm)))
+      }
+      Expr::SHR(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::SHR(Box::new(am), Box::new(bm)))
+      }
+      Expr::SAR(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::SAR(Box::new(am), Box::new(bm)))
+      }
 
       // Hashes
       Expr::Keccak(a) => {
-        let a = a.map_expr_m(&f);
+        let a = a.map_expr_m(f);
         f(&Expr::Keccak(Box::new(a)))
       }
       Expr::SHA256(a) => {
-        let a = a.map_expr_m(&f);
+        let a = a.map_expr_m(f);
         f(&Expr::SHA256(Box::new(a)))
       }
 
@@ -395,7 +516,7 @@ impl ExprMappable for Expr {
       Expr::ChainId => f(&Expr::ChainId),
       Expr::BaseFee => f(&Expr::BaseFee),
       Expr::BlockHash(a) => {
-        let a = a.map_expr_m(&f);
+        let a = a.map_expr_m(f);
         f(&Expr::BlockHash(Box::new(a)))
       }
 
@@ -405,63 +526,82 @@ impl ExprMappable for Expr {
       // Frame Context
       Expr::Gas(a, b) => f(&Expr::Gas(a.clone(), b.clone())),
       Expr::Balance(a) => {
-        let a = a.map_expr_m(&f);
+        let a = a.map_expr_m(f);
         f(&Expr::Balance(Box::new(a)))
       }
 
       // Code
       Expr::CodeSize(a) => {
-        let a = a.map_expr_m(&f);
+        let a = a.map_expr_m(f);
         f(&Expr::CodeSize(Box::new(a)))
       }
       Expr::CodeHash(a) => {
-        let a = a.map_expr_m(&f);
+        let a = a.map_expr_m(f);
         f(&Expr::CodeHash(Box::new(a)))
       }
 
       // Logs
-      Expr::LogEntry(a, b, c) => f(&Expr::LogEntry(
-        Box::new(a.map_expr_m(&f)),
-        Box::new(b.map_expr_m(&f)),
-        c.into_iter().map(|v| Box::new(v.map_expr_m(&f))).into_iter().collect(),
-      )),
+      Expr::LogEntry(a, b, c) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        let cm = c.into_iter().map(|v| Box::new(v.map_expr_m(f))).into_iter().collect();
+        f(&Expr::LogEntry(Box::new(am), Box::new(bm), cm))
+      }
 
       // Storage
       Expr::ConcreteStore(b) => f(&Expr::ConcreteStore(b.clone())),
       Expr::AbstractStore(a, b) => f(&Expr::AbstractStore(a.clone(), b.clone())),
-      Expr::SLoad(a, b) => f(&Expr::SLoad(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::SLoad(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::SLoad(Box::new(am), Box::new(bm)))
+      }
       Expr::SStore(a, b, c) => {
-        f(&Expr::SStore(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        let cm = c.map_expr_m(f);
+        f(&Expr::SStore(Box::new(am), Box::new(bm), Box::new(cm)))
       }
 
       // Buffers
       Expr::ConcreteBuf(a) => f(&Expr::ConcreteBuf(a.clone())),
       Expr::AbstractBuf(a) => f(&Expr::AbstractBuf(a.clone())),
-      Expr::ReadWord(a, b) => f(&Expr::ReadWord(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
-      Expr::ReadByte(a, b) => f(&Expr::ReadByte(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)))),
+      Expr::ReadWord(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::ReadWord(Box::new(am), Box::new(bm)))
+      }
+      Expr::ReadByte(a, b) => {
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        f(&Expr::ReadByte(Box::new(am), Box::new(bm)))
+      }
       Expr::WriteWord(a, b, c) => {
-        f(&Expr::WriteWord(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        let cm = c.map_expr_m(f);
+        f(&Expr::WriteWord(Box::new(am), Box::new(bm), Box::new(cm)))
       }
       Expr::WriteByte(a, b, c) => {
-        f(&Expr::WriteByte(Box::new(a.map_expr_m(&f)), Box::new(b.map_expr_m(&f)), Box::new(c.map_expr_m(&f))))
+        let am = a.map_expr_m(f);
+        let bm = b.map_expr_m(f);
+        let cm = c.map_expr_m(f);
+        f(&Expr::WriteByte(Box::new(am), Box::new(bm), Box::new(cm)))
       }
 
       Expr::CopySlice(a, b, c, d, e) => {
-        let a_ = a.map_expr_m(&f);
-        let b_ = b.map_expr_m(&f);
-        let c_ = c.map_expr_m(&f);
-        let d_ = d.map_expr_m(&f);
-        let e_ = e.map_expr_m(&f);
-        f(&Expr::CopySlice(
-          Box::new(a_.map_expr_m(&f)),
-          Box::new(b_.map_expr_m(&f)),
-          Box::new(c_.map_expr_m(&f)),
-          Box::new(d_.clone()),
-          Box::new(e_.clone()),
-        ))
+        let a_ = a.map_expr_m(f);
+        let b_ = b.map_expr_m(f);
+        let c_ = c.map_expr_m(f);
+        let d_ = d.map_expr_m(f);
+        let e_ = e.map_expr_m(f);
+        let a__ = a_.map_expr_m(f);
+        let b__ = b_.map_expr_m(f);
+        let c__ = c_.map_expr_m(f);
+        f(&Expr::CopySlice(Box::new(a__), Box::new(b__), Box::new(c__), Box::new(d_.clone()), Box::new(e_.clone())))
       }
       Expr::BufLength(a) => {
-        let a = a.map_expr_m(&f);
+        let a = a.map_expr_m(f);
         f(&Expr::BufLength(Box::new(a)))
       }
       _ => panic!("unuexpected expr"),
@@ -469,21 +609,21 @@ impl ExprMappable for Expr {
   }
 }
 
-pub fn map_expr<F>(f: F, expr: Expr) -> Expr
+pub fn map_expr<F>(mut f: F, expr: Expr) -> Expr
 where
-  F: Fn(&Expr) -> Expr,
+  F: FnMut(&Expr) -> Expr,
 {
-  expr.map_expr_m(&f)
+  expr.map_expr_m(&mut f)
 }
 
-pub fn map_prop(f: &dyn Fn(&Expr) -> Expr, prop: Prop) -> Prop {
+pub fn map_prop(f: &mut dyn FnMut(&Expr) -> Expr, prop: Prop) -> Prop {
   match prop {
     Prop::PBool(b) => Prop::PBool(b),
-    Prop::PEq(a, b) => Prop::PEq(f(&a).map_expr_m(&f), f(&b).map_expr_m(&f)),
-    Prop::PLT(a, b) => Prop::PLT(f(&a).map_expr_m(&f), f(&b).map_expr_m(&f)),
-    Prop::PGT(a, b) => Prop::PGT(f(&a).map_expr_m(&f), f(&b).map_expr_m(&f)),
-    Prop::PLEq(a, b) => Prop::PLEq(f(&a).map_expr_m(&f), f(&b).map_expr_m(&f)),
-    Prop::PGEq(a, b) => Prop::PGEq(f(&a).map_expr_m(&f), f(&b).map_expr_m(&f)),
+    Prop::PEq(a, b) => Prop::PEq(f(&a).map_expr_m(f), f(&b).map_expr_m(f)),
+    Prop::PLT(a, b) => Prop::PLT(f(&a).map_expr_m(f), f(&b).map_expr_m(f)),
+    Prop::PGT(a, b) => Prop::PGT(f(&a).map_expr_m(f), f(&b).map_expr_m(f)),
+    Prop::PLEq(a, b) => Prop::PLEq(f(&a).map_expr_m(f), f(&b).map_expr_m(f)),
+    Prop::PGEq(a, b) => Prop::PGEq(f(&a).map_expr_m(f), f(&b).map_expr_m(f)),
     Prop::PNeg(a) => Prop::PNeg(Box::new(map_prop_m(f, *a))),
     Prop::PAnd(a, b) => Prop::PAnd(Box::new(map_prop_m(f, *a)), Box::new(map_prop_m(f, *b))),
     Prop::POr(a, b) => Prop::POr(Box::new(map_prop_m(f, *a)), Box::new(map_prop_m(f, *b))),
@@ -491,7 +631,7 @@ pub fn map_prop(f: &dyn Fn(&Expr) -> Expr, prop: Prop) -> Prop {
   }
 }
 
-pub fn map_prop_prime(f: &dyn Fn(&Prop) -> Prop, prop: Prop) -> Prop {
+pub fn map_prop_prime(f: &mut dyn FnMut(&Prop) -> Prop, prop: Prop) -> Prop {
   match prop {
     Prop::PBool(b) => f(&Prop::PBool(b)),
     Prop::PEq(a, b) => f(&Prop::PEq(a, b)),
@@ -499,22 +639,37 @@ pub fn map_prop_prime(f: &dyn Fn(&Prop) -> Prop, prop: Prop) -> Prop {
     Prop::PGT(a, b) => f(&Prop::PGT(a, b)),
     Prop::PLEq(a, b) => f(&Prop::PLEq(a, b)),
     Prop::PGEq(a, b) => f(&Prop::PGEq(a, b)),
-    Prop::PNeg(a) => f(&Prop::PNeg(Box::new(map_prop_prime(f, *a)))),
-    Prop::PAnd(a, b) => f(&Prop::PAnd(Box::new(map_prop_prime(f, *a)), Box::new(map_prop_prime(f, *b)))),
-    Prop::POr(a, b) => f(&Prop::POr(Box::new(map_prop_prime(f, *a)), Box::new(map_prop_prime(f, *b)))),
-    Prop::PImpl(a, b) => f(&&Prop::PImpl(Box::new(map_prop_prime(f, *a)), Box::new(map_prop_prime(f, *b)))),
+    Prop::PNeg(a) => {
+      let af = map_prop_prime(f, *a);
+      f(&Prop::PNeg(Box::new(af)))
+    }
+    Prop::PAnd(a, b) => {
+      let af = map_prop_prime(f, *a);
+      let bf = map_prop_prime(f, *b);
+      f(&Prop::PAnd(Box::new(af), Box::new(bf)))
+    }
+    Prop::POr(a, b) => {
+      let af = map_prop_prime(f, *a);
+      let bf = map_prop_prime(f, *b);
+      f(&Prop::POr(Box::new(af), Box::new(bf)))
+    }
+    Prop::PImpl(a, b) => {
+      let af = map_prop_prime(f, *a);
+      let bf = map_prop_prime(f, *b);
+      f(&&Prop::PImpl(Box::new(af), Box::new(bf)))
+    }
   }
 }
 
 // MapPropM function
-pub fn map_prop_m(f: &dyn Fn(&Expr) -> Expr, prop: Prop) -> Prop {
+pub fn map_prop_m(f: &mut dyn FnMut(&Expr) -> Expr, prop: Prop) -> Prop {
   match prop {
     Prop::PBool(b) => Prop::PBool(b),
-    Prop::PEq(a, b) => Prop::PEq(a.map_expr_m(&f), b.map_expr_m(&f)),
-    Prop::PLT(a, b) => Prop::PLT(a.map_expr_m(&f), b.map_expr_m(&f)),
-    Prop::PGT(a, b) => Prop::PGT(a.map_expr_m(&f), b.map_expr_m(&f)),
-    Prop::PLEq(a, b) => Prop::PLEq(a.map_expr_m(&f), b.map_expr_m(&f)),
-    Prop::PGEq(a, b) => Prop::PGEq(a.map_expr_m(&f), b.map_expr_m(&f)),
+    Prop::PEq(a, b) => Prop::PEq(a.map_expr_m(f), b.map_expr_m(f)),
+    Prop::PLT(a, b) => Prop::PLT(a.map_expr_m(f), b.map_expr_m(f)),
+    Prop::PGT(a, b) => Prop::PGT(a.map_expr_m(f), b.map_expr_m(f)),
+    Prop::PLEq(a, b) => Prop::PLEq(a.map_expr_m(f), b.map_expr_m(f)),
+    Prop::PGEq(a, b) => Prop::PGEq(a.map_expr_m(f), b.map_expr_m(f)),
     Prop::PNeg(a) => Prop::PNeg(Box::new(map_prop_m(f, *a))),
     Prop::PAnd(a, b) => Prop::PAnd(Box::new(map_prop_m(f, *a)), Box::new(map_prop_m(f, *b))),
     Prop::POr(a, b) => Prop::POr(Box::new(map_prop_m(f, *a)), Box::new(map_prop_m(f, *b))),
@@ -523,16 +678,16 @@ pub fn map_prop_m(f: &dyn Fn(&Expr) -> Expr, prop: Prop) -> Prop {
 }
 
 // MapEContractM function
-fn map_econtract_m<F>(f: F, expr: Expr) -> Expr
+fn map_econtract_m<F>(mut f: F, expr: Expr) -> Expr
 where
-  F: Fn(&Expr) -> Expr,
+  F: FnMut(&Expr) -> Expr,
 {
   match expr {
     Expr::GVar(_) => expr,
     Expr::C { code, storage, balance, nonce } => {
-      let code = map_code_m(&f, code);
-      let storage = storage.map_expr_m(&f);
-      let balance = balance.map_expr_m(&f);
+      let code = map_code_m(&mut f, code);
+      let storage = storage.map_expr_m(&mut f);
+      let balance = balance.map_expr_m(&mut f);
       Expr::C { code: code, storage: Box::new(storage), balance: Box::new(balance), nonce: nonce }
     }
     // Handle other Expr variants
@@ -541,21 +696,21 @@ where
 }
 
 // MapContractM function
-fn map_contract_m<F>(f: F, contract: Contract) -> Contract
+fn map_contract_m<F>(mut f: F, contract: Contract) -> Contract
 where
-  F: Fn(&Expr) -> Expr,
+  F: FnMut(&Expr) -> Expr,
 {
-  let code = map_code_m(&f, contract.code);
-  let storage = contract.storage.map_expr_m(&f);
-  let orig_storage = contract.orig_storage.map_expr_m(&f);
-  let balance = contract.balance.map_expr_m(&f);
+  let code = map_code_m(&mut f, contract.code);
+  let storage = contract.storage.map_expr_m(&mut f);
+  let orig_storage = contract.orig_storage.map_expr_m(&mut f);
+  let balance = contract.balance.map_expr_m(&mut f);
   Contract { code, storage, orig_storage, balance, ..contract }
 }
 
 // MapCodeM function
-fn map_code_m<F>(f: F, code: ContractCode) -> ContractCode
+fn map_code_m<F>(mut f: F, code: ContractCode) -> ContractCode
 where
-  F: Fn(&Expr) -> Expr,
+  F: FnMut(&Expr) -> Expr,
 {
   match code {
     ContractCode::UnKnownCode(expr) => ContractCode::UnKnownCode(Box::new(f(&expr))),
@@ -563,11 +718,11 @@ where
       ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(expr))
     }
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(exprs)) => {
-      let new_exprs = (exprs.into_iter().map(|expr| expr.map_expr_m(&f))).into_iter().collect();
+      let new_exprs = (exprs.into_iter().map(|expr| expr.map_expr_m(&mut f))).into_iter().collect();
       ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(new_exprs))
     }
     ContractCode::InitCode(bytes, buf) => {
-      let buf = buf.map_expr_m(&f);
+      let buf = buf.map_expr_m(&mut f);
       ContractCode::InitCode(bytes, Box::new(buf))
     }
   }
@@ -577,17 +732,17 @@ where
 pub trait TraversableTerm {
   fn map_term<F>(&self, f: F) -> Self
   where
-    F: Fn(&Expr) -> Expr;
+    F: FnMut(&Expr) -> Expr;
 
   fn fold_term<F, C>(&self, f: F, acc: C) -> C
   where
-    F: Fn(&Expr) -> C;
+    F: FnMut(&Expr) -> C;
 }
 
 impl TraversableTerm for Expr {
   fn map_term<F>(&self, f: F) -> Self
   where
-    F: Fn(&Expr) -> Expr,
+    F: FnMut(&Expr) -> Expr,
   {
     // Implement map_term for Expr
     todo!()
@@ -595,8 +750,9 @@ impl TraversableTerm for Expr {
 
   fn fold_term<F, C>(&self, f: F, acc: C) -> C
   where
-    F: Fn(&Expr) -> C,
+    F: FnMut(&Expr) -> C,
   {
+    let _ = f;
     // Implement fold_term for Expr
     todo!()
   }
@@ -605,7 +761,7 @@ impl TraversableTerm for Expr {
 impl TraversableTerm for Prop {
   fn map_term<F>(&self, f: F) -> Self
   where
-    F: Fn(&Expr) -> Expr,
+    F: FnMut(&Expr) -> Expr,
   {
     // Implement map_term for Prop
     todo!()
@@ -613,7 +769,7 @@ impl TraversableTerm for Prop {
 
   fn fold_term<F, C>(&self, f: F, acc: C) -> C
   where
-    F: Fn(&Expr) -> C,
+    F: FnMut(&Expr) -> C,
   {
     // Implement fold_term for Expr
     todo!()
