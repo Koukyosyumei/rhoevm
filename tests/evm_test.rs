@@ -155,3 +155,16 @@ fn test_vm_oppc() {
   assert_eq!(vm.state.stack.len(), 1);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x5)");
 }
+
+#[test]
+fn test_vm_jumpi() {
+  let mut cmd = <SymbolicCommand as std::default::Default>::default();
+  cmd.code = Some("6080604014".into());
+  let callcode = build_calldata(&cmd).unwrap();
+  let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+
+  vm.exec1();
+  assert_eq!(vm.decoded_opcodes, vec!["05 PC"]);
+  assert_eq!(vm.state.stack.len(), 1);
+  assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x5)");
+}

@@ -1355,6 +1355,7 @@ pub struct TreePos<T> {
   pub path: Vec<usize>, // Path from root to current node
 }
 
+#[derive(Clone)]
 pub struct VM {
   pub result: Option<VMResult>,
   pub state: FrameState,
@@ -1378,6 +1379,7 @@ pub struct VM {
 
 pub type CodeLocation = (Expr, i64);
 
+#[derive(Clone)]
 pub struct Cache {
   pub fetched: HashMap<Addr, Contract>,
   pub path: HashMap<(CodeLocation, i64), bool>,
@@ -1416,6 +1418,7 @@ pub enum BaseState {
   AbstractBase,
 }
 
+#[derive(Clone)]
 pub struct RuntimeConfig {
   pub allow_ffi: bool,
   pub override_caller: Option<Expr>,
@@ -1531,6 +1534,7 @@ pub struct Block {
   pub schedule: FeeSchedule,
 }
 
+#[derive(Clone)]
 pub struct TxState {
   pub gasprice: W256,
   pub gaslimit: Word64,
@@ -1580,6 +1584,7 @@ pub struct VMOpts {
   pub allow_ffi: bool,
 }
 
+#[derive(Clone)]
 pub struct ForkState {
   pub env: Env,
   pub block: Block,
