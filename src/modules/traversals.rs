@@ -7,27 +7,27 @@ use crate::modules::types::{Contract, ContractCode, EvmError, Expr, Prop, Runtim
 
 use super::types::ExprExprMap;
 
-pub fn go_prop<B, F>(f: &F, p: Prop) -> B
-where
-  F: Fn(&Expr) -> B,
-  B: Add<B, Output = B> + Clone + Default,
-{
-  match p {
-    Prop::PBool(_) => B::default(),
-    Prop::PEq(a, b) | Prop::PLT(a, b) | Prop::PGT(a, b) | Prop::PGEq(a, b) | Prop::PLEq(a, b) => {
-      fold_expr(&f, B::default(), &a) + fold_expr(&f, B::default(), &b)
-    }
-    Prop::PNeg(a) => go_prop(f, *a),
-    Prop::PAnd(a, b) | Prop::POr(a, b) | Prop::PImpl(a, b) => go_prop(f, *a) + go_prop(f, *b),
-  }
-}
-
 // Function to recursively fold over a Prop type
 pub fn fold_prop<B, F>(f: &F, acc: B, p: Prop) -> B
 where
   F: Fn(&Expr) -> B,
   B: Add<B, Output = B> + Clone + Default,
 {
+  fn go_prop<B, F>(f: &F, p: Prop) -> B
+  where
+    F: Fn(&Expr) -> B,
+    B: Add<B, Output = B> + Clone + Default,
+  {
+    match p {
+      Prop::PBool(_) => B::default(),
+      Prop::PEq(a, b) | Prop::PLT(a, b) | Prop::PGT(a, b) | Prop::PGEq(a, b) | Prop::PLEq(a, b) => {
+        fold_expr(&f, B::default(), &a) + fold_expr(&f, B::default(), &b)
+      }
+      Prop::PNeg(a) => go_prop(f, *a),
+      Prop::PAnd(a, b) | Prop::POr(a, b) | Prop::PImpl(a, b) => go_prop(f, *a) + go_prop(f, *b),
+    }
+  }
+
   acc + go_prop(f, p)
 }
 

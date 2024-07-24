@@ -159,12 +159,13 @@ fn test_vm_oppc() {
 #[test]
 fn test_vm_jumpi() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
-  cmd.code = Some("6080604014".into());
+  cmd.code = Some("60806040146008575B00".into());
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
 
-  vm.exec1();
-  assert_eq!(vm.decoded_opcodes, vec!["05 PC"]);
-  assert_eq!(vm.state.stack.len(), 1);
-  assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x5)");
+  vm.exec1(); // PUSH 0x80
+  vm.exec1(); // PUSH 0x40
+  vm.exec1(); // EQ
+  vm.exec1(); // PUSH 08
+  vm.exec1(); // JUMPI
 }

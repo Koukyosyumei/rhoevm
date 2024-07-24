@@ -1263,6 +1263,12 @@ impl VM {
             underrun();
           }
         }
+        Op::Jumpdest => {
+          next(self, op);
+          /*
+          OpJumpdest -> burn g_jumpdest next
+           */
+        }
         _ => todo!(),
       }
     }

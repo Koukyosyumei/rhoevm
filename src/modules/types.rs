@@ -1654,6 +1654,13 @@ where
 }
 */
 
+// Implement the Default trait for AddableVec
+impl Default for Expr {
+  fn default() -> Expr {
+    Expr::Mempty // Return an empty vector
+  }
+}
+
 #[derive(Clone, PartialEq, Hash)]
 pub struct AddableVec<T>(Vec<T>);
 
