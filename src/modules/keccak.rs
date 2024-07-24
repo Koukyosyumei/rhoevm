@@ -5,7 +5,8 @@
 use std::collections::HashSet;
 
 use crate::modules::expr::simplify;
-use crate::modules::types::{keccak, keccak_prime, unbox, Expr, Prop, W256};
+use crate::modules::traversals::{fold_expr, fold_prop, map_prop_m};
+use crate::modules::types::{keccak, keccak_prime, unbox, AddableVec, Expr, Prop, W256};
 
 #[derive(Debug, Clone)]
 struct KeccakStore {
@@ -18,7 +19,7 @@ impl KeccakStore {
   }
 }
 
-fn keccak_finder<A>(e: Expr, store: &mut KeccakStore) -> Expr {
+fn keccak_finder(e: Expr, store: &mut KeccakStore) -> Expr {
   match e {
     Expr::Keccak(_) => {
       store.keccak_eqs.insert(e.clone());
@@ -38,9 +39,9 @@ fn find_keccak_expr(e: Expr, store: &mut KeccakStore) -> Expr {
   }
 }
 
-fn find_keccak_prop(p: Prop, store: &mut KeccakStore) -> Prop {
-  // map_prop_m(keccak_finder, p, store).await
-  todo!()
+fn find_keccak_prop(p: Prop, mut store: &mut KeccakStore) -> Prop {
+  let mut kf = |e: &Expr| keccak_finder(e.clone(), &mut store);
+  map_prop_m(&mut kf, p)
 }
 
 fn find_keccak_props_exprs(ps: &[Prop], bufs: &[Expr], stores: &[Expr], store: &mut KeccakStore) {
@@ -130,39 +131,37 @@ fn min_distance(ka: Expr, kb: Expr) -> Prop {
   }
 }
 
-fn compute<A>(e: Expr) -> Vec<Prop> {
+fn compute(e: &Expr) -> AddableVec<Prop> {
   match e.clone() {
     Expr::Keccak(buf) => {
       let b = simplify(&buf);
       match keccak(b).unwrap() {
-        lit @ Expr::Lit(_) => vec![Prop::PEq(e, lit)],
-        _ => vec![],
+        lit @ Expr::Lit(_) => AddableVec::from_vec(vec![Prop::PEq(e.clone(), lit)]),
+        _ => AddableVec::from_vec(vec![]),
       }
     }
-    _ => vec![],
+    _ => AddableVec::from_vec(vec![]),
   }
 }
 
-fn compute_keccak_expr(e: Expr) -> Vec<Prop> {
-  // fold_expr(compute, vec![], e)
-  todo!()
+fn compute_keccak_expr(e: Expr) -> AddableVec<Prop> {
+  fold_expr(&mut compute, AddableVec::from_vec(vec![]), &e)
 }
 
-fn compute_keccak_prop(p: Prop) -> Vec<Prop> {
-  // fold_prop(compute, vec![], p)
-  todo!()
+fn compute_keccak_prop(p: Prop) -> AddableVec<Prop> {
+  fold_prop(&mut compute, AddableVec::from_vec(vec![]), p)
 }
 
 pub fn keccak_compute(ps: &[Prop], bufs: &[Expr], stores: &[Expr]) -> Vec<Prop> {
   let mut result = Vec::new();
   for p in ps {
-    result.extend(compute_keccak_prop(p.clone()));
+    result.extend(compute_keccak_prop(p.clone()).to_vec());
   }
   for b in bufs {
-    result.extend(compute_keccak_expr(b.clone()));
+    result.extend(compute_keccak_expr(b.clone()).to_vec());
   }
   for s in stores {
-    result.extend(compute_keccak_expr(s.clone()));
+    result.extend(compute_keccak_expr(s.clone()).to_vec());
   }
   result
 }
