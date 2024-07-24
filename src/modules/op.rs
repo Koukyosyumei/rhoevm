@@ -266,7 +266,7 @@ pub fn op_string(i: u64, o: Op) -> String {
     Op::Delegatecall => "DELEGATECALL",
     Op::Create2 => "CREATE2",
     Op::Selfdestruct => "SELFDESTRUCT",
-    Op::Dup(x) => &format!("{} {}", &&"DUP {}", (x)).to_string(),
+    Op::Dup(x) => &format!("{}{}", &&"DUP", (x)).to_string(),
     Op::Swap(x) => &format!("{} {}", &&"SWAP {}", (x)).to_string(),
     Op::Log(x) => &format!("{} {}", &&"LOG {}", (x)).to_string(),
     Op::Push0 => "PUSH0",

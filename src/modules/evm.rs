@@ -2,14 +2,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::hash::Hash;
-use std::iter;
+use std::io::{repeat, Read};
 use std::sync::Arc;
+use std::{iter, vec};
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::expr::{
   add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, geq, gt, index_word, iszero, leq, lt, or,
   read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, simplify_prop, sub, write_byte, write_storage,
-  write_word,
+  write_word, MAX_BYTES,
 };
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
@@ -21,7 +22,7 @@ use crate::modules::types::{
   Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM, W64,
 };
 
-use super::expr::not;
+use super::expr::{copy_slice, not};
 use super::types::{ByteString, W256};
 
 fn initial_gas() -> u64 {
@@ -326,7 +327,7 @@ impl VM {
           });
         }
         Op::Dup(i) => {
-          if let Some(y) = self.state.stack.get(i as usize - 1).cloned() {
+          if let Some(y) = self.state.stack.get(self.state.stack.len() - (i as usize)).cloned() {
             limit_stack(1, self.state.stack.len(), || {
               burn(self, fees.g_verylow, || {});
               next(self, op);
@@ -356,7 +357,7 @@ impl VM {
             if xs.len() < n as usize {
               underrun();
             } else {
-              let bytes = read_memory(x_offset, x_size);
+              let bytes = read_memory(self, *x_offset.clone(), *x_size.clone());
               let (topics, xs) = xs.split_at(n as usize);
               let logs = vec![Expr::LogEntry(Box::new(self.state.contract.clone()), Box::new(bytes), topics.to_vec())];
               burn_log(x_size, op, || {});
@@ -397,21 +398,27 @@ impl VM {
         Op::Shr => stack_op2(self, fees.g_verylow, "shr"),
         Op::Sar => stack_op2(self, fees.g_verylow, "sar"),
         Op::Sha3 => {
+          /*
+          Stack input
+          - offset: byte offset in the memory.
+          - size: byte size to read in the memory.
+
+          Stack output
+          - hash: Keccak-256 hash of the given data in memory.
+          */
           if let Some((x_offset, x_size, xs)) =
             self.state.stack.clone().split_last().and_then(|(a, b)| b.split_last().map(|(c, d)| (a, c, d)))
           {
             //burn_sha3(self, unbox(x_size.clone()), self.block.schedule.clone(), || {
-            //  access_memory_range(self, **x_offset, **x_size, || {
-            let buffer = read_memory(x_offset, x_size);
+            access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
+            let buffer = read_memory(self, *x_offset.clone(), *x_size.clone());
             let hash = match buffer {
               orig @ Expr::ConcreteBuf(_) => Expr::Keccak(Box::new(orig)),
-              // orig @ Expr::ConcreteBuf(bs) => Expr::Lit(word32(&keccak_prime(&bs.to_vec()))),
-              _ => keccak(buffer).unwrap(),
+              _ => Expr::Keccak(Box::new(buffer)),
             };
             next(self, op);
             self.state.stack = std::iter::once(Box::new(hash)).chain(xs.iter().cloned()).collect();
             //  });
-            //});
           } else {
             underrun();
           }
@@ -634,8 +641,8 @@ impl VM {
         Op::Pc => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
-            next(self, op);
-            push(self, W256(self.state.pc as u128, 0))
+            push(self, W256(self.state.pc as u128, 0));
+            next(self, op)
           });
         }
         Op::Msize => {
@@ -656,7 +663,7 @@ impl VM {
         }
         Op::Mload => {
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
-            let buf = read_memory(x, &Expr::Lit(W256(32, 0)));
+            let buf = read_memory(self, *x.clone(), Expr::Lit(W256(32, 0)));
             let w = read_word_from_bytes(Expr::Lit(W256(0, 0)), buf);
             self.state.stack = std::iter::once(Box::new(w)).chain(xs.iter().cloned()).collect();
             next(self, op);
@@ -832,7 +839,7 @@ impl VM {
             let (cost, gas) = (0, Gas::Symbolic); //cost_of_create(0, available_gas, x_size, false); // Example fees
             let new_addr = create_address(self, self_contract.clone(), this_contract.nonce); // Example self and nonce
             let _ = access_account_for_gas(self, new_addr.clone());
-            let init_code = read_memory(x_offset, x_size);
+            let init_code = read_memory(self, *x_offset.clone(), *x_size.clone());
             burn(self, cost, || {});
             create(
               self,
@@ -935,7 +942,7 @@ impl VM {
         Op::Return => {
           if let [x_offset, x_size, _] = &self.state.stack.clone()[..] {
             access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
-            let output = read_memory(x_offset, x_size);
+            let output = read_memory(self, *x_offset.clone(), *x_size.clone());
             let codesize = maybe_lit_word(buf_length(output.clone())).unwrap().0 as u32;
             let maxsize = self.block.max_code_size.0 as u32;
             let creation = false; // Determine if creation context
@@ -1008,7 +1015,7 @@ impl VM {
             force_concrete(self, x_salt, "CREATE2", |x_salt_val_| x_salt_val = x_salt_val_);
             access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
             //let available_gas = 0; // use(state.gas)
-            let buf = read_memory(x_offset, x_size);
+            let buf = read_memory(self, *x_offset.clone(), *x_size.clone());
             let mut init_code: Vec<u8> = vec![];
             force_concrete_buf(self, &buf, "CREATE2", |init_code_| init_code = init_code_);
             let (cost, gas) = (0, Gas::Symbolic); // cost_of_create(0, available_gas, x_size, true);
@@ -1127,7 +1134,7 @@ impl VM {
         Op::Revert => {
           if let [x_offset, x_size, ..] = &self.state.stack.clone()[..] {
             access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
-            let output = read_memory(x_offset, x_size);
+            let output = read_memory(self, *x_offset.clone(), *x_size.clone());
             finish_frame(self, FrameResult::FrameReverted(output));
           } else {
             underrun();
@@ -1646,9 +1653,40 @@ fn copy_call_bytes_to_memory(vm: &mut VM, bs: Expr, size: Expr, y_offset: Expr) 
   copy_bytes_to_memory(bs, size_min, Expr::Lit(W256(0, 0)), y_offset, vm);
 }
 
-fn read_memory(offset: &Expr, size: &Expr) -> Expr {
-  // Implement memory reading logic
-  Expr::Lit(W256(0, 0)) // Placeholder
+fn read_memory(vm: &mut VM, offset_: Expr, size_: Expr) -> Expr {
+  match &vm.state.memory {
+    Memory::ConcreteMemory(mem) => match (offset_.clone(), size_.clone()) {
+      (Expr::Lit(offset_val), Expr::Lit(size_val)) => {
+        if size_val.clone() > MAX_BYTES
+          || offset_val.clone() + size_val.clone() > MAX_BYTES
+          || offset_val >= W256(mem.len() as u128, 0)
+        {
+          Expr::ConcreteBuf(vec![0; size_val.0 as usize])
+        } else {
+          let mem_size: usize = mem.len();
+          let (from_mem_size, past_end) = if offset_val.clone() + size_val.clone() > W256(mem_size as u128, 0) {
+            (
+              W256(mem_size as u128, 0) - offset_val.clone(),
+              offset_val.clone() + size_val.clone() - W256(mem_size as u128, 0),
+            )
+          } else {
+            (size_val, W256(0, 0))
+          };
+
+          let mut data_from_mem: Vec<u8> =
+            mem.clone()[(offset_val.0 as usize)..(offset_val.0 as usize) + (from_mem_size.0 as usize)].to_vec();
+          let pad = vec![0; past_end.0 as usize];
+          data_from_mem.extend(pad);
+          Expr::ConcreteBuf(data_from_mem)
+        }
+      }
+      _ => {
+        let buf = freeze_memory(mem);
+        copy_slice(offset_, Expr::Lit(W256(0, 0)), size_, buf, Expr::Mempty)
+      }
+    },
+    Memory::SymbolicMemory(mem) => copy_slice(offset_, Expr::Lit(W256(0, 0)), size_, mem.clone(), Expr::Mempty),
+  }
 }
 
 fn burn_log(size: &Expr, n: u8, f: impl FnOnce()) {
@@ -1774,7 +1812,7 @@ fn access_and_burn(addr: &Expr, f: impl FnOnce()) {
 }
 
 fn underrun() {
-  // Implement stack underrun handling
+  panic!("stack underrun")
 }
 
 fn push_addr(vm: &mut VM, addr: Expr) {
@@ -1782,7 +1820,7 @@ fn push_addr(vm: &mut VM, addr: Expr) {
 }
 
 fn internal_error(msg: &str) {
-  // Implement internal error handling
+  panic!("{}", msg)
 }
 
 fn to_buf(code: &ContractCode) -> Option<&[u8]> {
@@ -2028,9 +2066,9 @@ fn delegate_call(
       }
       _ => {
         //burn(vm, 0, || {});
-        let calldata = read_memory(&x_in_offset, &x_in_size);
+        let calldata = read_memory(vm, x_in_offset.clone(), x_in_size);
         let abi =
-          maybe_lit_word(read_bytes(4, Expr::Lit(W256(0, 0)), read_memory(&x_in_offset, &Expr::Lit(W256(4, 0)))));
+          maybe_lit_word(read_bytes(4, Expr::Lit(W256(0, 0)), read_memory(vm, x_in_offset, Expr::Lit(W256(4, 0)))));
         let new_context = FrameContext::CallContext {
           target: x_to.clone(),
           context: x_context.clone(),

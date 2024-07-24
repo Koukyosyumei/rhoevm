@@ -84,3 +84,74 @@ fn test_vm_op2() {
   assert_eq!(vm.state.stack.len(), 1);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Add(Lit(0x2), Lit(0x1))");
 }
+
+#[test]
+fn test_vm_opsha3() {
+  let mut cmd = <SymbolicCommand as std::default::Default>::default();
+  cmd.code = Some("20".into());
+  let callcode = build_calldata(&cmd).unwrap();
+  let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+
+  vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
+  vm.state.stack.push(Box::new(Expr::Lit(W256(0x40, 0))));
+  let mut mem = vec![0; 96];
+  mem[0x40] = 0x80;
+  mem[0x41] = 0x70;
+  vm.state.memory = Memory::ConcreteMemory(mem);
+
+  vm.exec1();
+  assert_eq!(vm.state.stack.len(), 1);
+  assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Keccak(ConcreteBuf([128, 112]))");
+}
+
+#[test]
+fn test_vm_opswap() {
+  let mut cmd = <SymbolicCommand as std::default::Default>::default();
+  cmd.code = Some("92".into());
+  let callcode = build_calldata(&cmd).unwrap();
+  let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+
+  vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+  vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
+  vm.state.stack.push(Box::new(Expr::Lit(W256(3, 0))));
+  vm.state.stack.push(Box::new(Expr::Lit(W256(4, 0))));
+
+  vm.exec1();
+  assert_eq!(vm.state.stack.len(), 4);
+  assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x4)");
+  assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x2)");
+  assert_eq!(vm.state.stack.get(2).unwrap().to_string(), "Lit(0x3)");
+  assert_eq!(vm.state.stack.get(3).unwrap().to_string(), "Lit(0x1)");
+}
+
+#[test]
+fn test_vm_opdup() {
+  let mut cmd = <SymbolicCommand as std::default::Default>::default();
+  cmd.code = Some("81".into());
+  let callcode = build_calldata(&cmd).unwrap();
+  let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+
+  vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+  vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
+
+  vm.exec1();
+  assert_eq!(vm.decoded_opcodes, vec!["00 DUP2"]);
+  assert_eq!(vm.state.stack.len(), 3);
+  assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x1)");
+  assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x2)");
+  assert_eq!(vm.state.stack.get(2).unwrap().to_string(), "Lit(0x1)");
+}
+
+#[test]
+fn test_vm_oppc() {
+  let mut cmd = <SymbolicCommand as std::default::Default>::default();
+  cmd.code = Some("000000000058".into());
+  let callcode = build_calldata(&cmd).unwrap();
+  let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+
+  vm.state.pc = 5;
+  vm.exec1();
+  assert_eq!(vm.decoded_opcodes, vec!["05 PC"]);
+  assert_eq!(vm.state.stack.len(), 1);
+  assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x5)");
+}

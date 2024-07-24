@@ -320,8 +320,8 @@ pub fn in_range(sz: u32, e: Expr) -> Prop {
   )
 }
 
-const MAX_WORD32: u32 = u32::MAX;
-const MAX_BYTES: W256 = W256(MAX_WORD32 as u128 / 8, 0);
+pub const MAX_WORD32: u32 = u32::MAX;
+pub const MAX_BYTES: W256 = W256(MAX_WORD32 as u128 / 8, 0);
 
 pub fn write_byte(offset: Expr, byte: Expr, src: Expr) -> Expr {
   match (offset, byte, src) {
