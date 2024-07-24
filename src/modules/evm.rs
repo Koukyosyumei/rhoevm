@@ -2452,6 +2452,7 @@ where
   let (iteration, _) = vm.iterations.get(&loc).unwrap_or(&binding);
   *vm.cache.path.entry((loc.clone(), *iteration)).or_insert(v) = v;
   *vm.iterations.entry(loc).or_insert((0, vec![])) = (iteration + 1, vm.state.stack.clone());
+
   continue_fn(v);
 }
 
