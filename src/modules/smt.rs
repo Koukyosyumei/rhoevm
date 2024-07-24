@@ -1533,9 +1533,8 @@ fn is_abstract_store(e: Expr) -> bool {
 
 /// Finds storage reads from an abstract storage property.
 fn find_storage_reads(p: &Prop) -> HashMap<(Expr, Option<W256>), HashSet<Expr>> {
-  /*
-  let result = fold_prop(
-    |expr| match expr {
+  fn f(expr: &Expr) -> AddableVec<((Expr, Option<W256>), HashSet<Expr>)> {
+    match expr {
       Expr::SLoad(slot, store) => {
         if contains_node(|e: &Expr| is_abstract_store(e.clone()), *store.clone()) {
           let addr = get_addr(*store.clone()).unwrap_or_else(|| panic!("could not extract address from store"));
@@ -1547,12 +1546,9 @@ fn find_storage_reads(p: &Prop) -> HashMap<(Expr, Option<W256>), HashSet<Expr>> 
         }
       }
       _ => AddableVec::from_vec(vec![]),
-    },
-    AddableVec::from_vec(vec![]),
-    p.clone(),
-  );
+    }
+  }
+  let result = fold_prop(&f, AddableVec::from_vec(vec![]), p.clone());
 
   result.to_vec().into_iter().map(|item| (item.0, item.1)).collect()
-  */
-  todo!()
 }
