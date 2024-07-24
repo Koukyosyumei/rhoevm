@@ -1044,10 +1044,9 @@ impl VM {
                       *x_out_offset.clone(),
                       *x_out_size.clone(),
                       vec![],
-                      |_| {
-                        touch_account(&self_contract);
-                      },
+                      |_| {},
                     );
+                    touch_account(self, &self_contract);
                   }
                 }
               }
@@ -1104,6 +1103,7 @@ impl VM {
                   // gasTryFrom(x_gas)
                   0 => vm_error("IllegalOverflow"),
                   _ => {
+                    let mut callee = Expr::Mempty;
                     delegate_call(
                       self,
                       op,
@@ -1117,19 +1117,18 @@ impl VM {
                       *x_out_offset.clone(),
                       *x_out_size.clone(),
                       vec![],
-                      |callee| {
-                        // zoom(state, || {
-                        //     assign(callvalue, Expr::Lit(W256(0, 0)));
-                        //     assign(caller, fromMaybe(self, vm.config.overrideCaller));
-                        //     assign(contract, callee);
-                        //     assign(static, true);
-                        // });
-                        // let reset_caller = use(config.resetCaller);
-                        // if reset_caller { assign(config.overrideCaller, None); }
-                        touch_account(&self_contract);
-                        touch_account(&callee);
-                      },
+                      |callee_| callee = callee_,
                     );
+                    // zoom(state, || {
+                    //     assign(callvalue, Expr::Lit(W256(0, 0)));
+                    //     assign(caller, fromMaybe(self, vm.config.overrideCaller));
+                    //     assign(contract, callee);
+                    //     assign(static, true);
+                    // });
+                    // let reset_caller = use(config.resetCaller);
+                    // if reset_caller { assign(config.overrideCaller, None); }
+                    touch_account(self, &self_contract);
+                    touch_account(self, &callee);
                   }
                 }
               }
@@ -1156,7 +1155,7 @@ impl VM {
                 };
                 burn(self, 0 + c_new + cost, || {});
                 self.tx.substate.selfdestructs.push(self_contract);
-                touch_account(&x_to);
+                touch_account(self, &x_to);
                 if has_funds {
                   // fetchAccount(x_to, |_| {
                   //     env.contracts[x_to].balance += funds;
@@ -1382,9 +1381,9 @@ fn fetch_account<F: FnOnce(&Contract)>(addr: &Expr, f: F) {
   todo!()
 }
 
-fn touch_account(addr: &Expr) {
+fn touch_account(vm: &mut VM, addr: &Expr) {
   // Implement account touching logic
-  todo!()
+  vm.tx.substate.touched_accounts.push(addr.clone());
 }
 
 fn vm_error(error: &str) {
@@ -2157,8 +2156,8 @@ fn create(
         TraceData::ErrorTrace(EvmError::BalanceTooLow(Box::new(x_value), Box::new(this.balance))),
       ));
       next(vm, op);
-      touch_account(&self_addr.clone());
-      touch_account(&new_addr.clone());
+      touch_account(vm, &self_addr.clone());
+      touch_account(vm, &new_addr.clone());
     } else {
       {
         burn(vm, 0, || {});
