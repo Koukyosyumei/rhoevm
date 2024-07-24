@@ -1661,12 +1661,30 @@ fn trace_top_log(logs: Vec<Expr>) {
 
 fn stack_op2(vm: &mut VM, gas: u64, op: &str) {
   if let Some((a, b)) = vm.state.stack.split_last().and_then(|(a, rest)| rest.split_last().map(|(b, rest)| (a, b))) {
-    //burn(gas)
     let res = match op {
       "add" => Box::new(Expr::Add(a.clone(), b.clone())),
+      "mul" => Box::new(Expr::Mul(a.clone(), b.clone())),
+      "sub" => Box::new(Expr::Sub(a.clone(), b.clone())),
+      "div" => Box::new(Expr::Div(a.clone(), b.clone())),
+      "sdiv" => Box::new(Expr::SDiv(a.clone(), b.clone())),
+      "nmod" => Box::new(Expr::Mod(a.clone(), b.clone())),
+      "smod" => Box::new(Expr::SMod(a.clone(), b.clone())),
+      "lt" => Box::new(Expr::LT(a.clone(), b.clone())),
+      "gt" => Box::new(Expr::GT(a.clone(), b.clone())),
+      "slt" => Box::new(Expr::SLT(a.clone(), b.clone())),
+      "sgt" => Box::new(Expr::SGT(a.clone(), b.clone())),
+      "eq" => Box::new(Expr::Eq(a.clone(), b.clone())),
+      "and" => Box::new(Expr::And(a.clone(), b.clone())),
+      "or" => Box::new(Expr::Or(a.clone(), b.clone())),
+      "xor" => Box::new(Expr::Xor(a.clone(), b.clone())),
+      //"byte" => Box::new(Expr::Byte(a.clone(), b.clone())),
+      "shl" => Box::new(Expr::SHL(a.clone(), b.clone())),
+      "shr" => Box::new(Expr::SHR(a.clone(), b.clone())),
+      "sar" => Box::new(Expr::SAR(a.clone(), b.clone())),
       _ => Box::new(Expr::Mempty),
     };
     next(vm, 1);
+    burn(vm, gas, || {});
     vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(2).cloned()).collect();
   } else {
     underrun();
@@ -1684,6 +1702,7 @@ fn stack_op3(vm: &mut VM, gas: u64, op: &str) {
           _ => Box::new(Expr::Mempty),
         };
         next(vm, 1);
+        burn(vm, gas, || {});
         vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(3).cloned()).collect();
       } else {
         underrun();
@@ -1706,6 +1725,7 @@ fn stack_op1(vm: &mut VM, gas: u64, op: &str) {
       _ => Box::new(Expr::Mempty),
     };
     next(vm, 1);
+    burn(vm, gas, || {});
     vm.state.stack[0] = res;
   } else {
     underrun();
