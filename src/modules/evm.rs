@@ -2436,14 +2436,13 @@ fn branch<F>(vm: &mut VM, cond: &Expr, continue_fn: F)
 where
   F: FnOnce(bool) -> Result<(), EvmError>,
 {
-  let loc = codeloc(vm);
+  let loc = codeloc(vm); // (contract, pc)
   let pathconds = vm.constraints.clone();
   let cond_simp = simplify(cond);
   let cond_simp_conc = conc_keccak_simp_expr(cond_simp);
 
-  vm.result = None;
-
   let v = false;
+  vm.result = None;
   vm.constraints.push(if v {
     simplify_prop(Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0))))))
   } else {

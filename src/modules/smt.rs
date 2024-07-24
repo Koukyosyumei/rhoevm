@@ -14,6 +14,7 @@ use crate::modules::evm::buf_length;
 use crate::modules::expr::{
   add, conc_keccak_props, contains_node, get_addr, get_logical_idx, in_range, simplify_props, sub, write_byte,
 };
+use crate::modules::format::format_prop;
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};
 use crate::modules::traversals::{fold_prop, map_prop_m, TraversableTerm};
 use crate::modules::types::{AddableVec, Addr, Block, Expr, Frame, FrameContext, GVar, Prop, W256W256Map, W256};
@@ -165,6 +166,14 @@ impl std::ops::AddAssign for SMT2 {
     self.2 += rhs.2;
     self.3.extend(rhs.3);
   }
+}
+
+fn format_smt2(smt2: SMT2) -> String {
+  let mut result = format!(";{}", smt2.3.iter().map(|p| format_prop(p)).collect::<Vec<String>>().join("\n;"));
+  for s in smt2.0 {
+    result += &(s.to_string() + &("\n".to_string()));
+  }
+  result
 }
 
 // CexVars struct
