@@ -1,17 +1,17 @@
 use core::panic;
 use std::collections::{HashMap, HashSet};
 use std::u32;
-use std::{clone, cmp::min};
+use std::{cmp::min};
 
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
 use crate::modules::types::{
-  keccak, keccak_prime, maybe_lit_addr, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, Prop,
+  keccak, keccak_prime, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, Prop,
   W256, W64,
 };
 
 use super::evm::buf_length;
-use super::types::{word256, ByteString, Word8};
+use super::types::{ByteString, Word8};
 // ** Constants **
 
 const MAX_LIT: W256 = W256(0xffffffffffffffffffffffffffffffff, 0xffffffffffffffffffffffffffffffff);
@@ -468,7 +468,7 @@ pub fn index_word(i: Expr, w: Expr) -> Expr {
 pub fn read_byte(idx: Expr, buf: Expr) -> Expr {
   match (idx, buf) {
     (Expr::Lit(x), Expr::ConcreteBuf(b)) => {
-      let i = ((x.0 as u64) as u32);
+      let i = (x.0 as u64) as u32;
       if x.0 <= i as u128 {
         if (i as usize) < b.len() {
           return Expr::Lit(W256(b[i as usize] as u128, 0));
@@ -574,7 +574,7 @@ fn join_bytes(bs: Vec<Expr>) -> Expr {
   } else {
     let padded_bs = pad_bytes_left(32, bs);
     Expr::JoinBytes(
-      (vec![
+      vec![
         padded_bs[0].clone(),
         padded_bs[1].clone(),
         padded_bs[2].clone(),
@@ -607,7 +607,7 @@ fn join_bytes(bs: Vec<Expr>) -> Expr {
         padded_bs[29].clone(),
         padded_bs[30].clone(),
         padded_bs[31].clone(),
-      ]),
+      ],
     )
   }
 }
@@ -708,7 +708,7 @@ pub fn write_word(offset: Expr, value: Expr, buf: Expr) -> Expr {
     }
 
     (Expr::Lit(idx), val, Expr::WriteWord(idx_, _, buf)) if Expr::Lit(idx.clone()) == *idx_ => {
-      Expr::WriteWord(Box::new(Expr::Lit(idx)), Box::new(val), (buf))
+      Expr::WriteWord(Box::new(Expr::Lit(idx)), Box::new(val), buf)
     }
 
     (Expr::Lit(idx), val, Expr::WriteWord(idx_, val_, buf_)) => {
@@ -824,9 +824,9 @@ pub fn copy_slice(src_offset: Expr, dst_offset: Expr, size: Expr, src: Expr, dst
     }
     // concrete indices & abstract src (may produce a concrete result if we are copying from a concrete region of src)
     (Expr::Lit(src_offset), Expr::Lit(dst_offset), Expr::Lit(size), src, Expr::ConcreteBuf(dst_buf)) => {
-      if (dst_offset < MAX_BYTES
+      if dst_offset < MAX_BYTES
         && size < MAX_BYTES
-        && src_offset.clone() + size.clone() - W256(1, 0) > src_offset.clone())
+        && src_offset.clone() + size.clone() - W256(1, 0) > src_offset.clone()
       {
         let hd = pad_right(dst_offset.0 as usize, (&dst_buf[..dst_offset.0 as usize]).to_vec());
         let sl: Vec<Expr> = ((src_offset.0)..(src_offset.0) + (size.0))
@@ -1043,7 +1043,7 @@ fn go_expr(expr: &Expr) -> Expr {
         let zero_padding = vec![0; 32];
         let third_part = b.into_iter().skip(idx.0 as usize + 32).collect::<Vec<u8>>();
         let result = [first_part, zero_padding, third_part].concat();
-        write_word((Expr::Lit(idx)), val.clone(), (Expr::ConcreteBuf(result)))
+        write_word(Expr::Lit(idx), val.clone(), Expr::ConcreteBuf(result))
       }
       (a, b, c) => write_word(a.clone(), b.clone(), c.clone()),
     },
@@ -1140,7 +1140,7 @@ fn go_expr(expr: &Expr) -> Expr {
     },
 
     Expr::Not(a_) => match *a_.clone() {
-      (Expr::Lit(a)) => Expr::Lit(if a == W256(0, 0) { W256(1, 0) } else { W256(0, 0) }),
+      Expr::Lit(a) => Expr::Lit(if a == W256(0, 0) { W256(1, 0) } else { W256(0, 0) }),
       _ => not(*a_.clone()),
     },
 
@@ -1336,7 +1336,7 @@ pub fn read_storage(w: &Expr, st: &Expr) -> Option<Expr> {
 
 pub fn write_storage(k: Expr, v: Expr, store: Expr) -> Expr {
   match (k.clone(), v.clone(), store.clone()) {
-    (Expr::Lit(key), Expr::Lit(val), store) => match (store) {
+    (Expr::Lit(key), Expr::Lit(val), store) => match store {
       Expr::ConcreteStore(s) => {
         let mut s_ = s.clone();
         s_.insert(key, val);
@@ -1345,12 +1345,12 @@ pub fn write_storage(k: Expr, v: Expr, store: Expr) -> Expr {
       _ => Expr::SStore(Box::new(k), Box::new(v), Box::new(store)),
     },
     (key, val, Expr::SStore(key_, val_, prev)) => {
-      if (key == *key_) {
+      if key == *key_ {
         Expr::SStore(Box::new(key), Box::new(val), prev)
       } else {
         match (key.clone(), *key_.clone()) {
           (Expr::Lit(k), Expr::Lit(k_)) => {
-            if (k > k_) {
+            if k > k_ {
               Expr::SStore(key_, val_, Box::new(write_storage(key, val, *prev)))
             } else {
               Expr::SStore(Box::new(key), Box::new(val), Box::new(store))

@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: MIT
 
-use std::collections::HashMap;
 /// Module: evm::keccak
 /// Description: Functions to determine Keccak assumptions
 use std::collections::HashSet;
 
 use crate::modules::expr::simplify;
-use crate::modules::traversals::map_prop_m;
 use crate::modules::types::{keccak, keccak_prime, unbox, Expr, Prop, W256};
 
 #[derive(Debug, Clone)]
@@ -124,8 +122,8 @@ fn min_distance(ka: Expr, kb: Expr) -> Prop {
     (Expr::Keccak(a), Expr::Keccak(b)) => Prop::PImpl(
       Box::new(Prop::PNeg(Box::new(Prop::PEq(*a, *b)))),
       Box::new(Prop::PAnd(
-        Box::new(Prop::PGEq((Expr::Sub(Box::new(ka.clone()), Box::new(kb.clone()))), (Expr::Lit(W256(256, 0))))),
-        Box::new(Prop::PGEq((Expr::Sub(Box::new(kb), Box::new(ka))), (Expr::Lit(W256(256, 0))))),
+        Box::new(Prop::PGEq(Expr::Sub(Box::new(ka.clone()), Box::new(kb.clone())), Expr::Lit(W256(256, 0)))),
+        Box::new(Prop::PGEq(Expr::Sub(Box::new(kb), Box::new(ka)), Expr::Lit(W256(256, 0)))),
       )),
     ),
     _ => panic!("expected Keccak expression"),

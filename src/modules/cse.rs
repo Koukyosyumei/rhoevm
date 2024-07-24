@@ -1,4 +1,3 @@
-use crate::modules::traversals::map_prop_m;
 use crate::modules::types::{Expr, GVar, Prop};
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -83,7 +82,7 @@ pub fn eliminate_props_prime<'a>(props: Vec<Prop>) -> (BuilderState, Vec<Prop>) 
 }
 
 pub fn eliminate_props(props: Vec<Prop>) -> (Vec<Prop>, BufEnv, StoreEnv) {
-  let mut state = init_state();
+  let state = init_state();
   let (_, props_prime) = eliminate_props_prime(props);
   (props_prime, invert_key_val(state.bufs.clone()), invert_key_val(state.stores.clone()))
 }

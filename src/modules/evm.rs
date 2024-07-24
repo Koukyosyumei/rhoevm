@@ -1,29 +1,26 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::convert::TryInto;
 use std::fs;
 use std::hash::Hash;
-use std::io::{repeat, Read};
-use std::sync::Arc;
-use std::{iter, vec};
-use tiny_keccak::{Hasher, Keccak};
+use std::io::{Read};
+use std::{vec};
 
 use crate::modules::effects::Config;
 use crate::modules::expr::{
-  add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, geq, gt, index_word, iszero, leq, lt, or,
-  read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, simplify_prop, sub, to_list, write_byte,
+  add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, gt, index_word,
+  read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, sub, to_list, write_byte,
   write_storage, write_word, MAX_BYTES,
 };
-use crate::modules::expr::{copy_slice, not};
+use crate::modules::expr::{copy_slice};
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
-  from_list, keccak, keccak_bytes, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left,
-  pad_left_prime, pad_right, to_int, unbox, word256_bytes, Addr, BaseState, Block, BranchCondition, ByteString, Cache,
-  CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprContractMap, ExprSet, ForkState, Frame, FrameContext,
+  from_list, keccak, keccak_bytes, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word,
+  pad_left_prime, pad_right, unbox, word256_bytes, Addr, BaseState, Block, BranchCondition, ByteString, Cache,
+  CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext,
   FrameState, GVar, Gas, Memory, MutableMemory, PartialExec, Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState,
-  Trace, TraceData, Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM, W256, W64,
+  Trace, TraceData, TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
 };
 
 fn initial_gas() -> u64 {
@@ -1209,7 +1206,7 @@ impl VM {
               }
               _ => {
                 let oob = Expr::LT(
-                  Box::new((buf_length(sr))),
+                  Box::new(buf_length(sr)),
                   Box::new(Expr::Add(Box::new(*x_from.clone()), Box::new(*x_size.clone()))),
                 );
                 let overflow = Expr::LT(
@@ -1232,7 +1229,7 @@ impl VM {
                 let mut account = empty_contract();
                 fetch_account(self, &addr, |account_| account = account_.clone());
                 if account_empty(&account) {
-                  push(self, (W256(0, 0)));
+                  push(self, W256(0, 0));
                 } else {
                   match &account.bytecode() {
                     Some(bytecode) => push_sym(self, Box::new(keccak(bytecode.clone()).unwrap())),
@@ -1251,7 +1248,7 @@ impl VM {
               Expr::Lit(block_number) => {
                 let current_block_number = self.block.number.clone();
                 if block_number.clone() + W256(256, 0) < current_block_number || block_number >= current_block_number {
-                  push(self, (W256(0, 0)));
+                  push(self, W256(0, 0));
                 } else {
                   let block_number_str = block_number.to_string();
                   push(self, keccak_prime(&block_number_str.as_bytes().to_vec()));
@@ -1307,7 +1304,7 @@ fn copy_bytes_to_memory(bs: Expr, size: Expr, src_offset: Expr, mem_offset: Expr
             vec![0; size_val.0 as usize]
           } else {
             let mut src_tmp = b[(src_offset_val.0 as usize)..].to_vec();
-            src_tmp.resize((size_val.0 as usize), 0);
+            src_tmp.resize(size_val.0 as usize, 0);
             src_tmp
           };
           if let Some(concrete_mem) = vm.state.memory.as_mut_concrete_memory() {
@@ -1465,7 +1462,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
         FrameContext::CreationContext { address, codehash, createversion, substate } => {
           let creator = vm.state.contract.clone();
           let createe = vm.state.contract.clone(); // oldvm.state.contract
-          let mut reversion_prime = createversion.clone(); //createversion.clone();
+          let reversion_prime = createversion.clone(); //createversion.clone();
 
           /*
           for (k, v) in reversion_prime.iter() {
@@ -2307,7 +2304,7 @@ fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError>
   match &vm.state.code {
     ContractCode::InitCode(ops, buf_) => match *buf_.clone() {
       Expr::ConcreteBuf(b) if b.len() == 0 => {
-        if (is_valid_jump_dest(vm, x)) {
+        if is_valid_jump_dest(vm, x) {
           vm.state.stack = xs;
           vm.state.pc = x;
           return Ok(());
@@ -2318,10 +2315,10 @@ fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError>
       }
       _ => {
         if x > ops.len() {
-          vm.result = Some(VMResult::Unfinished((PartialExec::JumpIntoSymbolicCode { pc: vm.state.pc, jump_dst: x })));
+          vm.result = Some(VMResult::Unfinished(PartialExec::JumpIntoSymbolicCode { pc: vm.state.pc, jump_dst: x }));
           return Ok(());
         } else {
-          if (is_valid_jump_dest(vm, x)) {
+          if is_valid_jump_dest(vm, x) {
             vm.state.stack = xs;
             vm.state.pc = x;
             return Ok(());
@@ -2332,7 +2329,7 @@ fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError>
       }
     },
     _ => {
-      if (is_valid_jump_dest(vm, x)) {
+      if is_valid_jump_dest(vm, x) {
         vm.state.stack = xs;
         vm.state.pc = x;
         return Ok(());

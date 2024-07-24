@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 
 use crate::modules::evm::initial_contract;
 use crate::modules::types::{

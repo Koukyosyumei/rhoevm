@@ -1,12 +1,7 @@
-use core::prelude;
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
-use std::ops::Add;
 use std::str::FromStr;
 use std::{fmt, vec};
 
-use futures::sink::Buffer;
-use futures::Future;
 
 use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
@@ -16,10 +11,9 @@ use crate::modules::expr::{
 };
 use crate::modules::format::format_prop;
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};
-use crate::modules::traversals::{fold_prop, map_prop_m, TraversableTerm};
-use crate::modules::types::{AddableVec, Addr, Block, Expr, Frame, FrameContext, GVar, Prop, W256W256Map, W256};
+use crate::modules::traversals::{fold_prop, TraversableTerm};
+use crate::modules::types::{AddableVec, Addr, Expr, GVar, Prop, W256W256Map, W256};
 
-use super::etypes::Buf;
 
 // Type aliases for convenience
 type Text = String;
@@ -762,10 +756,10 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
     + (declare_bufs(to_declare_ps_elim, bufs, stores))
     + (smt2_line("".to_owned()))
     + (declare_vars(
-      (all_vars.iter().fold(Vec::new(), |mut acc, x| {
+      all_vars.iter().fold(Vec::new(), |mut acc, x| {
         acc.push(x.clone());
         acc
-      })),
+      }),
     ))
     + (smt2_line("".to_owned()))
     + (declare_frame_context(&concatenated_frame_ctx))

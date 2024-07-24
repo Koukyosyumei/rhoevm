@@ -15,9 +15,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::vec::Vec; // Assuming state crate is used for the State monad
 use tiny_keccak::{Hasher, Keccak};
-use tokio::io::AsyncWriteExt;
 
-use crate::modules::etypes::Buf;
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::Op;
 
@@ -1864,7 +1862,7 @@ pub fn pad_right(n: usize, mut xs: Vec<u8>) -> Vec<u8> {
 }
 
 pub fn maybe_lit_word(word: Expr) -> Option<W256> {
-  match (word) {
+  match word {
     Expr::Lit(w) => Some(w),
     Expr::WAddr(addr) => match *addr {
       Expr::LitAddr(w) => Some(w),

@@ -1,17 +1,13 @@
-use futures::TryFutureExt;
 use std::error::Error;
 
-use rhoevm::modules::abi::Sig;
-use rhoevm::modules::cli::{build_calldata, symvm_from_command, vm0, SymbolicCommand};
-use rhoevm::modules::evm::{abstract_contract, initial_contract, make_vm};
-use rhoevm::modules::feeschedule::FEE_SCHEDULE;
-use rhoevm::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};
+use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
+use rhoevm::modules::evm::{abstract_contract};
 use rhoevm::modules::format::{hex_byte_string, strip_0x};
 
 //use rhoevm::modules::solvers::{with_solvers, Solver};
 use rhoevm::modules::transactions::init_tx;
 use rhoevm::modules::types::{
-  Addr, BaseState, Contract, ContractCode, Expr, Gas, Memory, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
+  ContractCode, Expr, Memory, Prop, RuntimeCodeStruct, VM, W256,
 };
 
 fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {

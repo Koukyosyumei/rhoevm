@@ -5,7 +5,7 @@ fn test_pad_left_prime() {
   // Test case: input vector shorter than size
   let input = vec![1, 2, 3];
   let expected = vec![0; 29];
-  let mut expected = [expected, vec![1, 2, 3]].concat();
+  let expected = [expected, vec![1, 2, 3]].concat();
   assert_eq!(pad_left_prime_vec(32, input), expected);
 
   // Test case: input vector exactly the size
