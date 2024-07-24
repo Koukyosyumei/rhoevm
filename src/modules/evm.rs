@@ -9,17 +9,17 @@ use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::expr::{
   add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, geq, gt, index_word, iszero, leq, lt, or,
-  read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, simplify_prop, sub, write_byte, write_storage,
-  write_word, MAX_BYTES,
+  read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, simplify_prop, sub, to_list, write_byte,
+  write_storage, write_word, MAX_BYTES,
 };
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::types::{
   from_list, keccak, keccak_bytes, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left,
   pad_left_prime, pad_right, to_int, unbox, word256_bytes, Addr, BaseState, Block, BranchCondition, Cache,
-  CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, GVar,
-  Gas, Memory, MutableMemory, PartialExec, Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData,
-  Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM, W64,
+  CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprContractMap, ExprSet, ForkState, Frame, FrameContext,
+  FrameState, GVar, Gas, Memory, MutableMemory, PartialExec, Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState,
+  Trace, TraceData, Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM, W64,
 };
 
 use super::expr::{copy_slice, not};
@@ -533,7 +533,7 @@ impl VM {
                 access_memory_range(self, *mem_offset.clone(), *n.clone(), || {});
                 if let Some(b) = to_buf(&self.state.code) {
                   copy_bytes_to_memory(
-                    Expr::ConcreteBuf(b.to_vec()),
+                    b,
                     unbox(n.clone()),
                     unbox(code_offset.clone().clone()),
                     unbox(mem_offset.clone().clone()),
@@ -1368,7 +1368,7 @@ fn vm_error(error: &str) {
 }
 
 // FrameResult definition
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum FrameResult {
   FrameReturned(Expr),
   FrameReverted(Expr),
@@ -1379,12 +1379,10 @@ enum FrameResult {
 // It also handles the case when the current stack frame is the only one;
 // in this case, we set the final '_result' of the VM execution.
 fn finish_frame(vm: &mut VM, result: FrameResult) {
-  todo!()
-  /*
-  match vm.frames.as_slice() {
+  match vm.frames.clone().as_slice() {
     // Is the current frame the only one?
     [] => {
-      match result {
+      match result.clone() {
         FrameResult::FrameReturned(output) => vm.result = Some(VMResult::VMSuccess(output)),
         FrameResult::FrameReverted(buffer) => vm.result = Some(VMResult::VMFailure(EvmError::Revert(Box::new(buffer)))),
         FrameResult::FrameErrored(e) => vm.result = Some(VMResult::VMFailure(e)),
@@ -1394,7 +1392,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
     // Are there some remaining frames?
     [next_frame, remaining_frames @ ..] => {
       // Insert a debug trace.
-      vm.traces.push(match result {
+      vm.traces.push(match result.clone() {
         FrameResult::FrameErrored(e) => with_trace_location(vm, TraceData::ErrorTrace(e)),
         FrameResult::FrameReverted(e) => with_trace_location(vm, TraceData::ErrorTrace(EvmError::Revert(Box::new(e)))),
         FrameResult::FrameReturned(output) => {
@@ -1402,7 +1400,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
         }
       });
       // Pop to the previous level of the debug trace stack.
-      vm.pop_trace();
+      vm.traces.pop();
 
       // Pop the top frame.
       vm.frames = remaining_frames.to_vec();
@@ -1424,24 +1422,22 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
           callreversion,
           substate,
         } => {
-          let touched_accounts = vm.tx.substate.touched_accounts;
-          let substate_modified = touch_address(3);
+          let touched_accounts = vm.tx.substate.touched_accounts.clone();
+          let substate_modified = substate.clone(); //touch_address(3);
 
-          match result {
+          match result.clone() {
             // Case 1: Returning from a call?
             FrameResult::FrameReturned(output) => {
-              vm.state.returndata = output;
-              copy_call_bytes_to_memory(vm, output, *size, *offset);
-              vm.reclaim_remaining_gas_allowance(&old_vm);
+              vm.state.returndata = output.clone();
+              copy_call_bytes_to_memory(vm, output, size.clone(), offset.clone());
               push(vm, W256(1, 0));
             }
             // Case 2: Reverting during a call?
             FrameResult::FrameReverted(output) => {
               vm.env.contracts = callreversion.clone();
               vm.tx.substate = substate.clone();
-              vm.state.returndata = output;
-              copy_call_bytes_to_memory(vm, output, *size, *offset);
-              vm.reclaim_remaining_gas_allowance(&old_vm);
+              vm.state.returndata = output.clone();
+              copy_call_bytes_to_memory(vm, output.clone(), size.clone(), offset.clone());
               push(vm, W256(0, 0));
             }
             // Case 3: Error during a call?
@@ -1454,44 +1450,55 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
           }
         }
         // Or were we creating?
-        FrameContext::CreationContext(_, _, reversion, substate) => {
-          let creator = vm.state.contract;
-          let createe = old_vm.state.contract.clone();
-          let revert_contracts = || vm.assign_contracts(adjust_nonce(&creator, reversion.clone()));
-          let revert_substate = || vm.assign_substate(substate.clone());
+        // (_, _, reversion, substate)
+        FrameContext::CreationContext { address, codehash, createversion, substate } => {
+          let creator = vm.state.contract.clone();
+          let createe = vm.state.contract.clone(); // oldvm.state.contract
+          let mut reversion_prime = createversion.clone(); //createversion.clone();
 
-          match result {
+          /*
+          for (k, v) in reversion_prime.iter() {
+            let mut v_new = v.clone();
+            v_new.nonce = if let Some(n) = v_new.nonce { Some(n + 1) } else { None };
+            reversion_prime.insert(k.clone(), v_new);
+          }*/
+
+          match result.clone() {
             // Case 4: Returning during a creation?
             FrameResult::FrameReturned(output) => {
-              let on_contract_code = |contract_code| {
-                vm.replace_code(&createe, contract_code);
+              let mut on_contract_code = |contract_code| {
+                //vm.replace_code(&createe, contract_code);
                 vm.state.returndata = Expr::Mempty;
-                vm.reclaim_remaining_gas_allowance(&old_vm);
                 push_addr(vm, createe.clone());
               };
               match output {
-                Expr::ConcreteBuf(bs) => on_contract_code(RuntimeCode::ConcreteRuntimeCode(bs)),
-                _ => match Expr::to_list(&output) {
-                  None => vm.partial(UnexpectedSymbolicArg {
-                    pc: old_vm.state.pc.clone(),
-                    msg: "runtime code cannot have an abstract length".to_string(),
-                    args: vec![wrap(output)],
-                  }),
-                  Some(new_code) => on_contract_code(RuntimeCode::SymbolicRuntimeCode(new_code)),
+                Expr::ConcreteBuf(bs) => {
+                  on_contract_code(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)))
+                }
+                _ => match to_list(output.clone()) {
+                  None => {
+                    vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+                      pc: vm.state.pc.clone(),
+                      msg: "runtime code cannot have an abstract length".to_string(),
+                      args: vec![output],
+                    }))
+                  }
+                  Some(new_code) => {
+                    on_contract_code(ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(new_code)))
+                  }
                 },
               }
             }
             // Case 5: Reverting during a creation?
             FrameResult::FrameReverted(output) => {
-              vm.env.contracts = callreversion.clone();
+              vm.env.contracts = reversion_prime;
               vm.tx.substate = substate.clone();
               vm.state.returndata = output.clone();
-              vm.reclaim_remaining_gas_allowance(&old_vm);
               push(vm, W256(0, 0));
             }
             // Case 6: Error during a creation?
             FrameResult::FrameErrored(_) => {
-              vm.env.contracts = callreversion.clone();
+              vm.env.contracts = reversion_prime;
               vm.tx.substate = substate.clone();
               vm.state.returndata = Expr::Mempty;
               push(vm, W256(0, 0));
@@ -1500,7 +1507,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
         }
       }
     }
-  }*/
+  }
 }
 
 fn opslen(code: &ContractCode) -> usize {
@@ -1846,10 +1853,22 @@ fn internal_error(msg: &str) {
   panic!("{}", msg)
 }
 
-fn to_buf(code: &ContractCode) -> Option<&[u8]> {
+fn concatenate_bufs(a: &Expr, b: &Expr) -> Expr {
+  match (a, b) {
+    (Expr::ConcreteBuf(a_buf), Expr::ConcreteBuf(b_buf)) => {
+      let mut result = a_buf.clone();
+      result.extend(b_buf.clone());
+      Expr::ConcreteBuf(result)
+    }
+    _ => a.clone(),
+  }
+}
+
+fn to_buf(code: &ContractCode) -> Option<Expr> {
   match code {
-    ContractCode::InitCode(conc, _) => Some(conc),
-    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(data)) => Some(data),
+    ContractCode::InitCode(ops, args) => Some(concatenate_bufs(&Expr::ConcreteBuf(ops.to_vec()), &args.clone())),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => Some(Expr::ConcreteBuf(ops.to_vec())),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => todo!(),
     _ => None,
   }
 }

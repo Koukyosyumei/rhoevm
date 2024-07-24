@@ -1624,3 +1624,21 @@ where
     &b,
   ) > 0
 }
+
+// Conversion function from Expr<Buf> to Vec<Expr<u8>>
+pub fn to_list(buf: Expr) -> Option<Vec<Expr>> {
+  match buf {
+    Expr::AbstractBuf(_) => None,
+    Expr::ConcreteBuf(bs) => Some(bs.iter().map(|b| Expr::LitByte(*b)).collect()),
+    buf => match buf_length(buf.clone()) {
+      Expr::Lit(l) => {
+        if l <= W256(usize::MAX as u128, 0) {
+          Some((0..l.0).map(|i| read_byte(Expr::Lit(W256(i, 0)), buf.clone())).collect())
+        } else {
+          None
+        }
+      }
+      _ => None,
+    },
+  }
+}
