@@ -103,7 +103,7 @@ enum CompressedBuf {
 
 // SMTCex struct
 #[derive(Debug, PartialEq, Eq)]
-struct SMTCex {
+pub struct SMTCex {
   vars: HashMap<Expr, W256>,
   addrs: HashMap<Expr, Addr>,
   buffers: HashMap<Expr, BufModel>,
@@ -143,7 +143,7 @@ impl std::ops::AddAssign for RefinementEqs {
 
 // SMT2 struct
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct SMT2(Vec<Builder>, RefinementEqs, CexVars, Vec<Prop>);
+pub struct SMT2(Vec<Builder>, RefinementEqs, CexVars, Vec<Prop>);
 
 // Implementing Semigroup and Monoid traits for SMT2
 impl std::ops::Add for SMT2 {
@@ -168,7 +168,7 @@ impl std::ops::AddAssign for SMT2 {
   }
 }
 
-fn format_smt2(smt2: SMT2) -> String {
+pub fn format_smt2(smt2: SMT2) -> String {
   let mut result = format!(";{}", smt2.3.iter().map(|p| format_prop(p)).collect::<Vec<String>>().join("\n;"));
   for s in smt2.0 {
     result += &(s.to_string() + &("\n".to_string()));
@@ -690,7 +690,7 @@ fn create_read_assumptions(ps_elim: &[Prop], bufs: &BufEnv, stores: &StoreEnv) -
   result
 }
 
-fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
+pub fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   let simplified_ps = decompose(simplify_props(ps_pre_conc.clone()), config);
 
   let ps = conc_keccak_props(simplified_ps);

@@ -1,29 +1,30 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::fs;
 use std::hash::Hash;
 use std::io::{repeat, Read};
 use std::sync::Arc;
 use std::{iter, vec};
 use tiny_keccak::{Hasher, Keccak};
 
+use crate::modules::effects::Config;
 use crate::modules::expr::{
   add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, geq, gt, index_word, iszero, leq, lt, or,
   read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, simplify_prop, sub, to_list, write_byte,
   write_storage, write_word, MAX_BYTES,
 };
+use crate::modules::expr::{copy_slice, not};
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
+use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
   from_list, keccak, keccak_bytes, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left,
-  pad_left_prime, pad_right, to_int, unbox, word256_bytes, Addr, BaseState, Block, BranchCondition, Cache,
+  pad_left_prime, pad_right, to_int, unbox, word256_bytes, Addr, BaseState, Block, BranchCondition, ByteString, Cache,
   CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprContractMap, ExprSet, ForkState, Frame, FrameContext,
   FrameState, GVar, Gas, Memory, MutableMemory, PartialExec, Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState,
-  Trace, TraceData, Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM, W64,
+  Trace, TraceData, Tree, TxState, VMOpts, VMResult, W256W256Map, Word8, VM, W256, W64,
 };
-
-use super::expr::{copy_slice, not};
-use super::types::{ByteString, W256};
 
 fn initial_gas() -> u64 {
   10000 // Placeholder value
@@ -788,8 +789,12 @@ impl VM {
               burn(self, fees.g_high, || {});
               let mut x_int = None;
               force_concrete(self, x, "JUMPI: symbolic jumpdest", |x_| x_int = x_.to_int());
-              let jump = |condition: bool| {
-                if condition {
+
+              let mut condition: bool = false;
+              branch(self, y, |condition_| Ok(condition = condition_));
+
+              let mut jump = |condition_: bool| {
+                if condition_ {
                   match x_int {
                     None => Err(EvmError::BadJumpDestination),
                     Some(i) => check_jump(self, i as usize, xs.to_vec()),
@@ -801,8 +806,8 @@ impl VM {
                   })
                 }
               };
+              jump(condition);
 
-              // branch(self, y, jump);
               let loc = codeloc(self);
               let pathconds = self.constraints.clone();
               let cond_simp = simplify(y);
@@ -2437,22 +2442,34 @@ where
   F: FnOnce(bool) -> Result<(), EvmError>,
 {
   let loc = codeloc(vm); // (contract, pc)
-  let pathconds = vm.constraints.clone();
+  let mut pathconds = vm.constraints.clone();
+
   let cond_simp = simplify(cond);
   let cond_simp_conc = conc_keccak_simp_expr(cond_simp);
+  let branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)))));
+  pathconds.push(branch_cond);
 
+  let config = Config::default();
+  let smt2 = assert_props(&config, pathconds);
+  let content = format_smt2(smt2) + "\n\n(check-sat)";
+  let _ = fs::write("query.smt2", content);
+
+  /*
   let v = false;
   vm.result = None;
+
   vm.constraints.push(if v {
     simplify_prop(Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0))))))
   } else {
     simplify_prop(Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0))))
   });
+
   let binding = (0, vec![]);
   let (iteration, _) = vm.iterations.get(&loc).unwrap_or(&binding);
   *vm.cache.path.entry((loc.clone(), *iteration)).or_insert(v) = v;
   *vm.iterations.entry(loc).or_insert((0, vec![])) = (iteration + 1, vm.state.stack.clone());
-
+  */
+  let v = false;
   continue_fn(v);
 }
 
