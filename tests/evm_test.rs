@@ -70,3 +70,17 @@ fn test_vm_exec_1() {
   mem[0x40 + 15] = 0x80;
   assert_eq!(vm.state.memory, Memory::ConcreteMemory(mem));
 }
+
+#[test]
+fn test_vm_op2() {
+  let mut cmd = <SymbolicCommand as std::default::Default>::default();
+  cmd.code = Some("01".into());
+  let callcode = build_calldata(&cmd).unwrap();
+  let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+
+  vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+  vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
+  vm.exec1();
+  assert_eq!(vm.state.stack.len(), 1);
+  assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Add(Lit(0x2), Lit(0x1))");
+}
