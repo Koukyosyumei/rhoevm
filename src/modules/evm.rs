@@ -1379,14 +1379,17 @@ fn execute_precompile(
 
 fn fetch_account<F: FnOnce(&Contract)>(addr: &Expr, f: F) {
   // Implement account fetching logic
+  todo!()
 }
 
 fn touch_account(addr: &Expr) {
   // Implement account touching logic
+  todo!()
 }
 
 fn vm_error(error: &str) {
   // Implement VM error handling
+  todo!()
 }
 
 // FrameResult definition
@@ -1401,6 +1404,7 @@ enum FrameResult {
 // It also handles the case when the current stack frame is the only one;
 // in this case, we set the final '_result' of the VM execution.
 fn finish_frame(vm: &mut VM, result: FrameResult) {
+  todo!()
   /*
   match vm.frames.as_slice() {
     // Is the current frame the only one?
@@ -1416,57 +1420,67 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
     [next_frame, remaining_frames @ ..] => {
       // Insert a debug trace.
       vm.traces.push(match result {
-        FrameResult::FrameErrored(e) => TraceData::ErrorTrace(e),
-        FrameResult::FrameReverted(e) => TraceData::ErrorTrace(EvmError::Revert(e)),
-        FrameResult::FrameReturned(output) => TraceData::ReturnTrace(output, next_frame.context.clone()),
+        FrameResult::FrameErrored(e) => with_trace_location(vm, TraceData::ErrorTrace(e)),
+        FrameResult::FrameReverted(e) => with_trace_location(vm, TraceData::ErrorTrace(EvmError::Revert(Box::new(e)))),
+        FrameResult::FrameReturned(output) => {
+          with_trace_location(vm, TraceData::ReturnTrace(output, next_frame.context.clone()))
+        }
       });
       // Pop to the previous level of the debug trace stack.
       vm.pop_trace();
 
       // Pop the top frame.
-      vm.assign_frames(remaining_frames.to_vec());
+      vm.frames = remaining_frames.to_vec();
       // Install the state of the frame to which we shall return.
-      vm.assign_state(next_frame.state.clone());
+      vm.state = next_frame.state.clone();
 
       // Now dispatch on whether we were creating or calling,
       // and whether we shall return, revert, or internalError (six cases).
       match &next_frame.context {
         // Were we calling?
-        Context::CallContext(_, _, out_offset, out_size, _, _, _, reversion, substate) => {
-          let touched_accounts = vm.use_touched_accounts();
-          let substate_modified = substate.clone().touch_address(3);
-          let revert_contracts = || vm.assign_contracts(reversion.clone());
-          let revert_substate = || vm.assign_substate(substate_modified.clone());
+        FrameContext::CallContext {
+          target,
+          context,
+          offset,
+          size,
+          codehash,
+          abi,
+          calldata,
+          callreversion,
+          substate,
+        } => {
+          let touched_accounts = vm.tx.substate.touched_accounts;
+          let substate_modified = touch_address(3);
 
           match result {
             // Case 1: Returning from a call?
             FrameResult::FrameReturned(output) => {
-              vm.assign_returndata(output.clone());
-              vm.copy_call_bytes_to_memory(output, *out_size, *out_offset);
+              vm.state.returndata = output;
+              copy_call_bytes_to_memory(vm, output, *size, *offset);
               vm.reclaim_remaining_gas_allowance(&old_vm);
-              vm.push(1);
+              push(vm, W256(1, 0));
             }
             // Case 2: Reverting during a call?
             FrameResult::FrameReverted(output) => {
-              revert_contracts();
-              revert_substate();
-              vm.assign_returndata(output.clone());
-              vm.copy_call_bytes_to_memory(output, *out_size, *out_offset);
+              vm.env.contracts = callreversion.clone();
+              vm.tx.substate = substate.clone();
+              vm.state.returndata = output;
+              copy_call_bytes_to_memory(vm, output, *size, *offset);
               vm.reclaim_remaining_gas_allowance(&old_vm);
-              vm.push(0);
+              push(vm, W256(0, 0));
             }
             // Case 3: Error during a call?
             FrameResult::FrameErrored(_) => {
-              revert_contracts();
-              revert_substate();
-              vm.assign_returndata(Expr::mempty());
-              vm.push(0);
+              vm.env.contracts = callreversion.clone();
+              vm.tx.substate = substate.clone();
+              vm.state.returndata = Expr::Mempty;
+              push(vm, W256(0, 0));
             }
           }
         }
         // Or were we creating?
-        Context::CreationContext(_, _, reversion, substate) => {
-          let creator = vm.use_state_contract();
+        FrameContext::CreationContext(_, _, reversion, substate) => {
+          let creator = vm.state.contract;
           let createe = old_vm.state.contract.clone();
           let revert_contracts = || vm.assign_contracts(adjust_nonce(&creator, reversion.clone()));
           let revert_substate = || vm.assign_substate(substate.clone());
@@ -1476,9 +1490,9 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
             FrameResult::FrameReturned(output) => {
               let on_contract_code = |contract_code| {
                 vm.replace_code(&createe, contract_code);
-                vm.assign_returndata(Expr::mempty());
+                vm.state.returndata = Expr::Mempty;
                 vm.reclaim_remaining_gas_allowance(&old_vm);
-                vm.push_addr(createe.clone());
+                push_addr(vm, createe.clone());
               };
               match output {
                 Expr::ConcreteBuf(bs) => on_contract_code(RuntimeCode::ConcreteRuntimeCode(bs)),
@@ -1494,18 +1508,18 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
             }
             // Case 5: Reverting during a creation?
             FrameResult::FrameReverted(output) => {
-              revert_contracts();
-              revert_substate();
-              vm.assign_returndata(output.clone());
+              vm.env.contracts = callreversion.clone();
+              vm.tx.substate = substate.clone();
+              vm.state.returndata = output.clone();
               vm.reclaim_remaining_gas_allowance(&old_vm);
-              vm.push(0);
+              push(vm, W256(0, 0));
             }
             // Case 6: Error during a creation?
             FrameResult::FrameErrored(_) => {
-              revert_contracts();
-              revert_substate();
-              vm.assign_returndata(Expr::mempty());
-              vm.push(0);
+              vm.env.contracts = callreversion.clone();
+              vm.tx.substate = substate.clone();
+              vm.state.returndata = Expr::Mempty;
+              push(vm, W256(0, 0));
             }
           }
         }
@@ -2031,11 +2045,11 @@ fn delegate_call(
       gas_given,
       x_context.clone(),
       x_to.clone(),
-      x_value,
+      x_value.clone(),
       x_in_offset.clone(),
       x_in_size.clone(),
       x_out_offset.clone(),
-      x_out_size,
+      x_out_size.clone(),
       &xs.into_iter().map(|x| Box::new(x)).collect(),
       |x_gas_| x_gas = x_gas_,
     );
@@ -2056,12 +2070,12 @@ fn delegate_call(
           target: x_to.clone(),
           context: x_context.clone(),
           offset: x_out_offset,
-          //size: x_out_size,
-          //codehash: target.codehash.clone(),
-          //callreversion: vm.env.contracts.clone(),
-          //substate: vm.tx.substate.clone(),
-          //abi,
-          //calldata,
+          size: x_out_size,
+          codehash: target.codehash.clone(),
+          callreversion: vm.env.contracts.clone(),
+          substate: vm.tx.substate.clone(),
+          abi,
+          calldata: calldata.clone(),
         };
         vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context.clone())));
         next(vm, op);

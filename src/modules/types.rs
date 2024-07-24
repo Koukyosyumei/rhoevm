@@ -1168,7 +1168,7 @@ pub enum EvmError {
   SelfDestruction,
   StackUnderrun,
   BadJumpDestination,
-  Revert(Box<Buf>),
+  Revert(Box<Expr>),
   OutOfGas(u64, u64),
   StackLimitExceeded,
   IllegalOverflow,
@@ -1385,10 +1385,26 @@ pub struct Cache {
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum FrameContext {
-  CreationContext { address: Expr, codehash: Expr, createversion: ExprContractMap, substate: SubState },
-  CallContext { target: Expr, context: Expr, offset: Expr },
+  CreationContext {
+    address: Expr,
+    codehash: Expr,
+    createversion: ExprContractMap,
+    substate: SubState,
+  },
+  CallContext {
+    target: Expr,
+    context: Expr,
+    offset: Expr,
+    size: Expr,
+    codehash: Expr,
+    abi: Option<W256>,
+    calldata: Expr,
+    callreversion: ExprContractMap,
+    substate: SubState,
+  },
 }
 
+#[derive(Clone)]
 pub struct Frame {
   pub context: FrameContext,
   pub state: FrameState,
