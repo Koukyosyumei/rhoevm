@@ -571,60 +571,6 @@ impl VM {
             underrun();
           }
         }
-        Op::Extcodecopy => {
-          if let Some((ext_account, rest1)) = self.state.stack.split_last() {
-            let ext_account = ext_account.clone();
-            let rest1 = rest1.to_vec();
-            if let Some((mem_offset, rest2)) = rest1.split_last() {
-              let mem_offset = mem_offset.clone();
-              let rest2 = rest2.to_vec();
-              if let Some((code_offset, rest)) = rest2.split_last() {
-                if let Some((code_size, xs)) = rest.split_last() {
-                  force_addr(&ext_account, "EXTCODECOPY", |a| {
-                    burn_extcodecopy(
-                      self,
-                      unbox(ext_account.clone()),
-                      unbox(code_size.clone()),
-                      self.block.schedule.clone(),
-                      || {},
-                    );
-                    fetch_account(&a, |c| {
-                      next(self, op);
-                      self.state.stack = xs.to_vec();
-                      if let Some(b) = &c.bytecode() {
-                        copy_bytes_to_memory(
-                          b.clone(),
-                          unbox(code_size.clone()),
-                          unbox(code_offset.clone()),
-                          unbox(mem_offset.clone()),
-                          self,
-                        );
-                      } else {
-                        internal_error("Cannot copy from unknown code");
-                      }
-                    });
-                    access_memory_range(self, *mem_offset, *code_size.clone(), || {});
-                  });
-                } else {
-                  underrun();
-                }
-              } else {
-                underrun();
-              }
-            } else {
-              underrun();
-            }
-          } else {
-            underrun();
-          }
-        }
-        Op::Returndatasize => {
-          limit_stack(1, self.state.stack.len(), || {
-            burn(self, fees.g_base, || {});
-            next(self, op);
-            push_sym(self, Box::new(Expr::Lit(W256(len_buf(&self.state.returndata) as u128, 0))));
-          });
-        }
         Op::Coinbase => {
           /*
           Stack otuput
@@ -1218,7 +1164,7 @@ impl VM {
         }
         Op::Returndatasize => {
           limit_stack(1, self.state.stack.len(), || {
-            burn(self, 0, || {});
+            burn(self, fees.g_base, || {});
             next(self, op);
             push_sym(self, Box::new(buf_length(self.state.returndata.clone())));
           });
