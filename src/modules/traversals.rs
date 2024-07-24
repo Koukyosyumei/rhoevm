@@ -197,13 +197,25 @@ where
     // frame context
     Expr::Gas(_, _) | Expr::Balance { .. } => f(&expr),
 
+    Expr::ConcreteStore(_) | Expr::AbstractStore(_, _) => f(&expr),
+    Expr::SLoad(a, b) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b),
+    Expr::SStore(a, b, c) => {
+      f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b) + go_expr(f, acc.clone(), *c)
+    }
+
+    Expr::ConcreteBuf(_) | Expr::AbstractBuf(_) => f(&expr),
+    Expr::ReadByte(a, b) | Expr::ReadWord(a, b) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b),
+    Expr::WriteByte(a, b, c) | Expr::WriteWord(a, b, c) => {
+      f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b) + go_expr(f, acc.clone(), *c)
+    }
+
     // code
     Expr::CodeSize(a) | Expr::CodeHash(a) => f(&expr) + go_expr(f, acc, *a),
 
-    _ => panic!("not implemented"), // logs
-                                    //Expr::LogEntry(a, b, c) => {
-                                    //  f(&expr) + go_expr(f, acc, *a) + b.iter().fold(B::default(), |acc, v| acc + go_expr(f, acc, v)) + go_expr(f, acc, c)
-                                    //}
+    // BufLength
+    Expr::BufLength(a) => f(&expr) + go_expr(f, acc, *a),
+
+    _ => panic!("{}", format!("`go_expr` does not support {}", expr.to_string())),
   }
 }
 
@@ -734,9 +746,9 @@ pub trait TraversableTerm {
   where
     F: FnMut(&Expr) -> Expr;
 
-  fn fold_term<F, C>(&self, f: F, acc: C) -> C
+  fn fold_term<C>(&self, f: &mut dyn FnMut(&Expr) -> C, acc: C) -> C
   where
-    F: FnMut(&Expr) -> C;
+    C: Add<C, Output = C> + Clone + Default;
 }
 
 impl TraversableTerm for Expr {
@@ -744,34 +756,31 @@ impl TraversableTerm for Expr {
   where
     F: FnMut(&Expr) -> Expr,
   {
-    // Implement map_term for Expr
+    // map_expr(f, self.clone())
     todo!()
   }
 
-  fn fold_term<F, C>(&self, f: F, acc: C) -> C
+  fn fold_term<C>(&self, f: &mut dyn FnMut(&Expr) -> C, acc: C) -> C
   where
-    F: FnMut(&Expr) -> C,
+    C: Add<C, Output = C> + Clone + Default,
   {
-    let _ = f;
-    // Implement fold_term for Expr
-    todo!()
+    fold_expr(f, acc, &self.clone())
   }
 }
 
 impl TraversableTerm for Prop {
-  fn map_term<F>(&self, f: F) -> Self
+  fn map_term<F>(&self, mut f: F) -> Self
   where
     F: FnMut(&Expr) -> Expr,
   {
-    // Implement map_term for Prop
+    // map_prop(&mut f, self.clone())
     todo!()
   }
 
-  fn fold_term<F, C>(&self, f: F, acc: C) -> C
+  fn fold_term<C>(&self, f: &mut dyn FnMut(&Expr) -> C, acc: C) -> C
   where
-    F: FnMut(&Expr) -> C,
+    C: Add<C, Output = C> + Clone + Default,
   {
-    // Implement fold_term for Expr
-    todo!()
+    fold_prop(f, acc, self.clone())
   }
 }

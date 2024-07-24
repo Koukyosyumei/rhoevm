@@ -453,130 +453,123 @@ fn concatenate_props(a: &[Prop], b: &[Prop], c: &[Prop]) -> Vec<Prop> {
 
 // Function implementations
 fn referenced_abstract_stores<T: TraversableTerm>(term: &T) -> HashSet<Builder> {
-  term.fold_term(
-    |x| match x {
+  fn f(x: &Expr) -> AddableVec<String> {
+    match x.clone() {
       Expr::AbstractStore(s, idx) => {
-        let mut set = HashSet::new();
-        set.insert(store_name(unbox(s.clone()), idx.clone()));
-        set
+        let mut set = vec![];
+        set.push(store_name(unbox(s.clone()), idx.clone()));
+        AddableVec::from_vec(set)
       }
-      _ => HashSet::new(),
-    },
-    HashSet::new(),
-  )
+      _ => AddableVec::from_vec(vec![]),
+    }
+  }
+  let v = term.fold_term(&mut f, AddableVec::from_vec(vec![]));
+  HashSet::from_iter(v.to_vec().into_iter())
 }
 
 fn referenced_waddrs<T: TraversableTerm>(term: &T) -> HashSet<Builder> {
-  term.fold_term(
-    |x| match x {
+  fn f(x: &Expr) -> AddableVec<String> {
+    match x {
       Expr::WAddr(a) => {
-        let mut set = HashSet::new();
-        set.insert(format_e_addr(unbox(a.clone())));
-        set
+        let mut set = vec![];
+        set.push(format_e_addr(unbox(a.clone())));
+        AddableVec::from_vec(set)
       }
-      _ => HashSet::new(),
-    },
-    HashSet::new(),
-  )
+      _ => AddableVec::from_vec(vec![]),
+    }
+  }
+  let v = term.fold_term(&mut f, AddableVec::from_vec(vec![]));
+  HashSet::from_iter(v.to_vec().into_iter())
 }
 
 fn referenced_bufs<T: TraversableTerm>(expr: &T) -> Vec<Builder> {
-  //let mut buf_set = HashSet::new();
-  let bufs = expr.fold_term(
-    |x| match x {
-      Expr::AbstractBuf(s) => {
-        //buf_set.insert(s);
-        vec![s.clone()]
-      }
-      _ => vec![],
-    },
-    vec![],
-  );
+  fn f(x: &Expr) -> AddableVec<String> {
+    match x {
+      Expr::AbstractBuf(s) => AddableVec::from_vec(vec![s.clone()]),
+      _ => AddableVec::from_vec(vec![]),
+    }
+  }
+  let bufs = expr.fold_term(&mut f, AddableVec::from_vec(vec![]));
 
-  bufs.iter().map(|s| (*s).clone()).collect()
+  bufs.to_vec().iter().map(|s| (*s).clone()).collect()
 }
 
 fn referenced_vars<T: TraversableTerm>(expr: &T) -> Vec<Builder> {
-  //let mut var_set = HashSet::new();
-  let vars = expr.fold_term(
-    |x| match x {
+  fn f(x: &Expr) -> AddableVec<String> {
+    match x {
       Expr::Var(s) => {
         // var_set.insert(s);
-        vec![s.clone()]
+        AddableVec::from_vec(vec![s.clone()])
       }
-      _ => vec![],
-    },
-    vec![],
-  );
+      _ => AddableVec::from_vec(vec![]),
+    }
+  }
+  let vars = expr.fold_term(&mut f, AddableVec::from_vec(vec![]));
 
-  vars.iter().map(|s| (*s).clone()).collect()
+  vars.to_vec().iter().map(|s| (*s).clone()).collect()
 }
 
 fn referenced_frame_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<Prop>)> {
-  fn go(x: Expr) -> Vec<(Builder, Vec<Prop>)> {
+  fn go(x: Expr) -> AddableVec<(Builder, Vec<Prop>)> {
     match x.clone() {
-      Expr::TxValue => {
-        vec![("txvalue".to_string(), vec![])]
-      }
-      Expr::Balance(a) => {
-        vec![(
-          format!("balance_{}", format_e_addr(*a.clone())),
-          vec![Prop::PLT(x.clone(), Expr::Lit(W256(2, 0) ^ W256(96, 0)))],
-        )]
-      }
+      Expr::TxValue => AddableVec::from_vec(vec![("txvalue".to_string(), vec![])]),
+      Expr::Balance(a) => AddableVec::from_vec(vec![(
+        format!("balance_{}", format_e_addr(*a.clone())),
+        vec![Prop::PLT(x.clone(), Expr::Lit(W256(2, 0) ^ W256(96, 0)))],
+      )]),
       Expr::Gas { .. } => {
         panic!("TODO: GAS");
       }
-      _ => vec![],
+      _ => AddableVec::from_vec(vec![]),
     }
   }
-  let context = expr.fold_term(|x: &Expr| go(x.clone()), vec![]);
+  let context = expr.fold_term(&mut |x: &Expr| go(x.clone()), AddableVec::from_vec(vec![]));
 
-  context.into_iter().map(|(b, p)| (b.to_string(), p)).collect()
+  context.to_vec().into_iter().map(|(b, p)| (b.to_string(), p)).collect()
 }
 
 fn referenced_block_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<Prop>)> {
-  //let mut context_set = HashSet::new();
-  let context = expr.fold_term(
-    |x| match x {
+  fn f(x: &Expr) -> AddableVec<(Builder, Vec<Prop>)> {
+    match x {
       Expr::Origin => {
         //context_set.insert((("origin"), vec![in_range(160, Origin.clone())]));
-        vec![(("origin"), vec![in_range(160, Expr::Origin)])]
+        AddableVec::from_vec(vec![(("origin".to_string()), vec![in_range(160, Expr::Origin)])])
       }
       Expr::Coinbase => {
         //context_set.insert((("coinbase"), vec![in_range(160, Coinbase.clone())]));
-        vec![(("coinbase"), vec![in_range(160, Expr::Coinbase)])]
+        AddableVec::from_vec(vec![(("coinbase".to_string()), vec![in_range(160, Expr::Coinbase)])])
       }
       Expr::Timestamp => {
         //context_set.insert((("timestamp"), vec![]));
-        vec![(("timestamp"), vec![])]
+        AddableVec::from_vec(vec![(("timestamp".to_string()), vec![])])
       }
       Expr::BlockNumber => {
         //context_set.insert((("blocknumber"), vec![]));
-        vec![(("blocknumber"), vec![])]
+        AddableVec::from_vec(vec![(("blocknumber".to_string()), vec![])])
       }
       Expr::PrevRandao => {
         //context_set.insert((("prevrandao"), vec![]));
-        vec![(("prevrandao"), vec![])]
+        AddableVec::from_vec(vec![(("prevrandao".to_string()), vec![])])
       }
       Expr::GasLimit => {
         //context_set.insert((("gaslimit"), vec![]));
-        vec![(("gaslimit"), vec![])]
+        AddableVec::from_vec(vec![(("gaslimit".to_string()), vec![])])
       }
       Expr::ChainId => {
         //context_set.insert((("chainid"), vec![]));
-        vec![(("chainid"), vec![])]
+        AddableVec::from_vec(vec![(("chainid".to_string()), vec![])])
       }
       Expr::BaseFee => {
         //context_set.insert((("basefee"), vec![]));
-        vec![(("basefee"), vec![])]
+        AddableVec::from_vec(vec![(("basefee".to_string()), vec![])])
       }
-      _ => vec![],
-    },
-    vec![],
-  );
+      _ => AddableVec::from_vec(vec![]),
+    }
+  }
 
-  context.into_iter().map(|(b, p)| (b.to_string(), p)).collect()
+  let context = expr.fold_term(&mut f, AddableVec::from_vec(vec![]));
+
+  context.to_vec().into_iter().map(|(b, p)| (b.to_string(), p)).collect()
 }
 
 fn gather_all_vars(
