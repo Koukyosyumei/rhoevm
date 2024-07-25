@@ -221,7 +221,7 @@ fn is_precompile(expr: &Expr) -> bool {
 }
 
 impl VM {
-  pub fn exec1(&mut self, vm_queue: &mut Vec<VM>) {
+  pub fn exec1(&mut self, vm_queue: &mut Vec<VM>) -> bool {
     // let mut vm.state.stack = &vm.state.stack;
     let self_contract = self.state.contract.clone();
     let binding = self.env.clone();
@@ -251,14 +251,14 @@ impl VM {
         match self.state.stack.first() {
           Some(boxed_expr) => {
             if **boxed_expr == Expr::Lit(W256(0, 0)) {
-              todo!()
+              todo!();
               /*
                           fetchAccount self $ \_ -> do
               touchAccount self
               vmError PrecompileFailure
               */
             } else {
-              todo!()
+              todo!();
               /*
                           fetchAccount self $ \_ -> do
               touchAccount self
@@ -267,11 +267,15 @@ impl VM {
                  */
             }
           }
-          None => underrun(),
+          None => {
+            underrun();
+          }
         }
       }
+      true
     } else if self.state.pc >= opslen(&self.state.code) {
       finish_frame(self, FrameResult::FrameReturned(Expr::Mempty));
+      false
     } else {
       let op = match &self.state.code {
         ContractCode::UnKnownCode(_) => panic!("cannot execute unknown code"),
@@ -297,6 +301,7 @@ impl VM {
             next(self, op);
             push_sym(self, Box::new(Expr::Lit(W256(0, 0))));
           });
+          true
         }
         Op::Push(n) => {
           let xs = match &self.state.code {
@@ -326,6 +331,7 @@ impl VM {
             next(self, op);
             push_sym(self, Box::new(xs.clone()));
           });
+          true
         }
         Op::Dup(i) => {
           if let Some(y) = self.state.stack.get(self.state.stack.len() - (i as usize)).cloned() {
@@ -337,6 +343,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Swap(i) => {
           if self.state.stack.len() < i as usize + 1 {
@@ -349,6 +356,7 @@ impl VM {
             self.state.stack[0] = b;
             self.state.stack[i as usize] = a;
           }
+          true
         }
         Op::Log(n) => {
           not_static(self, || {});
@@ -371,9 +379,11 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Stop => {
           finish_frame(self, FrameResult::FrameReturned(Expr::Mempty));
+          false
         }
         Op::Add => stack_op2(self, fees.g_verylow, "add"),
         Op::Mul => stack_op2(self, fees.g_low, "mul"),
@@ -423,6 +433,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Address => {
           limit_stack(1, self.state.stack.len(), || {
@@ -430,6 +441,7 @@ impl VM {
             next(self, op);
             push_addr(self, self_contract.clone());
           });
+          true
         }
         Op::Balance => {
           if let Some(x) = self.state.stack.clone().first() {
@@ -445,6 +457,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Origin => {
           /*
@@ -456,6 +469,7 @@ impl VM {
             next(self, op);
             push_addr(self, self.tx.origin.clone());
           });
+          true
         }
         Op::Caller => {
           /*
@@ -467,6 +481,7 @@ impl VM {
             next(self, op);
             push_addr(self, self.state.caller.clone());
           });
+          true
         }
         Op::Callvalue => {
           /*
@@ -478,6 +493,7 @@ impl VM {
             next(self, op);
             push_sym(self, Box::new(self.state.callvalue.clone()));
           });
+          true
         }
         Op::Calldataload => stack_op1(self, fees.g_verylow, "calldataload"),
         Op::Calldatasize => {
@@ -489,6 +505,7 @@ impl VM {
             next(self, op);
             push_sym(self, Box::new(Expr::Lit(W256(len_buf(&self.state.calldata) as u128, 0))));
           });
+          true
         }
         Op::Calldatacopy => {
           if let Some((x_to, rest)) = self.state.stack.clone().split_last() {
@@ -514,6 +531,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Codesize => {
           limit_stack(1, self.state.stack.len(), || {
@@ -521,6 +539,7 @@ impl VM {
             next(self, op);
             push_sym(self, Box::new(codelen(&self.state.code)));
           });
+          true
         }
         Op::Codecopy => {
           if let Some((mem_offset, rest1)) = (self.state.stack).split_last() {
@@ -552,6 +571,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Gas => {
           limit_stack(1, self.state.stack.len(), || {
@@ -561,6 +581,7 @@ impl VM {
             let n = self.env.fresh_gas_vals;
             push_sym(self, Box::new(Expr::Gas(n)));
           });
+          true
         }
         Op::Gasprice => {
           limit_stack(1, self.state.stack.len(), || {
@@ -568,6 +589,7 @@ impl VM {
             next(self, op);
             push_sym(self, Box::new(Expr::Lit(self.tx.gasprice.clone())));
           });
+          true
         }
         Op::Extcodesize => {
           if let Some(x) = self.state.stack.clone().first().clone() {
@@ -587,6 +609,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Coinbase => {
           /*
@@ -598,6 +621,7 @@ impl VM {
             next(self, op);
             push_addr(self, self.block.coinbase.clone())
           });
+          true
         }
         Op::Timestamp => {
           limit_stack(1, self.state.stack.len(), || {
@@ -605,6 +629,7 @@ impl VM {
             next(self, op);
             push_sym(self, Box::new(self.block.time_stamp.clone()))
           });
+          true
         }
         Op::Number => {
           limit_stack(1, self.state.stack.len(), || {
@@ -612,6 +637,7 @@ impl VM {
             next(self, op);
             push(self, self.block.number.clone())
           });
+          true
         }
         Op::PrevRandao => {
           limit_stack(1, self.state.stack.len(), || {
@@ -619,6 +645,7 @@ impl VM {
             next(self, op);
             push(self, self.block.prev_randao.clone())
           });
+          true
         }
         Op::Gaslimit => {
           limit_stack(1, self.state.stack.len(), || {
@@ -626,6 +653,7 @@ impl VM {
             next(self, op);
             push(self, W256(self.block.gaslimit as u128, 0))
           });
+          true
         }
         Op::Chainid => {
           limit_stack(1, self.state.stack.len(), || {
@@ -633,6 +661,7 @@ impl VM {
             next(self, op);
             push(self, self.env.chain_id.clone())
           });
+          true
         }
         Op::Selfbalance => {
           limit_stack(1, self.state.stack.clone().len(), || {
@@ -640,6 +669,7 @@ impl VM {
             next(self, op);
             push_sym(self, Box::new(this_contract.balance.clone()))
           });
+          true
         }
         Op::BaseFee => {
           limit_stack(1, self.state.stack.len(), || {
@@ -647,6 +677,7 @@ impl VM {
             next(self, op);
             push(self, self.block.base_fee.clone())
           });
+          true
         }
         Op::Pc => {
           limit_stack(1, self.state.stack.len(), || {
@@ -654,6 +685,7 @@ impl VM {
             push(self, W256(self.state.pc as u128, 0));
             next(self, op)
           });
+          true
         }
         Op::Msize => {
           limit_stack(1, self.state.stack.len(), || {
@@ -661,6 +693,7 @@ impl VM {
             next(self, op);
             push(self, W256(self.state.memory_size as u128, 0))
           });
+          true
         }
         Op::Pop => {
           if let Some((_, xs)) = self.state.stack.split_last() {
@@ -670,6 +703,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Mload => {
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
@@ -682,6 +716,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Mstore => {
           /*
@@ -723,6 +758,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Mstore8 => {
           if let Some((x, rest)) = self.state.stack.clone().split_last() {
@@ -758,6 +794,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Sload => {
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
@@ -776,6 +813,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Sstore => {
           // Ensure we're not in a static context
@@ -858,6 +896,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Jump => {
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
@@ -873,6 +912,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Jumpi => {
           if let Some((x, rest)) = self.state.stack.clone().split_last() {
@@ -903,11 +943,14 @@ impl VM {
                   vm_queue.push(else_vm);
                 }
               }
+              condition == BranchReachability::ONLYTHEN || condition == BranchReachability::BOTH
             } else {
               underrun();
+              true
             }
           } else {
             underrun();
+            true
           }
         }
         Op::Exp => {
@@ -923,9 +966,11 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Signextend => {
           // stackOp2(g_low, Expr::Sex);
+          true
         }
         Op::Create => {
           not_static(self, || {});
@@ -952,6 +997,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Call => {
           if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
@@ -1001,6 +1047,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Callcode => {
           if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
@@ -1032,6 +1079,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Return => {
           if let [x_offset, x_size, _] = &self.state.stack.clone()[..] {
@@ -1057,6 +1105,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Delegatecall => {
           if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
@@ -1101,6 +1150,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Create2 => {
           not_static(self, || {});
@@ -1131,6 +1181,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Staticcall => {
           if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &self.state.stack[..] {
@@ -1183,6 +1234,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Selfdestruct => {
           not_static(self, || {});
@@ -1227,6 +1279,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Revert => {
           if let [x_offset, x_size, ..] = &self.state.stack.clone()[..] {
@@ -1236,6 +1289,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Extcodecopy => {
           if let [ext_account, mem_offset, code_offset, code_size, xs @ ..] = &self.state.stack.clone()[..] {
@@ -1265,6 +1319,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Returndatasize => {
           limit_stack(1, self.state.stack.len(), || {
@@ -1272,6 +1327,7 @@ impl VM {
             next(self, op);
             push_sym(self, Box::new(buf_length(self.state.returndata.clone())));
           });
+          true
         }
         Op::Returndatacopy => {
           if let [x_to, x_from, x_size, xs @ ..] = &self.state.stack.clone()[..] {
@@ -1314,6 +1370,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Extcodehash => {
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
@@ -1336,6 +1393,7 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Blockhash => {
           if let [i, ..] = &self.state.stack.clone()[..] {
@@ -1354,12 +1412,14 @@ impl VM {
           } else {
             underrun();
           }
+          true
         }
         Op::Jumpdest => {
           next(self, op);
           /*
           OpJumpdest -> burn g_jumpdest next
            */
+          true
         }
         _ => todo!(),
       }
@@ -1829,7 +1889,7 @@ fn trace_top_log(logs: Vec<Expr>) {
   // Implement log tracing logic
 }
 
-fn stack_op2(vm: &mut VM, gas: u64, op: &str) {
+fn stack_op2(vm: &mut VM, gas: u64, op: &str) -> bool {
   if let Some((a, b)) = vm.state.stack.split_last().and_then(|(a, rest)| rest.split_last().map(|(b, rest)| (a, b))) {
     let res = match op {
       "add" => Box::new(Expr::Add(a.clone(), b.clone())),
@@ -1859,9 +1919,10 @@ fn stack_op2(vm: &mut VM, gas: u64, op: &str) {
   } else {
     underrun();
   }
+  true
 }
 
-fn stack_op3(vm: &mut VM, gas: u64, op: &str) {
+fn stack_op3(vm: &mut VM, gas: u64, op: &str) -> bool {
   if let Some((a, rest)) = vm.state.stack.split_last() {
     if let Some((b, rest)) = rest.split_last() {
       if let Some((c, rest)) = rest.split_last() {
@@ -1883,9 +1944,10 @@ fn stack_op3(vm: &mut VM, gas: u64, op: &str) {
   } else {
     underrun();
   }
+  true
 }
 
-fn stack_op1(vm: &mut VM, gas: u64, op: &str) {
+fn stack_op1(vm: &mut VM, gas: u64, op: &str) -> bool {
   if let Some(a) = vm.state.stack.first() {
     // burn(gas)
     let res = match op {
@@ -1900,6 +1962,7 @@ fn stack_op1(vm: &mut VM, gas: u64, op: &str) {
   } else {
     underrun();
   }
+  true
 }
 
 /*
@@ -2553,10 +2616,11 @@ fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> bool {
   if !dir_path.exists() {
     let _ = fs::create_dir_all(&dir_path);
   }
-  let _ = fs::write(dir_path.join("query.smt2"), content);
+  let file_path = dir_path.join("query.smt2");
+  let _ = fs::write(file_path.clone(), content);
 
   let output = Command::new("z3")
-    .args(["-smt2", "query.smt2"]) // Pass the arguments to the command
+    .args(["-smt2", file_path.to_str().unwrap()]) // Pass the arguments to the command
     .stdout(Stdio::piped()) // Capture standard output
     .stderr(Stdio::piped()) // Capture standard error
     .output()
@@ -2564,8 +2628,8 @@ fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> bool {
 
   if output.status.success() {
     // Convert the standard output to a String
-    let stdout = String::from_utf8(output.stdout);
-    return stdout.unwrap() == "sat".to_string();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    return stdout == "sat\n";
   }
   false
 }
