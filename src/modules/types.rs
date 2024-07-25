@@ -552,7 +552,7 @@ pub enum Expr {
 
   // Frame context
   Balance(Box<Expr>),
-  Gas(i32, Box<Expr>),
+  Gas(i32),
 
   // Code
   CodeSize(Box<Expr>),
@@ -648,7 +648,7 @@ impl fmt::Display for Expr {
       Expr::BaseFee => write!(f, "BaseFee"),
       Expr::TxValue => write!(f, "TxValue"),
       Expr::Balance(expr) => write!(f, "Balance({})", expr),
-      Expr::Gas(idx, expr) => write!(f, "Gas({}, {})", idx, expr),
+      Expr::Gas(idx) => write!(f, "Gas({})", idx),
       Expr::CodeSize(expr) => write!(f, "CodeSize({})", expr),
       Expr::CodeHash(expr) => write!(f, "CodeHash({})", expr),
       Expr::LogEntry(addr, buf, topics) => write!(f, "LogEntry({}, {}, {:?})", addr, buf, topics),
@@ -752,7 +752,7 @@ impl PartialEq for Expr {
       (BaseFee, BaseFee) => true,
       (TxValue, TxValue) => true,
       (Balance(expr1), Balance(expr2)) => expr1 == expr2,
-      (Gas(val1, expr1), Gas(val2, expr2)) => val1 == val2 && expr1 == expr2,
+      (Gas(val1), Gas(val2)) => val1 == val2,
       (CodeSize(expr1), CodeSize(expr2)) => expr1 == expr2,
       (CodeHash(expr1), CodeHash(expr2)) => expr1 == expr2,
       (LogEntry(expr1a, expr1b, vec1), LogEntry(expr2a, expr2b, vec2)) => {
@@ -1036,10 +1036,9 @@ impl Hash for Expr {
         "Balance".hash(state);
         expr.hash(state);
       }
-      Gas(val, expr) => {
+      Gas(val) => {
         "Gas".hash(state);
         val.hash(state);
-        expr.hash(state);
       }
       CodeSize(expr) => {
         "CodeSize".hash(state);

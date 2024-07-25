@@ -2,25 +2,24 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::Hash;
-use std::io::{Read};
-use std::{vec};
+use std::io::Read;
+use std::vec;
 
 use crate::modules::effects::Config;
+use crate::modules::expr::copy_slice;
 use crate::modules::expr::{
-  add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, gt, index_word,
-  read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, sub, to_list, write_byte,
-  write_storage, write_word, MAX_BYTES,
+  add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, gt, index_word, read_byte, read_bytes,
+  read_storage, read_word_from_bytes, simplify, sub, to_list, write_byte, write_storage, write_word, MAX_BYTES,
 };
-use crate::modules::expr::{copy_slice};
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
   from_list, keccak, keccak_bytes, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word,
   pad_left_prime, pad_right, unbox, word256_bytes, Addr, BaseState, Block, BranchCondition, ByteString, Cache,
-  CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext,
-  FrameState, GVar, Gas, Memory, MutableMemory, PartialExec, Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState,
-  Trace, TraceData, TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
+  CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, GVar,
+  Gas, Memory, MutableMemory, PartialExec, Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData,
+  TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
 };
 
 fn initial_gas() -> u64 {
@@ -550,6 +549,15 @@ impl VM {
             underrun();
           }
         }
+        Op::Gas => {
+          limit_stack(1, self.state.stack.len(), || {
+            burn(self, fees.g_base, || {});
+            next(self, op);
+            self.env.fresh_gas_vals += 1;
+            let n = self.env.fresh_gas_vals;
+            push_sym(self, Box::new(Expr::Gas(n)));
+          });
+        }
         Op::Gasprice => {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
@@ -760,6 +768,88 @@ impl VM {
             burn(self, cost, || {});
             if let Some(y) = stack_item {
               self.state.stack = std::iter::once(Box::new(y)).chain(xs.iter().cloned()).collect();
+            }
+          } else {
+            underrun();
+          }
+        }
+        Op::Sstore => {
+          // Ensure we're not in a static context
+          not_static(self, || {});
+          if let Some((x, rest)) = self.state.stack.clone().split_last() {
+            if let Some((new, xs)) = rest.split_last() {
+              // Access current storage
+              let mut current: Expr = Expr::Mempty;
+              access_storage(self, self_contract.clone(), *x.clone(), |current_| current = current_);
+              let original = match conc_keccak_simp_expr(Expr::SLoad(
+                Box::new(*x.clone()),
+                Box::new(this_contract.orig_storage.clone()),
+              )) {
+                Expr::Lit(v) => v,
+                _ => W256(0, 0),
+              };
+
+              // Calculate storage cost
+              let storage_cost = match (maybe_lit_word(current.clone()), maybe_lit_word(*new.clone())) {
+                (Some(current_), Some(new_)) => {
+                  if current_ == new_ {
+                    fees.g_sload
+                  } else if current_ == original && original == W256(0, 0) {
+                    fees.g_sset
+                  } else if current_ == original {
+                    fees.g_sreset
+                  } else {
+                    fees.g_sload
+                  }
+                }
+                // Worst-case scenario for symbolic arguments
+                _ => fees.g_sset,
+              };
+
+              // Access storage for gas
+              let acc = access_storage_for_gas(self, self_contract.clone(), *x.clone());
+              let cold_storage_cost = if acc { 0 } else { fees.g_cold_sload };
+
+              // Burn gas
+              burn(self, storage_cost + cold_storage_cost, || {});
+              next(self, op);
+              self.state.stack = xs.to_vec();
+              self.env.contracts.get_mut(&self_contract.clone()).unwrap().storage = write_storage(
+                *x.clone(),
+                *new.clone(),
+                self.env.contracts.get_mut(&self_contract.clone()).unwrap().storage.clone(),
+              );
+
+              match (maybe_lit_word(current), maybe_lit_word(*new.clone())) {
+                (Some(current_), Some(new_)) => {
+                  if current_ != new_ {
+                    if current_ == original {
+                      if original != W256(0, 0) && new_ == W256(0, 0) {
+                        refund(self, fees.g_sreset + fees.g_access_list_storage_key);
+                      }
+                    } else {
+                      if original != W256(0, 0) {
+                        if current_ == W256(0, 0) {
+                          un_refund(self, fees.g_sreset + fees.g_access_list_storage_key);
+                        } else if new_ == W256(0, 0) {
+                          refund(self, fees.g_sreset + fees.g_access_list_storage_key);
+                        }
+                      }
+                      if original == new_ {
+                        if original == W256(0, 0) {
+                          refund(self, fees.g_sset - fees.g_sload);
+                        } else {
+                          refund(self, fees.g_sreset - fees.g_sload);
+                        }
+                      }
+                    }
+                  }
+                }
+                // No refund changes for symbolic arguments
+                _ => {}
+              }
+            } else {
+              underrun();
             }
           } else {
             underrun();
@@ -1371,8 +1461,7 @@ fn touch_account(vm: &mut VM, addr: &Expr) {
 }
 
 fn vm_error(error: &str) {
-  // Implement VM error handling
-  todo!()
+  panic!("{}", error.to_string())
 }
 
 // FrameResult definition
@@ -1807,6 +1896,15 @@ fn stack_op1(vm: &mut VM, gas: u64, op: &str) {
     underrun();
   }
 }
+
+/*
+forceAddr :: VMOps t => Expr EWord -> String -> (Expr EAddr -> EVM t s ()) -> EVM t s ()
+forceAddr n msg continue = case wordToAddr n of
+  Nothing -> do
+    vm <- get
+    partial $ UnexpectedSymbolicArg vm.state.pc msg (wrap [n])
+  Just c -> continue c
+*/
 
 fn force_addr<F: FnOnce(Expr)>(n: &Expr, msg: &str, f: F) {
   // Implement address forcing logic
@@ -2667,4 +2765,19 @@ fn call_checks<F>(
     },
   }
   //cost_of_call(fees, recipient_exists, x_value, available_gas, x_gas, x_to, |cost, gas_left| {});
+}
+
+/// Refund a specific amount of gas to the current contract's substate.
+fn refund(vm: &mut VM, n: u64) {
+  let self_contract = vm.state.contract.clone();
+  let refund_entry = (self_contract, n);
+
+  vm.tx.substate.refunds.push(refund_entry);
+}
+
+/// Remove a specific refund amount from the current contract's substate.
+fn un_refund(vm: &mut VM, n: u64) {
+  let self_contract = vm.state.contract.clone();
+
+  vm.tx.substate.refunds.retain(|(contract, amount)| !(*contract == self_contract && *amount == n));
 }

@@ -5,7 +5,6 @@ use std::ops::Add;
 
 use crate::modules::types::{Contract, ContractCode, EvmError, Expr, Prop, RuntimeCodeStruct};
 
-
 // Function to recursively fold over a Prop type
 pub fn fold_prop<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, p: Prop) -> B
 where
@@ -194,7 +193,7 @@ where
     Expr::TxValue => f(&expr),
 
     // frame context
-    Expr::Gas(_, _) | Expr::Balance { .. } => f(&expr),
+    Expr::Gas(_) | Expr::Balance { .. } => f(&expr),
 
     Expr::ConcreteStore(_) | Expr::AbstractStore(_, _) => f(&expr),
     Expr::SLoad(a, b) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b),
@@ -535,7 +534,7 @@ impl ExprMappable for Expr {
       Expr::TxValue => f(&Expr::TxValue),
 
       // Frame Context
-      Expr::Gas(a, b) => f(&Expr::Gas(a.clone(), b.clone())),
+      Expr::Gas(a) => f(&Expr::Gas(a.clone())),
       Expr::Balance(a) => {
         let a = a.map_expr_m(f);
         f(&Expr::Balance(Box::new(a)))
