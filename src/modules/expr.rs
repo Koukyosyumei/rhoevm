@@ -182,7 +182,6 @@ pub fn mulmod(x: Expr, y: Expr, z: Expr) -> Expr {
 }
 
 pub fn exp(x: Expr, y: Expr) -> Expr {
-  // TODO: support W256.pow(W256)
   op2(Expr::Exp, |x, y| W256(0, x.0.pow(y.0 as u32)), &x, &y)
 }
 
@@ -342,20 +341,8 @@ pub fn write_byte(offset: Expr, byte: Expr, src: Expr) -> Expr {
   }
 }
 
-fn is_power_of_two_(n: u128) -> bool {
-  n != 0 && (n & (n - 1)) == 0
-}
-
 fn count_leading_zeros_(n: u128) -> u32 {
   n.leading_zeros()
-}
-
-fn is_byte_aligned_(m: u128) -> bool {
-  count_leading_zeros_(m) % 8 == 0
-}
-
-fn unsafe_into_usize_(value: u128) -> usize {
-  value as usize
 }
 
 /// Checks if any part of the `W256` value is a power of two.
@@ -1683,4 +1670,16 @@ pub fn min_length(buf_env: &BufEnv, buf: &Expr) -> Option<i64> {
   }
 
   go(W256(0, 0), buf, buf_env)
+}
+
+pub fn word_to_addr(e: Expr) -> Option<Expr> {
+  fn go(e: Expr) -> Option<Expr> {
+    match e.clone() {
+      Expr::WAddr(a) => Some(*a.clone()),
+      Expr::Lit(a) => Some(Expr::LitAddr(a)),
+      _ => None,
+    }
+  }
+
+  go(simplify(&e))
 }

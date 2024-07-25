@@ -9,7 +9,8 @@ use crate::modules::effects::Config;
 use crate::modules::expr::copy_slice;
 use crate::modules::expr::{
   add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, gt, index_word, read_byte, read_bytes,
-  read_storage, read_word_from_bytes, simplify, sub, to_list, write_byte, write_storage, write_word, MAX_BYTES,
+  read_storage, read_word_from_bytes, simplify, sub, to_list, word_to_addr, write_byte, write_storage, write_word,
+  MAX_BYTES,
 };
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
@@ -958,39 +959,36 @@ impl VM {
             if gt0 {
               not_static(self, || {});
             } else {
-              force_addr(x_to, "unable to determine a call target", |x_to| {
-                match 0 {
-                  // gasTryFrom(x_gas)
-                  0 => vm_error("IllegalOverflow"),
-                  _ => {
-                    delegate_call(
-                      self,
-                      op,
-                      this_contract.clone(),
-                      Gas::Concerete(0),
-                      x_to.clone(),
-                      x_to.clone(),
-                      *x_value.clone(),
-                      *x_in_offset.clone(),
-                      *x_in_size.clone(),
-                      *x_out_offset.clone(),
-                      *x_out_size.clone(),
-                      vec![],
-                      |callee| {
-                        // let from = fromMaybe(self, vm.config.overrideCaller);
-                        // zoom(state, || {
-                        //     assign(callvalue, x_value);
-                        //     assign(caller, from);
-                        //     assign(contract, callee);
-                        // });
-                        // let reset_caller = use(config.resetCaller);
-                        // if reset_caller { assign(config.overrideCaller, None); }
-                        // touchAccount(from);
-                        // touchAccount(callee);
-                        // transfer(from, callee, x_value);
-                      },
-                    );
+              force_addr(x_to, "unable to determine a call target", |x_to| match Some(x_gas) {
+                None => vm_error("IllegalOverflow"),
+                _ => {
+                  let mut callee: Expr = Expr::Mempty;
+                  delegate_call(
+                    self,
+                    op,
+                    this_contract.clone(),
+                    Gas::Concerete(0),
+                    x_to.clone(),
+                    x_to.clone(),
+                    *x_value.clone(),
+                    *x_in_offset.clone(),
+                    *x_in_size.clone(),
+                    *x_out_offset.clone(),
+                    *x_out_size.clone(),
+                    xs.to_vec(),
+                    |callee_| callee = callee_,
+                  );
+                  let from_ = self.config.override_caller.clone();
+                  self.state.callvalue = *x_value.clone();
+                  self.state.caller = from_.clone().unwrap();
+                  self.state.contract = callee.clone();
+                  let reset_caller = self.config.reset_caller;
+                  if reset_caller {
+                    self.config.override_caller = None;
                   }
+                  touch_account(self, &from_.clone().unwrap());
+                  touch_account(self, &callee);
+                  let _ = transfer(self, from_.unwrap(), callee, *x_value.clone());
                 }
               });
             }
@@ -1132,9 +1130,9 @@ impl VM {
         }
         Op::Staticcall => {
           if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &self.state.stack[..] {
-            match 0 {
+            match word_to_addr(*x_to.clone()) {
               // wordToAddr(x_to)
-              0 => {
+              None => {
                 let loc = codeloc(self);
                 let msg = "Unable to determine a call target";
                 self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
@@ -1161,7 +1159,7 @@ impl VM {
                       *x_in_size.clone(),
                       *x_out_offset.clone(),
                       *x_out_size.clone(),
-                      vec![],
+                      xs.to_vec(),
                       |callee_| callee = callee_,
                     );
                     // zoom(state, || {
@@ -2160,7 +2158,7 @@ fn delegate_call(
   x_in_size: Expr,
   x_out_offset: Expr,
   x_out_size: Expr,
-  xs: Vec<Expr>,
+  xs: Vec<Box<Expr>>,
   continue_fn: impl FnOnce(Expr),
 ) {
   if is_precompile_addr(&x_to) {
@@ -2187,7 +2185,7 @@ fn delegate_call(
       },
     );
   } else if x_to == cheat_code() {
-    vm.state.stack = xs.into_iter().map(Box::new).collect();
+    vm.state.stack = xs;
     todo!()
     // cheat(vm, x_in_offset, x_in_size, x_out_offset, x_out_size);
   } else {
@@ -2204,7 +2202,7 @@ fn delegate_call(
       x_in_size.clone(),
       x_out_offset.clone(),
       x_out_size.clone(),
-      &xs.into_iter().map(|x| Box::new(x)).collect(),
+      &xs,
       |x_gas_| x_gas = x_gas_,
     );
     let mut target_code = ContractCode::UnKnownCode(Box::new(Expr::Mempty));
