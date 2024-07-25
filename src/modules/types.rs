@@ -112,7 +112,12 @@ impl W256 {
 
   pub fn to_hex(&self) -> String {
     let s = format!("{:032x}{:032x}", self.1, self.0);
-    s.trim_start_matches('0').to_string()
+    let s_trimed = s.trim_start_matches('0').to_string();
+    if s_trimed == "" {
+      "0".to_string()
+    } else {
+      s_trimed
+    }
   }
 }
 

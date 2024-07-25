@@ -157,9 +157,26 @@ fn test_vm_oppc() {
 }
 
 #[test]
+fn test_vm_jumpi_onlythen() {
+  let mut cmd = <SymbolicCommand as std::default::Default>::default();
+  cmd.code = Some("6080608014600957005B00".into());
+  let callcode = build_calldata(&cmd).unwrap();
+  let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+  let mut vms = vec![];
+
+  vm.exec1(&mut vms); // PUSH 0x80 (0x60 0x80)
+  vm.exec1(&mut vms); // PUSH 0x80 (0x60 0x80)
+  vm.exec1(&mut vms); // EQ        (0x14)
+  vm.exec1(&mut vms); // PUSH 09   (0x60 0x09)
+  assert!(vm.exec1(&mut vms)); // JUMPI     (0x57)
+  assert_eq!(vm.state.pc, 9);
+  assert_eq!(vms.len(), 0);
+}
+
+#[test]
 fn test_vm_jumpi_onlyelse() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
-  cmd.code = Some("6080604014600257005B00".into());
+  cmd.code = Some("6080604014600957005B00".into());
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
@@ -167,7 +184,7 @@ fn test_vm_jumpi_onlyelse() {
   vm.exec1(&mut vms); // PUSH 0x80 (0x60 0x80)
   vm.exec1(&mut vms); // PUSH 0x40 (0x60 0x40)
   vm.exec1(&mut vms); // EQ        (0x14)
-  vm.exec1(&mut vms); // PUSH 02   (0x60 0x02)
+  vm.exec1(&mut vms); // PUSH 09   (0x60 0x09)
   assert!(!vm.exec1(&mut vms)); // JUMPI     (0x57)
   assert_eq!(vm.state.pc, 7);
   assert_eq!(vms.len(), 1);

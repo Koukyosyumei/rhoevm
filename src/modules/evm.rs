@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -183,7 +183,7 @@ pub fn abstract_contract(code: ContractCode, addr: Expr) -> Contract {
     nonce: if is_creation(&code) { Some(1) } else { Some(0) },
     codehash: Expr::CodeHash(Box::new(hashcode(&code))),
     op_idx_map: Vec::new(),
-    code_ops: Vec::new(),
+    code_ops: mk_code_ops(code.clone()),
     external: false,
   }
 }
@@ -201,7 +201,7 @@ pub fn initial_contract(code: ContractCode) -> Contract {
     nonce: if is_creation(&code) { Some(1) } else { Some(0) },
     codehash: Expr::CodeHash(Box::new(hashcode(&code))),
     op_idx_map: Vec::new(),
-    code_ops: Vec::new(),
+    code_ops: mk_code_ops(code.clone()),
     external: false,
   }
 }
@@ -2522,7 +2522,8 @@ fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
   };
 
   match op {
-    Some(0x5b) if contract.code_ops[contract.op_idx_map[x as usize] as usize].1 == Op::Jumpdest => true,
+    // Some(0x5b) if contract.code_ops[contract.op_idx_map[x as usize] as usize].1 == Op::Jumpdest => true,
+    Some(0x5b) => true,
     _ => false,
   }
 }
@@ -2883,4 +2884,37 @@ fn un_refund(vm: &mut VM, n: u64) {
   let self_contract = vm.state.contract.clone();
 
   vm.tx.substate.refunds.retain(|(contract, amount)| !(*contract == self_contract && *amount == n));
+}
+
+fn mk_code_ops(contract_code: ContractCode) -> Vec<(i32, Op)> {
+  fn go(mut i: i32, xs: &Vec<Expr>) -> Vec<(i32, Op)> {
+    let mut result = Vec::new();
+    let mut xs = VecDeque::from(xs.to_vec());
+
+    while let Some(x) = xs.pop_front() {
+      if let Some(b) = maybe_lit_byte(x) {
+        let op = get_op(b);
+        let size = op_size(b);
+        result.push((i, op));
+        i += size as i32;
+        for _ in 1..size {
+          xs.pop_front();
+        }
+      }
+    }
+
+    result
+  }
+
+  let l = match contract_code {
+    ContractCode::UnKnownCode(_) => panic!("Cannot make codeOps for unknown code"),
+    ContractCode::InitCode(bytes, _) => bytes.into_iter().map(|b| Expr::LitByte(b)).collect(),
+    ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => {
+      // todo: stripBytecodeMetadata ops
+      ops.into_iter().map(|b| Expr::LitByte(b)).collect()
+    }
+    ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => ops,
+  };
+
+  go(0, &l)
 }
