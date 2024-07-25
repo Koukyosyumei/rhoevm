@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::result;
 
 use crate::modules::traversals::map_prop_m;
 use crate::modules::types::{Expr, GVar, Prop};

@@ -802,7 +802,7 @@ fn assert_read(read: (Expr, Expr, Expr)) -> Vec<Prop> {
     Expr::Lit(sz) => (0..(sz.0 as usize))
       .map(|i| {
         Prop::PImpl(
-          Box::new(Prop::PGEq((idx.clone()), (buf_length(buf.clone())))),
+          Box::new(Prop::PGEq(idx.clone(), buf_length(buf.clone()))),
           Box::new(Prop::PEq(Expr::ReadByte(Box::new(idx.clone()), Box::new(buf.clone())), Expr::LitByte(i as u8))),
         )
       })

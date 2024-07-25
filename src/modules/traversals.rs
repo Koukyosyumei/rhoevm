@@ -5,7 +5,6 @@ use std::ops::Add;
 
 use crate::modules::types::{Contract, ContractCode, EvmError, Expr, Prop, RuntimeCodeStruct};
 
-use super::types::ExprExprMap;
 
 // Function to recursively fold over a Prop type
 pub fn fold_prop<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, p: Prop) -> B
@@ -769,7 +768,7 @@ impl TraversableTerm for Expr {
 }
 
 impl TraversableTerm for Prop {
-  fn map_term<F>(&self, mut f: F) -> Self
+  fn map_term<F>(&self, f: F) -> Self
   where
     F: FnMut(&Expr) -> Expr,
   {
