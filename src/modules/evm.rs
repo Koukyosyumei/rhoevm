@@ -998,7 +998,7 @@ impl VM {
         }
         Op::Callcode => {
           if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
-            &self.state.stack[..]
+            &self.state.stack.clone()[..]
           {
             force_addr(x_to, "unable to determine a call target", |x_to_| {});
             // gasTryFrom(x_gas)
@@ -1008,23 +1008,21 @@ impl VM {
               this_contract.clone(),
               Gas::Concerete(0),
               *x_to.clone(),
-              self_contract,
+              self_contract.clone(),
               *x_value.clone(),
               *x_in_offset.clone(),
               *x_in_size.clone(),
               *x_out_offset.clone(),
               *x_out_size.clone(),
-              vec![],
-              |_| {
-                // zoom(state, || {
-                //     assign(callvalue, x_value);
-                //     assign(caller, fromMaybe(self, vm.config.overrideCaller));
-                // });
-                // let reset_caller = use(config.resetCaller);
-                // if reset_caller { assign(config.overrideCaller, None); }
-                // touchAccount(self);
-              },
+              xs.to_vec(),
+              |_| {},
             );
+            self.state.callvalue = *x_value.clone();
+            self.state.caller = self.config.override_caller.clone().unwrap();
+            if self.config.reset_caller {
+              self.config.override_caller = None;
+            }
+            touch_account(self, &self_contract)
           } else {
             underrun();
           }
@@ -1142,9 +1140,9 @@ impl VM {
                 }));
               }
               _ => {
-                match 0 {
+                match Some(x_gas) {
                   // gasTryFrom(x_gas)
-                  0 => vm_error("IllegalOverflow"),
+                  None => vm_error("IllegalOverflow"),
                   _ => {
                     let mut callee = Expr::Mempty;
                     delegate_call(
