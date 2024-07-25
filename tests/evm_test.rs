@@ -42,21 +42,22 @@ fn test_vm_exec_1() {
   cmd.code = Some("608060405234801561000f575f80fd5b506101b18061001d5f395ff3fe608060405234801561000f575f80fd5b506004361061003f575f3560e01c80632a1afcd91461004357806360fe47b1146100615780636d4ce63c1461007d575b5f80fd5b61004b61009b565b60405161005891906100dc565b60405180910390f35b61007b60048036038101906100769190610123565b6100a0565b005b6100856100bc565b60405161009291906100dc565b60405180910390f35b5f5481565b805f8190555060645f5410156100b9576100b861014e565b5b50565b5f8054905090565b5f819050919050565b6100d6816100c4565b82525050565b5f6020820190506100ef5f8301846100cd565b92915050565b5f80fd5b610102816100c4565b811461010c575f80fd5b50565b5f8135905061011d816100f9565b92915050565b5f60208284031215610138576101376100f5565b5b5f6101458482850161010f565b91505092915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52600160045260245ffdfea2646970667358221220f5cf3af85892477d264b1cc67141f37e00f71d638b17b6446bb28e85e3ccb30364736f6c63430008180033".into());
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+  let vms = vec![];
 
   assert_eq!(vm.state.pc, 0);
-  vm.exec1();
+  vm.exec1(&vms);
   assert_eq!(vm.decoded_opcodes.len(), 2);
   assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)"]);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x80)");
   assert_eq!(vm.state.pc, 2);
 
-  vm.exec1();
+  vm.exec1(&vms);
   assert_eq!(vm.state.pc, 4);
   assert_eq!(vm.decoded_opcodes.len(), 4);
   assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)"]);
   assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x40)");
 
-  vm.exec1();
+  vm.exec1(&vms);
   assert_eq!(vm.state.pc, 5);
   assert_eq!(vm.decoded_opcodes.len(), 5);
   assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)", "04 MSTORE"]);
@@ -71,10 +72,11 @@ fn test_vm_op2() {
   cmd.code = Some("01".into());
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+  let vms = vec![];
 
   vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
   vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
-  vm.exec1();
+  vm.exec1(&vms);
   assert_eq!(vm.state.stack.len(), 1);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Add(Lit(0x2), Lit(0x1))");
 }
@@ -85,6 +87,7 @@ fn test_vm_opsha3() {
   cmd.code = Some("20".into());
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+  let vms = vec![];
 
   vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
   vm.state.stack.push(Box::new(Expr::Lit(W256(0x40, 0))));
@@ -93,7 +96,7 @@ fn test_vm_opsha3() {
   mem[0x41] = 0x70;
   vm.state.memory = Memory::ConcreteMemory(mem);
 
-  vm.exec1();
+  vm.exec1(&vms);
   assert_eq!(vm.state.stack.len(), 1);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Keccak(ConcreteBuf([128, 112]))");
 }
@@ -104,13 +107,14 @@ fn test_vm_opswap() {
   cmd.code = Some("92".into());
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+  let vms = vec![];
 
   vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
   vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
   vm.state.stack.push(Box::new(Expr::Lit(W256(3, 0))));
   vm.state.stack.push(Box::new(Expr::Lit(W256(4, 0))));
 
-  vm.exec1();
+  vm.exec1(&vms);
   assert_eq!(vm.state.stack.len(), 4);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x4)");
   assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x2)");
@@ -124,11 +128,12 @@ fn test_vm_opdup() {
   cmd.code = Some("81".into());
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+  let vms = vec![];
 
   vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
   vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
 
-  vm.exec1();
+  vm.exec1(&vms);
   assert_eq!(vm.decoded_opcodes, vec!["00 DUP2"]);
   assert_eq!(vm.state.stack.len(), 3);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x1)");
@@ -142,9 +147,10 @@ fn test_vm_oppc() {
   cmd.code = Some("000000000058".into());
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+  let vms = vec![];
 
   vm.state.pc = 5;
-  vm.exec1();
+  vm.exec1(&vms);
   assert_eq!(vm.decoded_opcodes, vec!["05 PC"]);
   assert_eq!(vm.state.stack.len(), 1);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x5)");
@@ -156,10 +162,11 @@ fn test_vm_jumpi() {
   cmd.code = Some("60806040146008575B00".into());
   let callcode = build_calldata(&cmd).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+  let vms = vec![];
 
-  vm.exec1(); // PUSH 0x80
-  vm.exec1(); // PUSH 0x40
-  vm.exec1(); // EQ
-  vm.exec1(); // PUSH 08
-  vm.exec1(); // JUMPI
+  vm.exec1(&vms); // PUSH 0x80
+  vm.exec1(&vms); // PUSH 0x40
+  vm.exec1(&vms); // EQ
+  vm.exec1(&vms); // PUSH 08
+  vm.exec1(&vms); // JUMPI
 }

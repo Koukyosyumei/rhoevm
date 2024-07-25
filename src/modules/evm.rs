@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fs;
 use std::hash::Hash;
 use std::io::Read;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::vec;
 
@@ -220,7 +221,7 @@ fn is_precompile(expr: &Expr) -> bool {
 }
 
 impl VM {
-  pub fn exec1(&mut self) {
+  pub fn exec1(&mut self, vm_queue: &Vec<&mut VM>) {
     // let mut vm.state.stack = &vm.state.stack;
     let self_contract = self.state.contract.clone();
     let binding = self.env.clone();
@@ -2548,7 +2549,12 @@ where
   let config = Config::default();
   let smt2 = assert_props(&config, pathconds);
   let content = format_smt2(smt2) + "\n\n(check-sat)";
-  let _ = fs::write("query.smt2", content);
+
+  let dir_path = Path::new("./.rhoevm");
+  if !dir_path.exists() {
+    fs::create_dir_all(&dir_path);
+  }
+  let _ = fs::write(dir_path.join("query.smt2"), content);
 
   let output = Command::new("z3")
     .args(["-smt2", "query.smt2"]) // Pass the arguments to the command
