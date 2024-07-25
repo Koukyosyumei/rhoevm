@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs;
-use std::hash::Hash;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -2607,16 +2607,22 @@ fn account_empty(c: &Contract) -> bool {
   cc && c.nonce == Some(0) && c.balance == Expr::Lit(W256(1, 0))
 }
 
-fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> bool {
+fn solve_constraints(pathconds: &Vec<Prop>) -> bool {
   let config = Config::default();
   let smt2 = assert_props(&config, pathconds.to_vec());
   let content = format_smt2(smt2) + "\n\n(check-sat)";
+
+  let mut hasher = DefaultHasher::new();
+  for p in pathconds {
+    p.hash(&mut hasher);
+  }
+  let hash_val = hasher.finish();
 
   let dir_path = Path::new("./.rhoevm");
   if !dir_path.exists() {
     let _ = fs::create_dir_all(&dir_path);
   }
-  let file_path = dir_path.join("query.smt2");
+  let file_path = dir_path.join(format!("query-{:x}.smt2", hash_val));
   let _ = fs::write(file_path.clone(), content);
 
   let output = Command::new("z3")
@@ -2658,14 +2664,14 @@ where
 
   let mut pathconds = vm.constraints.clone();
   pathconds.push(then_branch_cond.clone());
-  let v = solve_constraints(vm, &pathconds);
+  let v = solve_constraints(&pathconds);
   if v {
     vm.constraints.push(then_branch_cond);
   }
 
   pathconds.pop();
   pathconds.push(else_branch_cond.clone());
-  let u = solve_constraints(vm, &pathconds);
+  let u = solve_constraints(&pathconds);
   if u {
     let mut new_vm_ = vm.clone();
     new_vm_.constraints.push(else_branch_cond);
