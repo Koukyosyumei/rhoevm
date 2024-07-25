@@ -3,10 +3,11 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::u32;
 
+use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
 use crate::modules::types::{
-  keccak, keccak_prime, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, Prop, W256, W64,
+  keccak, keccak_prime, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, GVar, Prop, W256, W64,
 };
 
 use super::evm::buf_length;
@@ -1647,4 +1648,39 @@ pub fn to_list(buf: Expr) -> Option<Vec<Expr>> {
       _ => None,
     },
   }
+}
+
+// Define the min_length function
+pub fn min_length(buf_env: &BufEnv, buf: &Expr) -> Option<i64> {
+  fn go(l: W256, buf: &Expr, buf_env: &BufEnv) -> Option<i64> {
+    match buf {
+      Expr::AbstractBuf(_) => {
+        if l == W256(0, 0) {
+          None
+        } else {
+          Some(l.0 as i64)
+        }
+      }
+      Expr::ConcreteBuf(b) => Some(std::cmp::max(b.len() as i64, l.0 as i64)),
+      Expr::WriteWord(idx_, _, b) => match *idx_.clone() {
+        Expr::Lit(idx) => go(l.max(idx + W256(32, 0)), b, buf_env),
+        _ => go(l, b, buf_env),
+      },
+      Expr::WriteByte(idx_, _, b) => match *idx_.clone() {
+        Expr::Lit(idx) => go(l.max(idx + W256(1, 0)), b, buf_env),
+        _ => go(l, b, buf_env),
+      },
+      Expr::CopySlice(_, dst_offset_, size_, _, dst) => match (*dst_offset_.clone(), *size_.clone()) {
+        (Expr::Lit(dst_offset), Expr::Lit(size)) => go((dst_offset + size).max(l), dst, buf_env),
+        _ => go(l, dst, buf_env),
+      },
+      Expr::GVar(GVar::BufVar(a)) => buf_env.get(&(*a as usize)).and_then(|b| go(l, b, buf_env)),
+      // Handle other cases if necessary
+      _ => panic!("unexpected expr"),
+    }
+
+    // go(std::cmp::max(dst_offset + size, l), dst)
+  }
+
+  go(W256(0, 0), buf, buf_env)
 }

@@ -6,7 +6,8 @@ use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
 use crate::modules::evm::buf_length;
 use crate::modules::expr::{
-  add, conc_keccak_props, contains_node, get_addr, get_logical_idx, in_range, simplify_props, sub, write_byte,
+  add, conc_keccak_props, contains_node, emax, get_addr, get_logical_idx, in_range, min_length, simplify_props, sub,
+  write_byte,
 };
 use crate::modules::format::format_prop;
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};
@@ -313,11 +314,125 @@ fn declare_addrs(names: Vec<Builder>) -> SMT2 {
 }
 
 fn declare_vars(names: Vec<Builder>) -> SMT2 {
-  todo!()
+  let declarations: Vec<String> =
+    names.iter().map(|name| format!("(declare-fun {} () (_ BitVec 256))", name)).collect();
+  let cexvars = CexVars { calldata: names.to_vec(), ..CexVars::new() };
+
+  let mut s: Vec<String> = vec!["; variables".to_string()];
+  s.extend(declarations);
+
+  SMT2(s, RefinementEqs(vec![], vec![]), cexvars, vec![])
 }
 
-fn declare_bufs(props: Vec<Prop>, buf_env: BufEnv, store_env: StoreEnv) -> SMT2 {
-  todo!()
+fn base_buf(e: Expr, benv: &BufEnv) -> Expr {
+  match e.clone() {
+    Expr::AbstractBuf(b) => Expr::AbstractBuf(b),
+    Expr::ConcreteBuf(b) => Expr::ConcreteBuf(b),
+    Expr::GVar(GVar::BufVar(a)) => match benv.get(&(a as usize)) {
+      Some(b) => base_buf(b.clone(), benv),
+      None => panic!("could not find buffer variable"),
+    },
+    Expr::WriteByte(_, _, b) => base_buf(*b, benv),
+    Expr::WriteWord(_, _, b) => base_buf(*b, benv),
+    Expr::CopySlice(_, _, _, _, dst) => base_buf(*dst, benv),
+    _ => panic!("unexpected error"),
+  }
+}
+
+/*
+    baseBuf :: Expr Buf -> Expr Buf
+    baseBuf (AbstractBuf b) = AbstractBuf b
+    baseBuf (ConcreteBuf b) = ConcreteBuf b
+    baseBuf (GVar (BufVar a)) =
+      case Map.lookup a benv of
+        Just b -> baseBuf b
+        Nothing -> internalError "could not find buffer variable"
+    baseBuf (WriteByte _ _ b) = baseBuf b
+    baseBuf (WriteWord _ _ b) = baseBuf b
+    baseBuf (CopySlice _ _ _ _ dst)= baseBuf dst
+*/
+
+fn discover_max_reads(props: &Vec<Prop>, benv: &BufEnv, senv: &StoreEnv) -> HashMap<String, Expr> {
+  // Find all buffer accesses
+  let all_reads = {
+    let mut reads = find_buffer_access(props);
+    reads.extend(find_buffer_access(&benv.values().into_iter().map(|e: &Expr| e.clone()).collect()));
+    reads.extend(find_buffer_access(&senv.values().into_iter().map(|e: &Expr| e.clone()).collect()));
+    reads
+  };
+
+  // Find all buffers
+  let all_bufs: HashMap<String, Expr> = {
+    let mut buf_set: HashSet<String> = HashSet::new();
+
+    let mut pr: Vec<String> = vec![];
+    for p in props {
+      pr.extend(referenced_bufs(p));
+    }
+
+    let mut rb: Vec<String> = vec![];
+    for b in benv.values().into_iter() {
+      rb.extend(referenced_bufs(b));
+    }
+
+    let mut sb: Vec<String> = vec![];
+    for b in senv.values().into_iter() {
+      sb.extend(referenced_bufs(b));
+    }
+
+    buf_set.extend(pr);
+    buf_set.extend(rb);
+    buf_set.extend(sb);
+
+    buf_set.into_iter().map(|buf| (buf, Expr::Lit(W256(4, 0)))).collect()
+  };
+
+  // Create buffer map
+  let buf_map = all_reads.into_iter().fold(HashMap::new(), |mut m, (idx, size, buf)| {
+    match base_buf(buf.clone(), benv) {
+      Expr::AbstractBuf(b) => {
+        m.insert(b.clone(), add(idx, size));
+      }
+      _ => {}
+    }
+    m
+  });
+
+  // Merge buffer map with all buffers
+  let merged_map = {
+    let mut map = buf_map.clone();
+    for (key, value) in all_bufs {
+      map.entry(key).and_modify(|e| *e = emax(e.clone(), value.clone())).or_insert(value);
+    }
+    map
+  };
+
+  merged_map
+}
+
+// Function to declare buffers
+fn declare_bufs(props: &Vec<Prop>, buf_env: BufEnv, store_env: StoreEnv) -> SMT2 {
+  let cexvars = CexVars { buffers: discover_max_reads(props, &buf_env, &store_env), ..CexVars::new() };
+
+  let all_bufs: Vec<String> = cexvars.buffers.keys().cloned().collect();
+
+  let declare_bufs: Vec<String> =
+    all_bufs.iter().map(|n| format!("(declare-fun {} () (Array (_ BitVec 256) (_ BitVec 8)))", n)).collect();
+
+  let declare_lengths: Vec<String> =
+    all_bufs.iter().map(|n| format!("(declare-fun {}_length () (_ BitVec 256))", n)).collect();
+
+  SMT2(
+    vec!["; buffers".to_string()]
+      .into_iter()
+      .chain(declare_bufs)
+      .chain(vec!["; buffer lengths".to_string()])
+      .chain(declare_lengths)
+      .collect(),
+    RefinementEqs(vec![], vec![]),
+    cexvars,
+    vec![],
+  )
 }
 
 // Declare frame context
@@ -482,14 +597,14 @@ fn referenced_waddrs<T: TraversableTerm>(term: &T) -> HashSet<Builder> {
   HashSet::from_iter(v.to_vec().into_iter())
 }
 
-fn referenced_bufs<T: TraversableTerm>(expr: &T) -> Vec<Builder> {
+fn referenced_bufs<T: TraversableTerm>(term: &T) -> Vec<Builder> {
   fn f(x: &Expr) -> AddableVec<String> {
     match x {
       Expr::AbstractBuf(s) => AddableVec::from_vec(vec![s.clone()]),
       _ => AddableVec::from_vec(vec![]),
     }
   }
-  let bufs = expr.fold_term(&mut f, AddableVec::from_vec(vec![]));
+  let bufs = term.fold_term(&mut f, AddableVec::from_vec(vec![]));
 
   bufs.to_vec().iter().map(|s| (*s).clone()).collect()
 }
@@ -657,9 +772,57 @@ assertReads props benv senv = concatMap assertRead allReads
         _ -> True
     keepRead _ = True
 */
+// Define the assert_reads function
+fn assert_reads(props: &[Prop], benv: &BufEnv, senv: &StoreEnv) -> Vec<Prop> {
+  let mut all_reads = HashSet::new();
 
-fn assert_reads(prop: &[Prop], benv: &BufEnv, senv: &StoreEnv) -> Vec<Prop> {
-  todo!()
+  // Collect all buffer access reads
+  all_reads.extend(find_buffer_access(&props.to_vec()));
+  all_reads.extend(find_buffer_access(&benv.values().cloned().collect()));
+  all_reads.extend(find_buffer_access(&senv.values().cloned().collect()));
+
+  // Filter out unnecessary reads
+  let all_reads: Vec<_> = all_reads.into_iter().filter(|read| keep_read(read, benv)).collect();
+
+  // Generate assertions for all reads
+  all_reads.into_iter().flat_map(assert_read).collect()
+}
+
+// Define the function to assert reads
+fn assert_read(read: (Expr, Expr, Expr)) -> Vec<Prop> {
+  let (idx, size, buf) = read;
+
+  match size {
+    Expr::Lit(sz) if sz == W256(32, 0) => {
+      vec![Prop::PImpl(
+        Box::new(Prop::PGEq(idx.clone(), buf_length(buf.clone()))),
+        Box::new(Prop::PEq(Expr::ReadWord(Box::new(idx), Box::new(buf)), Expr::Lit(W256(0, 0)))),
+      )]
+    }
+    Expr::Lit(sz) => (0..(sz.0 as usize))
+      .map(|i| {
+        Prop::PImpl(
+          Box::new(Prop::PGEq((idx.clone()), (buf_length(buf.clone())))),
+          Box::new(Prop::PEq(Expr::ReadByte(Box::new(idx.clone()), Box::new(buf.clone())), Expr::LitByte(i as u8))),
+        )
+      })
+      .collect(),
+    _ => panic!("Cannot generate assertions for accesses of symbolic size"),
+  }
+}
+
+// Define a function to keep only necessary reads
+fn keep_read(read: &(Expr, Expr, Expr), benv: &BufEnv) -> bool {
+  match read {
+    (Expr::Lit(idx), Expr::Lit(size), buf) => {
+      if let Some(l) = min_length(benv, buf) {
+        idx.clone() + size.clone() <= W256(l as u128, 0)
+      } else {
+        true
+      }
+    }
+    _ => true,
+  }
 }
 
 fn create_read_assumptions(ps_elim: &[Prop], bufs: &BufEnv, stores: &StoreEnv) -> Vec<SMT2> {
@@ -744,7 +907,7 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
     + (smt2_line("".to_owned()))
     + (declare_addrs(addresses))
     + (smt2_line("".to_owned()))
-    + (declare_bufs(to_declare_ps_elim, bufs, stores))
+    + (declare_bufs(&to_declare_ps_elim, bufs, stores))
     + (smt2_line("".to_owned()))
     + (declare_vars(all_vars.iter().fold(Vec::new(), |mut acc, x| {
       acc.push(x.clone());
@@ -1545,3 +1708,34 @@ fn find_storage_reads(p: &Prop) -> HashMap<(Expr, Option<W256>), HashSet<Expr>> 
 
   result.to_vec().into_iter().map(|item| (item.0, item.1)).collect()
 }
+
+fn find_buffer_access<T: TraversableTerm>(term: &Vec<T>) -> Vec<(Expr, Expr, Expr)> {
+  fn go(a: &Expr) -> AddableVec<(Expr, Expr, Expr)> {
+    match a.clone() {
+      Expr::ReadWord(idx, buf) => AddableVec::from_vec(vec![(*idx, Expr::Lit(W256(32, 0)), *buf)]),
+      Expr::ReadByte(idx, buf) => AddableVec::from_vec(vec![(*idx, Expr::Lit(W256(1, 0)), *buf)]),
+      Expr::CopySlice(src_off, _, size, src, _) => AddableVec::from_vec(vec![(*src_off, *size, *src)]),
+      _ => AddableVec::from_vec(vec![]),
+    }
+  }
+
+  let mut result: Vec<(Expr, Expr, Expr)> = vec![];
+  for t in term {
+    result.extend(t.fold_term(&mut go, AddableVec::from_vec(vec![])).to_vec());
+  }
+  result
+}
+
+/*
+/*
+findBufferAccess :: TraversableTerm a => [a] -> [(Expr EWord, Expr EWord, Expr Buf)]
+findBufferAccess = foldl (foldTerm go) mempty
+  where
+    go :: Expr a -> [(Expr EWord, Expr EWord, Expr Buf)]
+    go = \case
+      ReadWord idx buf -> [(idx, Lit 32, buf)]
+      ReadByte idx buf -> [(idx, Lit 1, buf)]
+      CopySlice srcOff _ size src _  -> [(srcOff, size, src)]
+      _ -> mempty
+*/
+*/
