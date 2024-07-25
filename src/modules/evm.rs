@@ -1,16 +1,18 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::fs;
 use std::hash::Hash;
 use std::io::Read;
+use std::process::{Command, Stdio};
 use std::vec;
 
 use crate::modules::effects::Config;
 use crate::modules::expr::copy_slice;
 use crate::modules::expr::{
-  add, conc_keccak_simp_expr, create2_address_, create_address_, emin, eq, gt, index_word, read_byte, read_bytes,
-  read_storage, read_word_from_bytes, simplify, sub, to_list, word_to_addr, write_byte, write_storage, write_word,
-  MAX_BYTES,
+  add, conc_keccak_simp_expr, concrete_prefix, create2_address_, create_address_, drop, emin, eq, gt, index_word,
+  read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, sub, to_list, word_to_addr, write_byte,
+  write_storage, write_word, MAX_BYTES,
 };
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
@@ -881,25 +883,22 @@ impl VM {
               let mut condition: bool = false;
               branch(self, y, |condition_| Ok(condition = condition_));
 
-              let mut jump = |condition_: bool| {
-                if condition_ {
-                  match x_int {
-                    None => Err(EvmError::BadJumpDestination),
-                    Some(i) => check_jump(self, i as usize, xs.to_vec()),
+              if condition {
+                match x_int {
+                  None => {
+                    panic!("bad jump destination");
+                    //Err(EvmError::BadJumpDestination);
                   }
-                } else {
-                  Ok({
-                    next(self, op);
-                    self.state.stack = xs.to_vec();
-                  })
+                  Some(i) => {
+                    let _ = check_jump(self, i as usize, xs.to_vec());
+                  }
                 }
-              };
-              jump(condition);
-
-              let loc = codeloc(self);
-              let pathconds = self.constraints.clone();
-              let cond_simp = simplify(y);
-              let cond_simp_conc = conc_keccak_simp_expr(cond_simp);
+              } else {
+                {
+                  next(self, op);
+                  self.state.stack = xs.to_vec();
+                }
+              }
             } else {
               underrun();
             }
@@ -2551,6 +2550,18 @@ where
   let content = format_smt2(smt2) + "\n\n(check-sat)";
   let _ = fs::write("query.smt2", content);
 
+  let output = Command::new("z3")
+    .args(["-smt2", "query.smt2"]) // Pass the arguments to the command
+    .stdout(Stdio::piped()) // Capture standard output
+    .stderr(Stdio::piped()) // Capture standard error
+    .output()
+    .unwrap(); // Run the command and capture the output
+
+  if output.status.success() {
+    // Convert the standard output to a String
+    let stdout = String::from_utf8(output.stdout);
+  }
+
   /*
   let v = false;
   vm.result = None;
@@ -2609,13 +2620,6 @@ fn create2_address(vm: &mut VM, e: Expr, s: W256, b: &ByteString) -> Expr {
   }
 }
 
-/*
-create2Address :: Expr EAddr -> W256 -> ByteString -> EVM t s (Expr EAddr)
-create2Address (LitAddr a) s b = pure $ Concrete.create2Address a s b
-create2Address (SymAddr _) _ _ = freshSymAddr
-create2Address (GVar _) _ _ = internalError "Unexpected GVar"
-*/
-
 fn fresh_sym_addr(vm: &mut VM) -> Expr {
   vm.env.fresh_address += 1;
   let n = vm.env.fresh_address;
@@ -2627,29 +2631,19 @@ fn cheat_code() -> Expr {
 }
 
 fn parse_init_code(buf: Expr) -> Option<ContractCode> {
-  todo!()
-  /*
   match buf {
     Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(b, Box::new(Expr::Mempty))),
     _ => {
-      let conc = buf.concrete_prefix();
+      let conc = concrete_prefix(&buf);
       if conc.is_empty() {
         None
       } else {
-        let sym = buf.drop(conc.len());
-        Some(InitCode::new(conc, sym))
+        let sym = drop(W256(conc.len() as u128, 0), buf);
+        Some(ContractCode::InitCode(conc, Box::new(sym)))
       }
     }
-  }*/
+  }
 }
-
-/*
-accountExists :: Expr EAddr -> VM t s -> Bool
-accountExists addr vm =
-  case Map.lookup addr vm.env.contracts of
-    Just c -> not (accountEmpty c)
-    Nothing -> False
-*/
 
 fn account_exists(addr: Expr, vm: &VM) -> bool {
   match vm.env.contracts.get(&addr) {

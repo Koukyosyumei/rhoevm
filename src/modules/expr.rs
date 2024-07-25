@@ -1683,3 +1683,11 @@ pub fn word_to_addr(e: Expr) -> Option<Expr> {
 
   go(simplify(&e))
 }
+
+pub fn drop(n: W256, buf: Expr) -> Expr {
+  slice(Expr::Lit(n.clone()), sub(buf_length(buf.clone()), Expr::Lit(n)), buf)
+}
+
+pub fn slice(offset: Expr, size: Expr, src: Expr) -> Expr {
+  copy_slice(offset, Expr::Lit(W256(0, 0)), size, src, Expr::Mempty)
+}
