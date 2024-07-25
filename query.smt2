@@ -1,13 +1,12 @@
 ;(PLEq
-  BufLength(AbstractBuf(txdata))
-  Lit(0x42))
-)
+;  BufLength(AbstractBuf(txdata))
+;  Lit(0x42))
 ;(PNeg
-  (PEq
-    Lit(0x)
-    Lit(0x))
-  ))
-); logic
+;  (PEq
+;    Lit(0x)
+;    Lit(0x)))
+
+; logic
 (set-info :smt-lib-version 2.6)
 ;(set-logic QF_AUFBV)
 (set-logic ALL)
@@ -15,7 +14,7 @@
 Generator: rhoevm
 Application: rhoevm symbolic execution system
 |)
-(set-info :category 'industrial')
+(set-info :category "industrial")
 
 ; types
 (define-sort Byte () (_ BitVec 8))

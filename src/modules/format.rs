@@ -50,18 +50,18 @@ pub fn format_prop(prop: &Prop) -> String {
   fn fmt(name: &str, args: &[&Expr]) -> String {
     let formatted_args = args.iter().map(|arg| format_expr(arg)).collect::<Vec<String>>().join("\n");
 
-    format!("({}\n{})\n)", name, indent(2, &formatted_args),)
+    format!("({}\n{})\n", name, indent(2, &formatted_args),)
   }
 
   fn fmt_prime(name: &str, args: &[&Prop]) -> String {
     let formatted_args = args.iter().map(|arg| format_prop(arg)).collect::<Vec<String>>().join("\n");
 
-    format!("({}\n{})\n)", name, indent(2, &formatted_args),)
+    format!("({}\n{})\n", name, indent(2, &formatted_args),)
   }
 
   // Function to format a single expression
   fn fmt_single(name: &str, arg: &Prop) -> String {
-    format!("({}\n{})\n)", name, indent(2, &format_prop(arg)))
+    format!("({}\n{})\n", name, indent(2, &format_prop(arg)))
   }
 
   match prop {

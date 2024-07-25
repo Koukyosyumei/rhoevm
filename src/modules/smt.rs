@@ -162,7 +162,9 @@ impl std::ops::AddAssign for SMT2 {
 }
 
 pub fn format_smt2(smt2: SMT2) -> String {
-  let mut result = format!(";{}", smt2.3.iter().map(|p| format_prop(p)).collect::<Vec<String>>().join("\n;"));
+  let mut result = format!(";{}", smt2.3.iter().map(|p| format_prop(p)).collect::<Vec<String>>().join("\n"));
+  result = result.replace("\n", "\n;");
+  result += "\n\n";
   for s in smt2.0 {
     result += &(s.to_string() + &("\n".to_string()));
   }
@@ -1468,7 +1470,7 @@ fn prelude() -> SMT2 {
     "Generator: rhoevm".to_string(),
     "Application: rhoevm symbolic execution system".to_string(),
     "|)".to_string(),
-    "(set-info :category 'industrial')".to_string(),
+    "(set-info :category \"industrial\")".to_string(),
     "".to_string(),
     "; types".to_string(),
     "(define-sort Byte () (_ BitVec 8))".to_string(),
