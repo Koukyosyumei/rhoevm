@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::error::Error;
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
@@ -57,7 +58,7 @@ fn main() {
       prev_pc,
       vm.state.pc,
       vms.len(),
-      vm.decoded_opcodes[do_size],
+      vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)],
       vm.state.stack.len()
     );
 

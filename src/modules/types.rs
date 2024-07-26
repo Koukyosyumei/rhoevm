@@ -1,7 +1,7 @@
 use byteorder::{BigEndian, ReadBytesExt};
-use num::Num;
 use num_bigint::BigInt;
 use num_traits::cast::ToPrimitive;
+use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
