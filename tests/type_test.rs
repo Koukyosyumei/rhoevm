@@ -1,6 +1,13 @@
 use rhoevm::modules::types::{pad_left_prime_vec, W256};
 
 #[test]
+fn test_w256_format() {
+  let x = W256(12, 3);
+  assert_eq!("30000000000000000000000000000000c", x.to_hex());
+  assert_eq!("1020847100762815390390123822295304634380", x.to_decimal());
+}
+
+#[test]
 fn test_pad_left_prime() {
   // Test case: input vector shorter than size
   let input = vec![1, 2, 3];

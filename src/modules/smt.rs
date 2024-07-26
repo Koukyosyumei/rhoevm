@@ -449,8 +449,9 @@ fn declare_frame_context(names: &Vec<(Builder, Vec<Prop>)>) -> SMT2 {
     .collect();
 
   let cexvars = CexVars { tx_context: names.iter().map(|(n, _)| n.clone()).collect(), ..CexVars::new() };
+  let declarations_set: HashSet<String> = declarations;
 
-  SMT2(declarations, RefinementEqs(vec![], vec![]), cexvars, vec![])
+  SMT2(declarations_set.into_iter().collect(), RefinementEqs(vec![], vec![]), cexvars, vec![])
 }
 
 // Declare abstract stores
@@ -954,7 +955,7 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
 
 fn expr_to_smt(expr: Expr) -> String {
   match expr.clone() {
-    Expr::Lit(w) => format!("(_ bv{} 256)", w),
+    Expr::Lit(w) => format!("(_ bv{} 256)", w.to_decimal()),
     Expr::Var(s) => s,
     Expr::GVar(GVar::BufVar(n)) => format!("buf{}", n),
     Expr::GVar(GVar::StoreVar(n)) => format!("store{}", n),

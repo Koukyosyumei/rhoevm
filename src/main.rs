@@ -50,15 +50,18 @@ fn main() {
   loop {
     prev_pc = vm.state.pc;
     do_size = vm.decoded_opcodes.len();
-    if vm.exec1(&mut vms) {
-      println!(
-        "pc: {}, size of vms {}, op: {}, size of stack {}",
-        prev_pc,
-        vms.len(),
-        vm.decoded_opcodes[do_size],
-        vm.state.stack.len()
-      );
 
+    let continue_flag = vm.exec1(&mut vms);
+    println!(
+      "pc: {}, next_pc: {}, size of vms {}, op: {}, size of stack {}",
+      prev_pc,
+      vm.state.pc,
+      vms.len(),
+      vm.decoded_opcodes[do_size],
+      vm.state.stack.len()
+    );
+
+    if continue_flag {
       if prev_pc == vm.state.pc {
         vm.state.pc = vm.state.pc + 1;
       }

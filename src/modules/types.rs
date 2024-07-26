@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt};
+use num::Num;
 use num_bigint::BigInt;
 use num_traits::cast::ToPrimitive;
 use serde::{Deserialize, Serialize};
@@ -118,6 +119,11 @@ impl W256 {
     } else {
       s_trimed
     }
+  }
+
+  /// Converts the 256-bit number to a decimal string representation.
+  pub fn to_decimal(&self) -> String {
+    BigInt::from_str_radix(&self.to_hex(), 16).unwrap().to_string()
   }
 }
 

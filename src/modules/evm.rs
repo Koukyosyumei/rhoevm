@@ -487,6 +487,8 @@ impl VM {
         }
         Op::Callvalue => {
           /*
+          Get deposited value by the instruction/transaction responsible for this execution
+
           Stack output
           - value: the value of the current call in wei.
            */
@@ -2059,7 +2061,6 @@ fn to_buf(code: &ContractCode) -> Option<Expr> {
 // Define other necessary structs, enums, and functions here...
 
 fn word32(xs: &[u8]) -> u32 {
-  //println!("word32 {}", n);
   xs.iter().rev().enumerate().fold(0, |acc, (n, &x)| acc | (u32::from(x) << (n)))
 }
 
@@ -2635,7 +2636,7 @@ fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> bool {
   if !dir_path.exists() {
     let _ = fs::create_dir_all(&dir_path);
   }
-  let file_path = dir_path.join(format!("query-{}-{:x}.smt2", vm.state.pc, hash_val));
+  let file_path = dir_path.join(format!("query-{}-{}-{:x}.smt2", vm.state.pc, pathconds.len(), hash_val));
   let _ = fs::write(file_path.clone(), content);
 
   let output = Command::new("z3")
@@ -2697,6 +2698,7 @@ where
   let u = solve_constraints(vm, &pathconds);
   if u {
     let mut new_vm_ = vm.clone();
+    new_vm_.constraints.pop();
     new_vm_.constraints.push(else_branch_cond);
     if (itr_cnt >= 32) {
       *new_vm_.iterations.entry(loc).or_insert((0, new_vm_.state.stack.clone())) = (0, new_vm_.state.stack.clone())
