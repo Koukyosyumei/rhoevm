@@ -32,13 +32,13 @@ fn test_w256_from_bytes() {
   let expected_high = 0u128;
   let expected_low =
     u128::from_be_bytes([0; 13].iter().chain(&[1, 2, 3]).cloned().collect::<Vec<u8>>()[..16].try_into().unwrap());
-  assert_eq!(W256::from_bytes(input), W256(expected_high, expected_low));
+  assert_eq!(W256::from_bytes(input), W256(expected_low, expected_high));
 
   // Test case: input vector exactly 32 bytes
   let input = vec![1; 32];
   let expected_high = u128::from_be_bytes([1; 16].try_into().unwrap());
   let expected_low = u128::from_be_bytes([1; 16].try_into().unwrap());
-  assert_eq!(W256::from_bytes(input), W256(expected_high, expected_low));
+  assert_eq!(W256::from_bytes(input), W256(expected_low, expected_high));
 
   // Test case: input vector longer than 32 bytes (should be truncated)
   //let input = vec![1; 33];

@@ -604,16 +604,16 @@ fn eq_byte(x: Expr, y: Expr) -> Expr {
   }
 }
 
-pub fn read_word(idx: Expr, buf: Expr) -> Expr {
-  match (idx.clone(), buf.clone()) {
+pub fn read_word(idx: &Expr, buf: &Expr) -> Box<Expr> {
+  match (idx, buf) {
     (Expr::Lit(idx_val), Expr::WriteWord(idx2, val, buf2)) => {
-      if let Expr::Lit(idx2_val) = *idx2 {
-        if idx_val == idx2_val {
-          return *val;
-        } else if idx2_val >= idx_val && idx2_val <= idx_val + W256(32, 0) {
-          return read_word_from_bytes(idx.clone(), buf.clone());
+      if let Expr::Lit(idx2_val) = *idx2.clone() {
+        if idx_val == &idx2_val {
+          return val.clone();
+        } else if idx2_val >= *idx_val && idx2_val <= idx_val.clone() + W256(32, 0) {
+          return read_word_from_bytes(idx, buf);
         } else {
-          return read_word(idx, *buf2);
+          return read_word(idx, buf2);
         }
       }
     }
@@ -621,14 +621,12 @@ pub fn read_word(idx: Expr, buf: Expr) -> Expr {
       if let (Expr::Lit(src_offset_val), Expr::Lit(dst_offset_val), Expr::Lit(size_val)) =
         (*src_offset.clone(), *dst_offset.clone(), *size.clone())
       {
-        if idx_val >= dst_offset_val.clone()
-          && idx_val.clone() + W256(32, 0) <= dst_offset_val.clone() + size_val.clone()
-        {
-          return read_word(Expr::Lit(idx_val - dst_offset_val + src_offset_val), *src);
-        } else if idx_val >= dst_offset_val && idx_val <= dst_offset_val + size_val - W256(32, 0) {
-          return read_word(Expr::Lit(idx_val), *dst);
+        if idx_val >= &dst_offset_val && idx_val.clone() + W256(32, 0) <= dst_offset_val.clone() + size_val.clone() {
+          return read_word(&Expr::Lit(idx_val.clone() - dst_offset_val + src_offset_val), src);
+        } else if *idx_val >= dst_offset_val && *idx_val <= dst_offset_val + size_val - W256(32, 0) {
+          return read_word(&Expr::Lit(idx_val.clone()), dst);
         } else {
-          return read_word_from_bytes(Expr::Lit(idx_val), Expr::CopySlice(src_offset, dst_offset, size, src, dst));
+          return read_word_from_bytes(idx, buf);
         }
       }
     }
@@ -637,7 +635,7 @@ pub fn read_word(idx: Expr, buf: Expr) -> Expr {
   read_word_from_bytes(idx, buf)
 }
 
-pub fn read_word_from_bytes(idx: Expr, buf: Expr) -> Expr {
+pub fn read_word_from_bytes(idx: &Expr, buf: &Expr) -> Box<Expr> {
   if let (Expr::Lit(idx_val), Expr::ConcreteBuf(bs)) = (idx.clone(), buf.clone()) {
     if let i = idx_val {
       let end = i.clone() + W256(32, 0);
@@ -651,15 +649,15 @@ pub fn read_word_from_bytes(idx: Expr, buf: Expr) -> Expr {
         &[]
       };
       let padded: Vec<u8> = slice.iter().cloned().chain(std::iter::repeat(0)).take(32).collect();
-      return Expr::Lit(W256::from_bytes(padded.try_into().unwrap()));
+      return Box::new(Expr::Lit(W256::from_bytes(padded.try_into().unwrap())));
     }
   }
   let bytes: Vec<Expr> = (0..32).map(|i| read_byte(add(idx.clone(), Expr::Lit(W256(i, 0))), buf.clone())).collect();
   if bytes.iter().all(|b| matches!(b, Expr::Lit(_))) {
     let result = bytes.into_iter().map(|b| if let Expr::Lit(byte) = b { byte.0 as u8 } else { 0 }).collect::<Vec<u8>>();
-    Expr::Lit(W256::from_bytes(result))
+    Box::new(Expr::Lit(W256::from_bytes(result)))
   } else {
-    Expr::ReadWord(Box::new(idx), Box::new(buf))
+    Box::new(Expr::ReadWord(Box::new(idx.clone()), Box::new(buf.clone())))
   }
 }
 
@@ -805,7 +803,7 @@ pub fn copy_slice(src_offset: Expr, dst_offset: Expr, size: Expr, src: Expr, dst
     }
     // copying 32 bytes can be rewritten to a WriteWord on dst (e.g. CODECOPY of args during constructors)
     (src_offset, dst_offset, Expr::Lit(W256(32, 0)), src, dst) => {
-      write_word(dst_offset, read_word(src_offset, src), dst)
+      write_word(dst_offset, *read_word(&src_offset, &src), dst)
     }
     // concrete indices & abstract src (may produce a concrete result if we are copying from a concrete region of src)
     (Expr::Lit(src_offset), Expr::Lit(dst_offset), Expr::Lit(size), src, Expr::ConcreteBuf(dst_buf)) => {
@@ -1025,7 +1023,7 @@ fn go_expr(expr: &Expr) -> Expr {
 
     Expr::ReadWord(idx_, buf_) => match (*idx_.clone(), *buf_.clone()) {
       (Expr::Lit(_), _) => simplify_reads(expr.clone()),
-      (idx, buf) => read_word(idx.clone(), buf.clone()),
+      (idx, buf) => *read_word(&idx, &buf),
     },
 
     Expr::ReadByte(idx_, buf_) => match (*idx_.clone(), *buf_.clone()) {
@@ -1511,7 +1509,7 @@ pub fn simplify_props(ps: Vec<Prop>) -> Vec<Prop> {
 fn simplify_reads(expr: Expr) -> Expr {
   match expr.clone() {
     Expr::ReadWord(a, b) => match *a {
-      Expr::Lit(idx) => read_word(Expr::Lit(idx.clone()), strip_writes(idx, W256(32, 0), *b)),
+      Expr::Lit(idx) => *read_word(&Expr::Lit(idx.clone()), &strip_writes(idx, W256(32, 0), *b)),
       _ => expr,
     },
     Expr::ReadByte(a, b) => match *a {

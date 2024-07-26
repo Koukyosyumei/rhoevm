@@ -316,7 +316,7 @@ impl VM {
               let bytes = bs
                 .get((1 + self.state.pc)..(1 + self.state.pc + n as usize))
                 .unwrap_or_else(|| panic!("Index out of bounds"));
-              Expr::Lit(W256(word32(&bytes) as u128, 0))
+              Expr::Lit(W256::from_bytes(bytes.to_vec()))
             }
             ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
               let bytes = ops
@@ -712,8 +712,8 @@ impl VM {
         Op::Mload => {
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
             let buf = read_memory(self, *x.clone(), Expr::Lit(W256(32, 0)));
-            let w = read_word_from_bytes(Expr::Lit(W256(0, 0)), buf);
-            self.state.stack = std::iter::once(Box::new(w)).chain(xs.iter().cloned()).collect();
+            let w = read_word_from_bytes(&Expr::Lit(W256(0, 0)), &buf);
+            self.state.stack = std::iter::once(w).chain(xs.iter().cloned()).collect();
             next(self, op);
             access_memory_word(self, *x.clone(), || {});
             burn(self, fees.g_verylow, || {});
@@ -1906,7 +1906,7 @@ fn trace_top_log(logs: Vec<Expr>) {
 
 fn stack_op2(vm: &mut VM, gas: u64, op: &str) -> bool {
   //if let Some((a, b)) = vm.state.stack.split_last().and_then(|(a, rest)| rest.split_last().map(|(b, _)| (a, b))) {
-  if let [xs @ .., b, a] = &vm.state.stack.clone()[..] {
+  if let [xs @ .., b, a] = &vm.state.stack[..] {
     let res = match op {
       "add" => Box::new(Expr::Add(a.clone(), b.clone())),
       "mul" => Box::new(Expr::Mul(a.clone(), b.clone())),
@@ -1929,50 +1929,50 @@ fn stack_op2(vm: &mut VM, gas: u64, op: &str) -> bool {
       "sar" => Box::new(Expr::SAR(a.clone(), b.clone())),
       _ => Box::new(Expr::Mempty),
     };
-    next(vm, 1);
-    burn(vm, gas, || {});
     vm.state.stack = xs.to_vec();
     vm.state.stack.push(res);
   } else {
     underrun();
   }
+  next(vm, 1);
+  burn(vm, gas, || {});
   true
 }
 
 fn stack_op3(vm: &mut VM, gas: u64, op: &str) -> bool {
-  if let [xs @ .., c, b, a] = &vm.state.stack.clone()[..] {
+  if let [xs @ .., c, b, a] = &vm.state.stack[..] {
     // burn(gas)
     let res = match op {
       "addmod" => Box::new(Expr::AddMod(a.clone(), b.clone(), c.clone())),
       "mulmod" => Box::new(Expr::MulMod(a.clone(), b.clone(), c.clone())),
       _ => Box::new(Expr::Mempty),
     };
-    next(vm, 1);
-    burn(vm, gas, || {});
     vm.state.stack = xs.to_vec();
     vm.state.stack.push(res);
   } else {
     underrun();
   }
+  next(vm, 1);
+  burn(vm, gas, || {});
   true
 }
 
 fn stack_op1(vm: &mut VM, gas: u64, op: &str) -> bool {
-  if let [xs @ .., a] = &vm.state.stack.clone()[..] {
+  if let [xs @ .., a] = &vm.state.stack[..] {
     // burn(gas)
     let res = match op {
       "iszero" => Box::new(Expr::IsZero(a.clone())),
       "not" => Box::new(Expr::Not(a.clone())),
-      "calldataload" => Box::new(read_word(*a.clone(), vm.state.calldata.clone())), // Box::new(Expr::Mempty),
+      "calldataload" => read_word(&a, &vm.state.calldata), // Box::new(Expr::Mempty),
       _ => Box::new(Expr::Mempty),
     };
-    next(vm, 1);
-    burn(vm, gas, || {});
     vm.state.stack = xs.to_vec();
     vm.state.stack.push(res);
   } else {
     underrun();
   }
+  next(vm, 1);
+  burn(vm, gas, || {});
   true
 }
 
@@ -2678,6 +2678,10 @@ where
     *vm.iterations.entry(loc.clone()).or_insert((0, vm.state.stack.clone())) = (0, vm.state.stack.clone());
   }
 
+  if itr_cnt >= 32 {
+    println!("LOOP DETECTED");
+  }
+
   let mut new_vm = None;
   let mut branchcond = BranchReachability::NONE;
 
@@ -2686,10 +2690,13 @@ where
   let then_branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)))));
   let else_branch_cond = Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)));
 
+  println!("New Condition: {}", cond);
+
   let mut pathconds = vm.constraints.clone();
   pathconds.push(then_branch_cond.clone());
   let v = solve_constraints(vm, &pathconds);
   if v {
+    println!("- THEN-BRANCH: SAT");
     vm.constraints.push(then_branch_cond);
   }
 
@@ -2697,6 +2704,7 @@ where
   pathconds.push(else_branch_cond.clone());
   let u = solve_constraints(vm, &pathconds);
   if u {
+    println!("- ELSE-BRANCH: SAT");
     let mut new_vm_ = vm.clone();
     new_vm_.constraints.pop();
     new_vm_.constraints.push(else_branch_cond);

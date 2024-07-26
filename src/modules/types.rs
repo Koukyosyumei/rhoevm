@@ -153,7 +153,7 @@ impl W256 {
     let high = u128::from_be_bytes(padded_bytes[0..16].try_into().unwrap());
     let low = u128::from_be_bytes(padded_bytes[16..32].try_into().unwrap());
 
-    W256(high, low)
+    W256(low, high)
   }
 }
 
