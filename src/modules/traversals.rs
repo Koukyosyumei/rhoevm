@@ -78,6 +78,7 @@ where
   B: Add<B, Output = B> + Clone + Default,
 {
   match expr.clone() {
+    // Expr::Mempty => B::default(),
     // literals & variables
     Expr::Lit(_) | Expr::LitByte(_) | Expr::Var(_) | Expr::GVar(_) => f(&expr),
 
@@ -222,7 +223,11 @@ pub fn fold_expr<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, expr: &Expr) -> B
 where
   B: Add<B, Output = B> + Default + Clone,
 {
-  acc.clone() + go_expr(f, acc.clone(), expr.clone())
+  if *expr == Expr::Mempty {
+    acc.clone()
+  } else {
+    acc.clone() + go_expr(f, acc.clone(), expr.clone())
+  }
 }
 
 pub trait ExprMappable {
@@ -232,6 +237,7 @@ pub trait ExprMappable {
 impl ExprMappable for Expr {
   fn map_expr_m(&self, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
     match self {
+      //Expr::Mempty => Expr::Mempty,
       Expr::Lit(a) => f(&Expr::Lit(a.clone())),
       Expr::LitByte(a) => f(&Expr::LitByte(*a)),
       Expr::Var(a) => f(&Expr::Var(a.clone())),
@@ -614,7 +620,7 @@ impl ExprMappable for Expr {
         let a = a.map_expr_m(f);
         f(&Expr::BufLength(Box::new(a)))
       }
-      _ => panic!("unuexpected expr"),
+      _ => panic!("unuexpected expr {}", self),
     }
   }
 }
@@ -623,7 +629,11 @@ pub fn map_expr<F>(mut f: F, expr: Expr) -> Expr
 where
   F: FnMut(&Expr) -> Expr,
 {
-  expr.map_expr_m(&mut f)
+  if expr == Expr::Mempty {
+    expr
+  } else {
+    expr.map_expr_m(&mut f)
+  }
 }
 
 pub fn map_prop(f: &mut dyn FnMut(&Expr) -> Expr, prop: Prop) -> Prop {

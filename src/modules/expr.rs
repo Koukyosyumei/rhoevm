@@ -951,11 +951,15 @@ fn conc_keccak_one_pass(expr: &Expr) -> Expr {
 
 // Main simplify function
 pub fn simplify(expr: &Expr) -> Expr {
-  let simplified = map_expr(go_expr, expr.clone());
-  if &simplified == expr {
-    simplified
+  if *expr != Expr::Mempty {
+    let simplified = map_expr(go_expr, expr.clone());
+    if &simplified == expr {
+      simplified
+    } else {
+      simplify(&map_expr(go_expr, structure_array_slots(expr.clone())))
+    }
   } else {
-    simplify(&map_expr(go_expr, structure_array_slots(expr.clone())))
+    Expr::Mempty
   }
 }
 

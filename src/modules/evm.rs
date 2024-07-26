@@ -12,8 +12,8 @@ use crate::modules::effects::Config;
 use crate::modules::expr::copy_slice;
 use crate::modules::expr::{
   add, conc_keccak_simp_expr, concrete_prefix, create2_address_, create_address_, drop, emin, eq, gt, index_word,
-  read_byte, read_bytes, read_storage, read_word_from_bytes, simplify, sub, to_list, word_to_addr, write_byte,
-  write_storage, write_word, MAX_BYTES,
+  read_byte, read_bytes, read_storage, read_word, read_word_from_bytes, simplify, sub, to_list, word_to_addr,
+  write_byte, write_storage, write_word, MAX_BYTES,
 };
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
@@ -25,6 +25,8 @@ use crate::modules::types::{
   Gas, Memory, MutableMemory, PartialExec, Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData,
   TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
 };
+
+use super::format::format_prop;
 
 fn initial_gas() -> u64 {
   10000 // Placeholder value
@@ -383,7 +385,7 @@ impl VM {
         }
         Op::Stop => {
           finish_frame(self, FrameResult::FrameReturned(Expr::Mempty));
-          false
+          true
         }
         Op::Add => stack_op2(self, fees.g_verylow, "add"),
         Op::Mul => stack_op2(self, fees.g_low, "mul"),
@@ -957,7 +959,8 @@ impl VM {
           // NOTE: this can be done symbolically using unrolling like this:
           //       https://hackage.haskell.org/package/sbv-9.0/docs/src/Data.SBV.Core.Model.html#.%5E
           //       However, it requires symbolic gas, since the gas depends on the exponent
-          if let [base, exponent, xs @ ..] = &self.state.stack.clone()[..] {
+          //if let [base, exponent, xs @ ..] = &self.state.stack.clone()[..] {
+          if let [xs @ .., exponent, base] = &self.state.stack.clone()[..] {
             //burn_exp(exponent, || {
             next(self, op);
             self.state.stack = xs.to_vec();
@@ -974,7 +977,8 @@ impl VM {
         }
         Op::Create => {
           not_static(self, || {});
-          if let [x_value, x_offset, x_size, xs @ ..] = &self.state.stack.clone()[..] {
+          //if let [x_value, x_offset, x_size, xs @ ..] = &self.state.stack.clone()[..] {
+          if let [xs @ .., x_size, x_offset, x_value] = &self.state.stack.clone()[..] {
             access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
             let available_gas = 0; // Example available gas
             let (cost, gas) = (0, Gas::Symbolic); //cost_of_create(0, available_gas, x_size, false); // Example fees
@@ -1000,7 +1004,7 @@ impl VM {
           true
         }
         Op::Call => {
-          if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
+          if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_value, x_to, x_gas] =
             &self.state.stack.clone()[..]
           {
             let mut gt0 = BranchReachability::NONE;
@@ -1050,7 +1054,7 @@ impl VM {
           true
         }
         Op::Callcode => {
-          if let [x_gas, x_to, x_value, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
+          if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_value, x_to, x_gas] =
             &self.state.stack.clone()[..]
           {
             force_addr(x_to, "unable to determine a call target", |x_to_| {});
@@ -1082,7 +1086,12 @@ impl VM {
           true
         }
         Op::Return => {
-          if let [x_offset, x_size, _] = &self.state.stack.clone()[..] {
+          /*
+          Stack input
+          - offset: byte offset in the memory in bytes, to copy what will be the return data of this context.
+          - size: byte size to copy (size of the return data).
+          */
+          if let [.., x_size, x_offset] = &self.state.stack.clone()[..] {
             access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
             let output = read_memory(self, *x_offset.clone(), *x_size.clone());
             let codesize = maybe_lit_word(buf_length(output.clone())).unwrap().0 as u32;
@@ -1105,10 +1114,10 @@ impl VM {
           } else {
             underrun();
           }
-          true
+          true //false
         }
         Op::Delegatecall => {
-          if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] =
+          if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_to, x_gas] =
             &self.state.stack.clone()[..]
           {
             match 0 {
@@ -1154,7 +1163,7 @@ impl VM {
         }
         Op::Create2 => {
           not_static(self, || {});
-          if let [x_value, x_offset, x_size, x_salt, _xs @ ..] = &self.state.stack.clone()[..] {
+          if let [_xs @ .., x_salt, x_size, x_offset, x_value] = &self.state.stack.clone()[..] {
             let mut x_salt_val = W256(0, 0);
             force_concrete(self, x_salt, "CREATE2", |x_salt_val_| x_salt_val = x_salt_val_);
             access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
@@ -1184,7 +1193,7 @@ impl VM {
           true
         }
         Op::Staticcall => {
-          if let [x_gas, x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, xs @ ..] = &self.state.stack[..] {
+          if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_to, x_gas] = &self.state.stack[..] {
             match word_to_addr(*x_to.clone()) {
               // wordToAddr(x_to)
               None => {
@@ -1238,7 +1247,7 @@ impl VM {
         }
         Op::Selfdestruct => {
           not_static(self, || {});
-          if let [x_to, ..] = &self.state.stack.clone()[..] {
+          if let [.., x_to] = &self.state.stack.clone()[..] {
             force_addr(x_to, "SELFDESTRUCT", |x_to| {
               if let Expr::WAddr(_) = x_to {
                 let acc = access_account_for_gas(self, x_to.clone());
@@ -1282,7 +1291,7 @@ impl VM {
           true
         }
         Op::Revert => {
-          if let [x_offset, x_size, ..] = &self.state.stack.clone()[..] {
+          if let [.., x_size, x_offset] = &self.state.stack.clone()[..] {
             access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
             let output = read_memory(self, *x_offset.clone(), *x_size.clone());
             finish_frame(self, FrameResult::FrameReverted(output));
@@ -1292,7 +1301,7 @@ impl VM {
           true
         }
         Op::Extcodecopy => {
-          if let [ext_account, mem_offset, code_offset, code_size, xs @ ..] = &self.state.stack.clone()[..] {
+          if let [xs @ .., code_size, code_offset, mem_offset, ext_account] = &self.state.stack.clone()[..] {
             force_addr(ext_account, "EXTCODECOPY", |ext_account| {
               burn_extcodecopy(self, ext_account.clone(), *code_size.clone(), self.block.schedule.clone(), || {});
               access_memory_range(self, *mem_offset.clone(), *code_size.clone(), || {});
@@ -1330,7 +1339,7 @@ impl VM {
           true
         }
         Op::Returndatacopy => {
-          if let [x_to, x_from, x_size, xs @ ..] = &self.state.stack.clone()[..] {
+          if let [xs @ .., x_size, x_from, x_to] = &self.state.stack.clone()[..] {
             burn(self, 0, || {});
             access_memory_range(self, *x_to.clone(), *x_size.clone(), || {});
             next(self, op);
@@ -1396,7 +1405,7 @@ impl VM {
           true
         }
         Op::Blockhash => {
-          if let [i, ..] = &self.state.stack.clone()[..] {
+          if let [.., i] = &self.state.stack.clone()[..] {
             match *i.clone() {
               Expr::Lit(block_number) => {
                 let current_block_number = self.block.number.clone();
@@ -1419,6 +1428,10 @@ impl VM {
           /*
           OpJumpdest -> burn g_jumpdest next
            */
+          true
+        }
+        Op::Unknown(_) => {
+          next(self, op);
           true
         }
         _ => todo!(),
@@ -1890,7 +1903,8 @@ fn trace_top_log(logs: Vec<Expr>) {
 }
 
 fn stack_op2(vm: &mut VM, gas: u64, op: &str) -> bool {
-  if let Some((a, b)) = vm.state.stack.split_last().and_then(|(a, rest)| rest.split_last().map(|(b, rest)| (a, b))) {
+  //if let Some((a, b)) = vm.state.stack.split_last().and_then(|(a, rest)| rest.split_last().map(|(b, _)| (a, b))) {
+  if let [xs @ .., b, a] = &vm.state.stack.clone()[..] {
     let res = match op {
       "add" => Box::new(Expr::Add(a.clone(), b.clone())),
       "mul" => Box::new(Expr::Mul(a.clone(), b.clone())),
@@ -1915,7 +1929,8 @@ fn stack_op2(vm: &mut VM, gas: u64, op: &str) -> bool {
     };
     next(vm, 1);
     burn(vm, gas, || {});
-    vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(2).cloned()).collect();
+    vm.state.stack = xs.to_vec();
+    vm.state.stack.push(res);
   } else {
     underrun();
   }
@@ -1923,24 +1938,17 @@ fn stack_op2(vm: &mut VM, gas: u64, op: &str) -> bool {
 }
 
 fn stack_op3(vm: &mut VM, gas: u64, op: &str) -> bool {
-  if let Some((a, rest)) = vm.state.stack.split_last() {
-    if let Some((b, rest)) = rest.split_last() {
-      if let Some((c, rest)) = rest.split_last() {
-        // burn(gas)
-        let res = match op {
-          "addmod" => Box::new(Expr::AddMod(a.clone(), b.clone(), c.clone())),
-          "mulmod" => Box::new(Expr::MulMod(a.clone(), b.clone(), c.clone())),
-          _ => Box::new(Expr::Mempty),
-        };
-        next(vm, 1);
-        burn(vm, gas, || {});
-        vm.state.stack = std::iter::once(res).chain(vm.state.stack.iter().skip(3).cloned()).collect();
-      } else {
-        underrun();
-      }
-    } else {
-      underrun();
-    }
+  if let [xs @ .., c, b, a] = &vm.state.stack.clone()[..] {
+    // burn(gas)
+    let res = match op {
+      "addmod" => Box::new(Expr::AddMod(a.clone(), b.clone(), c.clone())),
+      "mulmod" => Box::new(Expr::MulMod(a.clone(), b.clone(), c.clone())),
+      _ => Box::new(Expr::Mempty),
+    };
+    next(vm, 1);
+    burn(vm, gas, || {});
+    vm.state.stack = xs.to_vec();
+    vm.state.stack.push(res);
   } else {
     underrun();
   }
@@ -1948,17 +1956,18 @@ fn stack_op3(vm: &mut VM, gas: u64, op: &str) -> bool {
 }
 
 fn stack_op1(vm: &mut VM, gas: u64, op: &str) -> bool {
-  if let Some(a) = vm.state.stack.first() {
+  if let [xs @ .., a] = &vm.state.stack.clone()[..] {
     // burn(gas)
     let res = match op {
       "iszero" => Box::new(Expr::IsZero(a.clone())),
       "not" => Box::new(Expr::Not(a.clone())),
-      "calldataload" => Box::new(Expr::Mempty),
+      "calldataload" => Box::new(read_word(*a.clone(), vm.state.calldata.clone())), // Box::new(Expr::Mempty),
       _ => Box::new(Expr::Mempty),
     };
     next(vm, 1);
     burn(vm, gas, || {});
-    vm.state.stack[0] = res;
+    vm.state.stack = xs.to_vec();
+    vm.state.stack.push(res);
   } else {
     underrun();
   }
@@ -2050,7 +2059,8 @@ fn to_buf(code: &ContractCode) -> Option<Expr> {
 // Define other necessary structs, enums, and functions here...
 
 fn word32(xs: &[u8]) -> u32 {
-  xs.iter().enumerate().fold(0, |acc, (n, &x)| acc | (u32::from(x) << (8 * n)))
+  //println!("word32 {}", n);
+  xs.iter().rev().enumerate().fold(0, |acc, (n, &x)| acc | (u32::from(x) << (n)))
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -2106,7 +2116,7 @@ fn buf_length_env(env: HashMap<i32, Expr>, use_env: bool, buf: Expr) -> Expr {
           max_expr(l, Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(a)))))
         }
       }
-      _ => panic!("unsupported expression"),
+      _ => Expr::Lit(W256(0, 0)), //panic!("unsupported expression: {}", buf),
     }
   }
 
@@ -2608,13 +2618,15 @@ fn account_empty(c: &Contract) -> bool {
   cc && c.nonce == Some(0) && c.balance == Expr::Lit(W256(1, 0))
 }
 
-fn solve_constraints(pathconds: &Vec<Prop>) -> bool {
+fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> bool {
   let config = Config::default();
   let smt2 = assert_props(&config, pathconds.to_vec());
   let content = format_smt2(smt2) + "\n\n(check-sat)";
 
   let mut hasher = DefaultHasher::new();
-  for p in pathconds {
+  let mut pathconds_str: Vec<String> = pathconds.into_iter().map(|p| format!("{}", format_prop(p))).collect();
+  pathconds_str.sort();
+  for p in pathconds_str {
     p.hash(&mut hasher);
   }
   let hash_val = hasher.finish();
@@ -2623,7 +2635,7 @@ fn solve_constraints(pathconds: &Vec<Prop>) -> bool {
   if !dir_path.exists() {
     let _ = fs::create_dir_all(&dir_path);
   }
-  let file_path = dir_path.join(format!("query-{:x}.smt2", hash_val));
+  let file_path = dir_path.join(format!("query-{}-{:x}.smt2", vm.state.pc, hash_val));
   let _ = fs::write(file_path.clone(), content);
 
   let output = Command::new("z3")
@@ -2653,7 +2665,17 @@ fn branch<F>(vm: &mut VM, cond: &Expr, continue_fn: F) -> Option<VM>
 where
   F: FnOnce(BranchReachability) -> Result<(), EvmError>,
 {
-  // let loc = codeloc(vm); // (contract, pc)
+  let loc = codeloc(vm); // (contract, pc)
+  let binding = vm.iterations.clone();
+  let itrs_ = binding.get(&loc.clone());
+  let mut itr_cnt = 0;
+  if let Some(itrs) = itrs_ {
+    itr_cnt = itrs.0 + 1;
+    *vm.iterations.entry(loc.clone()).or_insert((itrs.0, vm.state.stack.clone())) =
+      (itrs.0 + 1, vm.state.stack.clone());
+  } else {
+    *vm.iterations.entry(loc.clone()).or_insert((0, vm.state.stack.clone())) = (0, vm.state.stack.clone());
+  }
 
   let mut new_vm = None;
   let mut branchcond = BranchReachability::NONE;
@@ -2665,23 +2687,26 @@ where
 
   let mut pathconds = vm.constraints.clone();
   pathconds.push(then_branch_cond.clone());
-  let v = solve_constraints(&pathconds);
+  let v = solve_constraints(vm, &pathconds);
   if v {
     vm.constraints.push(then_branch_cond);
   }
 
   pathconds.pop();
   pathconds.push(else_branch_cond.clone());
-  let u = solve_constraints(&pathconds);
+  let u = solve_constraints(vm, &pathconds);
   if u {
     let mut new_vm_ = vm.clone();
     new_vm_.constraints.push(else_branch_cond);
+    if (itr_cnt >= 32) {
+      *new_vm_.iterations.entry(loc).or_insert((0, new_vm_.state.stack.clone())) = (0, new_vm_.state.stack.clone())
+    }
     new_vm = Some(new_vm_);
   }
 
-  if v && u {
+  if v && u && itr_cnt < 32 {
     branchcond = BranchReachability::BOTH;
-  } else if v {
+  } else if v && itr_cnt < 32 {
     branchcond = BranchReachability::ONLYTHEN;
   } else if u {
     branchcond = BranchReachability::ONLYELSE;
