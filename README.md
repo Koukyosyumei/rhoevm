@@ -2,7 +2,7 @@
 # rhoevm
 
 <h1 align="center">
-<img src="img/logo.png" width=700>
+<img src="img/logo.png">
 </h1>
 
 [WIP] symbolic EVM execution engine written in Rust
