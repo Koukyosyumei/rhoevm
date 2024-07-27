@@ -16,7 +16,7 @@ fn test_word256_bytes() {
 fn test_add_concrete() {
   let x = Expr::Lit(W256(3, 0));
   let y = Expr::Lit(W256(4, 0));
-  assert_eq!(add(x, y), Expr::Lit(W256(7, 0)));
+  assert_eq!(add(Box::new(x), Box::new(y)), Expr::Lit(W256(7, 0)));
 }
 
 #[test]
@@ -25,7 +25,7 @@ fn test_add_symbolic() {
   let x = Expr::Lit(W256(3, 0));
   let y = Expr::Sub(Box::new(Expr::Lit(W256(4, 0))), Box::new(Expr::Lit(W256(2, 0))));
   assert_eq!(
-    add(x, y),
+    add(Box::new(x), Box::new(y)),
     Expr::Add(
       Box::new(Expr::Lit(W256(3, 0))),
       Box::new(Expr::Sub(Box::new(Expr::Lit(W256(4, 0))), Box::new(Expr::Lit(W256(2, 0)))))
@@ -37,14 +37,14 @@ fn test_add_symbolic() {
 fn test_sub_concrete() {
   let x = Expr::Lit(W256(10, 0));
   let y = Expr::Lit(W256(3, 0));
-  assert_eq!(sub(x, y), Expr::Lit(W256(7, 0)));
+  assert_eq!(sub(Box::new(x), Box::new(y)), Expr::Lit(W256(7, 0)));
 }
 
 #[test]
 fn test_mul_concrete() {
   let x = Expr::Lit(W256(3, 0));
   let y = Expr::Lit(W256(4, 0));
-  assert_eq!(mul(x, y), Expr::Lit(W256(12, 0)));
+  assert_eq!(mul(Box::new(x), Box::new(y)), Expr::Lit(W256(12, 0)));
 }
 
 #[test]
@@ -52,70 +52,70 @@ fn test_mul_concrete() {
 fn test_div_concrete() {
   let x = Expr::Lit(W256(10, 0));
   let y = Expr::Lit(W256(2, 0));
-  assert_eq!(div(x, y), Expr::Lit(W256(5, 0)));
+  assert_eq!(div(Box::new(x), Box::new(y)), Expr::Lit(W256(5, 0)));
 }
 
 #[test]
 fn test_div_by_zero() {
   let x = Expr::Lit(W256(10, 0));
   let y = Expr::Lit(W256(0, 0));
-  assert_eq!(div(x, y), Expr::Lit(W256(0, 0)));
+  assert_eq!(div(Box::new(x), Box::new(y)), Expr::Lit(W256(0, 0)));
 }
 
 #[test]
 fn test_lt_concrete() {
   let x = Expr::Lit(W256(3, 0));
   let y = Expr::Lit(W256(4, 0));
-  assert_eq!(lt(x, y), Expr::Lit(W256(1, 0)));
+  assert_eq!(lt(Box::new(x), Box::new(y)), Expr::Lit(W256(1, 0)));
 }
 
 #[test]
 fn test_lt_concrete_false() {
   let x = Expr::Lit(W256(5, 0));
   let y = Expr::Lit(W256(4, 0));
-  assert_eq!(lt(x, y), Expr::Lit(W256(0, 0)));
+  assert_eq!(lt(Box::new(x), Box::new(y)), Expr::Lit(W256(0, 0)));
 }
 
 #[test]
 fn test_gt_concrete() {
   let x = Expr::Lit(W256(5, 0));
   let y = Expr::Lit(W256(4, 0));
-  assert_eq!(gt(x, y), Expr::Lit(W256(1, 0)));
+  assert_eq!(gt(Box::new(x), Box::new(y)), Expr::Lit(W256(1, 0)));
 }
 
 #[test]
 fn test_gt_concrete_false() {
   let x = Expr::Lit(W256(3, 0));
   let y = Expr::Lit(W256(4, 0));
-  assert_eq!(gt(x, y), Expr::Lit(W256(0, 0)));
+  assert_eq!(gt(Box::new(x), Box::new(y)), Expr::Lit(W256(0, 0)));
 }
 
 #[test]
 fn test_leq_concrete() {
   let x = Expr::Lit(W256(4, 0));
   let y = Expr::Lit(W256(4, 0));
-  assert_eq!(leq(x, y), Expr::Lit(W256(1, 0)));
+  assert_eq!(leq(Box::new(x), Box::new(y)), Expr::Lit(W256(1, 0)));
 }
 
 #[test]
 fn test_leq_concrete_false() {
   let x = Expr::Lit(W256(5, 0));
   let y = Expr::Lit(W256(4, 0));
-  assert_eq!(leq(x, y), Expr::Lit(W256(0, 0)));
+  assert_eq!(leq(Box::new(x), Box::new(y)), Expr::Lit(W256(0, 0)));
 }
 
 #[test]
 fn test_geq_concrete() {
   let x = Expr::Lit(W256(4, 0));
   let y = Expr::Lit(W256(4, 0));
-  assert_eq!(geq(x, y), Expr::Lit(W256(1, 0)));
+  assert_eq!(geq(Box::new(x), Box::new(y)), Expr::Lit(W256(1, 0)));
 }
 
 #[test]
 fn test_geq_concrete_false() {
   let x = Expr::Lit(W256(3, 0));
   let y = Expr::Lit(W256(4, 0));
-  assert_eq!(geq(x, y), Expr::Lit(W256(0, 0)));
+  assert_eq!(geq(Box::new(x), Box::new(y)), Expr::Lit(W256(0, 0)));
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn test_addmod_concrete() {
   let x = Expr::Lit(W256(7, 0));
   let y = Expr::Lit(W256(4, 0));
   let z = Expr::Lit(W256(3, 0));
-  assert_eq!(addmod(x, y, z), Expr::Lit(W256(2, 0)));
+  assert_eq!(addmod(Box::new(x), Box::new(y), Box::new(z)), Expr::Lit(W256(2, 0)));
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn test_addmod_concrete_zero() {
   let x = Expr::Lit(W256(5, 0));
   let y = Expr::Lit(W256(4, 0));
   let z = Expr::Lit(W256(0, 0));
-  assert_eq!(addmod(x, y, z), Expr::Lit(W256(0, 0)));
+  assert_eq!(addmod(Box::new(x), Box::new(y), Box::new(z)), Expr::Lit(W256(0, 0)));
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn test_mulmod_concrete() {
   let x = Expr::Lit(W256(5, 0));
   let y = Expr::Lit(W256(4, 0));
   let z = Expr::Lit(W256(3, 0));
-  assert_eq!(mulmod(x, y, z), Expr::Lit(W256(2, 0)));
+  assert_eq!(mulmod(Box::new(x), Box::new(y), Box::new(z)), Expr::Lit(W256(2, 0)));
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn test_mulmod_concrete_zero() {
   let x = Expr::Lit(W256(5, 0));
   let y = Expr::Lit(W256(4, 0));
   let z = Expr::Lit(W256(0, 0));
-  assert_eq!(mulmod(x, y, z), Expr::Lit(W256(0, 0)));
+  assert_eq!(mulmod(Box::new(x), Box::new(y), Box::new(z)), Expr::Lit(W256(0, 0)));
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn test_write_byte_concrete() {
   let src = Expr::ConcreteBuf(vec![0x00, 0x00, 0x00]);
 
   let expected = Expr::ConcreteBuf(vec![0x00, 0xAB, 0x00]);
-  assert_eq!(write_byte(offset, byte, src), expected);
+  assert_eq!(write_byte(Box::new(offset), Box::new(byte), Box::new(src)), expected);
 }
 
 #[test]
@@ -171,7 +171,7 @@ fn test_write_byte_symbolic() {
     Box::new(Expr::LitByte(0xAB)),
     Box::new(Expr::AbstractBuf("src".to_string())),
   );
-  assert_eq!(write_byte(offset, byte, src), expected);
+  assert_eq!(write_byte(Box::new(offset), Box::new(byte), Box::new(src)), expected);
 }
 
 #[test]
@@ -205,7 +205,7 @@ fn test_index_word_literal_masked() {
   let word = Expr::Lit(W256(0x11223344556677889900AABBCCDDEEFF, 0));
   let w = Expr::And(Box::new(mask.clone()), Box::new(word.clone()));
 
-  let result = index_word(idx, w);
+  let result = index_word(Box::new(idx), Box::new(w));
 
   assert_eq!(result, Expr::LitByte(0xAA));
 }
@@ -250,7 +250,7 @@ fn test_index_word_join_bytes() {
   ];
   let w = Expr::JoinBytes(bytes);
 
-  let result = index_word(idx, w);
+  let result = index_word(Box::new(idx), Box::new(w));
 
   assert_eq!(result, Expr::LitByte(0x44));
 }
@@ -261,7 +261,7 @@ fn test_index_word_non_literal() {
   let idx = Expr::Var("i".to_string());
   let word = Expr::Var("w".to_string());
 
-  let result = index_word(idx.clone(), word.clone());
+  let result = index_word(Box::new(idx.clone()), Box::new(word.clone()));
 
   assert_eq!(result, Expr::IndexWord(Box::new(idx), Box::new(word)));
 }
@@ -272,7 +272,7 @@ fn test_index_word_literal() {
   let idx = Expr::Lit(W256(3, 0));
   let word = Expr::Lit(W256(0x11223344556677889900AABBCCDDEEFF, 0));
 
-  let result = index_word(idx, word);
+  let result = index_word(Box::new(idx), Box::new(word));
 
   assert_eq!(result, Expr::LitByte(0xCC));
 }
@@ -283,7 +283,7 @@ fn test_index_word_concrete_lit() {
   let w = Expr::Lit(W256(0x12345678_9ABCDEF0, 0));
 
   let expected = Expr::LitByte(0x9A);
-  assert_eq!(index_word(i, w), expected);
+  assert_eq!(index_word(Box::new(i), Box::new(w)), expected);
 }
 
 #[test]
@@ -301,7 +301,7 @@ fn test_index_word_symbolic() {
       Box::new(Expr::Lit(W256(0x12345678_9ABCDEF0, 0))),
     )),
   );
-  assert_eq!(index_word(i, w), expected);
+  assert_eq!(index_word(Box::new(i), Box::new(w)), expected);
 }
 
 #[test]
@@ -310,7 +310,7 @@ fn test_read_byte_concrete() {
   let buf = Expr::ConcreteBuf(vec![0x00, 0xAB, 0x00]);
 
   let expected = Expr::Lit(W256(0xAB, 0));
-  assert_eq!(read_byte(idx, buf), expected);
+  assert_eq!(read_byte(Box::new(idx), Box::new(buf)), expected);
 }
 
 #[test]
@@ -320,7 +320,13 @@ fn test_copy_slice_empty_buffers() {
   let size = Expr::Lit(W256(0, 0));
   let src = Expr::ConcreteBuf(vec![]);
   let dst = Expr::ConcreteBuf(vec![]);
-  let result = copy_slice(src_offset, dst_offset, size, src.clone(), dst.clone());
+  let result = copy_slice(
+    Box::new(src_offset),
+    Box::new(dst_offset),
+    Box::new(size),
+    Box::new(src.clone()),
+    Box::new(dst.clone()),
+  );
   assert_eq!(result, dst);
 }
 
@@ -331,7 +337,13 @@ fn test_copy_slice_concrete_empty_buffers() {
   let size = Expr::Lit(W256(10, 0));
   let src = Expr::ConcreteBuf(vec![]);
   let dst = Expr::ConcreteBuf(vec![]);
-  let result = copy_slice(src_offset, dst_offset, size, src.clone(), dst.clone());
+  let result = copy_slice(
+    Box::new(src_offset),
+    Box::new(dst_offset),
+    Box::new(size),
+    Box::new(src.clone()),
+    Box::new(dst.clone()),
+  );
   assert_eq!(result, Expr::ConcreteBuf(vec![0; 10]));
 }
 
@@ -342,7 +354,13 @@ fn test_copy_slice_fully_concrete() {
   let size = Expr::Lit(W256(2, 0));
   let src = Expr::ConcreteBuf(vec![1, 2, 3, 4]);
   let dst = Expr::ConcreteBuf(vec![]);
-  let result = copy_slice(src_offset, dst_offset, size, src.clone(), dst.clone());
+  let result = copy_slice(
+    Box::new(src_offset),
+    Box::new(dst_offset),
+    Box::new(size),
+    Box::new(src.clone()),
+    Box::new(dst.clone()),
+  );
   assert_eq!(result, Expr::ConcreteBuf(vec![3, 4]));
 }
 
@@ -353,7 +371,13 @@ fn test_copy_slice_with_padding() {
   let size = Expr::Lit(W256(2, 0));
   let src = Expr::ConcreteBuf(vec![1, 2, 3, 4]);
   let dst = Expr::ConcreteBuf(vec![5, 6]);
-  let result = copy_slice(src_offset, dst_offset, size, src.clone(), dst.clone());
+  let result = copy_slice(
+    Box::new(src_offset),
+    Box::new(dst_offset),
+    Box::new(size),
+    Box::new(src.clone()),
+    Box::new(dst.clone()),
+  );
   assert_eq!(result, Expr::ConcreteBuf(vec![5, 6, 3, 4]));
 }
 
@@ -370,7 +394,13 @@ fn test_copy_slice_abstract_src() {
     Box::new(Expr::ConcreteBuf(vec![0; 32])),
   );
   let dst = Expr::ConcreteBuf(vec![0; 32]);
-  let result = copy_slice(src_offset, dst_offset, size, src.clone(), dst.clone());
+  let result = copy_slice(
+    Box::new(src_offset),
+    Box::new(dst_offset),
+    Box::new(size),
+    Box::new(src.clone()),
+    Box::new(dst.clone()),
+  );
   assert_eq!(
     result,
     Expr::CopySlice(
