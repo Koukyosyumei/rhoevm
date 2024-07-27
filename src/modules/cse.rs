@@ -88,13 +88,3 @@ where
   // Dummy implementation for map_expr_m
   f(expr)
 }
-
-fn map_m<F, S, T>(f: F, items: Vec<T>) -> (S, Vec<T>)
-where
-  F: Fn(T) -> (S, T),
-  S: Clone,
-  T: Clone,
-{
-  // Dummy implementation for map_m
-  todo!()
-}

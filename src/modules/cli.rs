@@ -50,28 +50,28 @@ pub struct SymbolicCommand {
   pub block: Option<W256>, // Block state to be fetched from
 
   // Symbolic execution opts
-  root: Option<String>, // Path to project root directory (default: .)
+  pub root: Option<String>, // Path to project root directory (default: .)
   // project_type: Option<ProjectType>,       // Is this a Foundry or DappTools project (default: Foundry)
   initial_storage: Option<InitialStorage>, // Starting state for storage: Empty, Abstract (default Abstract)
   sig: Option<String>,                     // Signature of types to decode/encode
   arg: Vec<String>,                        // Values to encode
-  get_models: bool,                        // Print example testcase for each execution path
-  show_tree: bool,                         // Print branches explored in tree view
-  show_reachable_tree: bool,               // Print only reachable branches explored in tree view
-  smt_timeout: Option<usize>,              // Timeout given to SMT solver in seconds (default: 300)
-  max_iterations: Option<i64>,             // Number of times we may revisit a particular branching point
-  solver: Option<String>,                  // Used SMT solver: z3 (default), cvc5, or bitwuzla
-  smt_debug: bool,                         // Print smt queries sent to the solver
-  debug: bool,                             // Debug printing of internal behaviour
-  trace: bool,                             // Dump trace
-  assertions: Option<Vec<W256>>, // List of solc panic codes to check for (default: user defined assertion violations only)
-  ask_smt_iterations: i64, // Number of times we may revisit a particular branching point before consulting the SMT solver to check reachability (default: 1)
-  num_cex_fuzz: i64,       // Number of fuzzing tries to generate a counterexample (default: 3)
-  num_solvers: Option<u64>, // Number of solver instances to use (default: number of CPU cores)
+  pub get_models: bool,                    // Print example testcase for each execution path
+  pub show_tree: bool,                     // Print branches explored in tree view
+  pub show_reachable_tree: bool,           // Print only reachable branches explored in tree view
+  pub smt_timeout: Option<usize>,          // Timeout given to SMT solver in seconds (default: 300)
+  pub max_iterations: Option<i64>,         // Number of times we may revisit a particular branching point
+  pub solver: Option<String>,              // Used SMT solver: z3 (default), cvc5, or bitwuzla
+  pub smt_debug: bool,                     // Print smt queries sent to the solver
+  pub debug: bool,                         // Debug printing of internal behaviour
+  pub trace: bool,                         // Dump trace
+  pub assertions: Option<Vec<W256>>, // List of solc panic codes to check for (default: user defined assertion violations only)
+  pub ask_smt_iterations: i64, // Number of times we may revisit a particular branching point before consulting the SMT solver to check reachability (default: 1)
+  pub num_cex_fuzz: i64,       // Number of fuzzing tries to generate a counterexample (default: 3)
+  pub num_solvers: Option<u64>, // Number of solver instances to use (default: number of CPU cores)
   // loop_detection_heuristic: LoopHeuristic, // Heuristic to determine if we are in a loop: StackBased (default) or Naive
-  abstract_arithmetic: bool, // Use abstraction-refinement for complicated arithmetic functions
-  abstract_memory: bool,     // Use abstraction-refinement for Memory
-  no_decompose: bool,        // Don't decompose storage slots into separate arrays
+  pub abstract_arithmetic: bool, // Use abstraction-refinement for complicated arithmetic functions
+  pub abstract_memory: bool,     // Use abstraction-refinement for Memory
+  pub no_decompose: bool,        // Don't decompose storage slots into separate arrays
 }
 
 /*
@@ -264,7 +264,7 @@ pub fn vm0(
     chain_id: if let Some(i) = cmd.chainid.clone() { i } else { W256(1, 0) },
     create: cmd.create,
     base_state: if let Some(is) = &cmd.initial_storage {
-      parseInitialStorage(is.clone())
+      parse_initial_storage(is.clone())
     } else {
       BaseState::AbstractBase
     },
@@ -274,7 +274,7 @@ pub fn vm0(
   make_vm(opts)
 }
 
-fn parseInitialStorage(is: InitialStorage) -> BaseState {
+fn parse_initial_storage(is: InitialStorage) -> BaseState {
   match is {
     InitialStorage::Empty => BaseState::EmptyBase,
     InitialStorage::Abstract => BaseState::AbstractBase,
@@ -308,10 +308,38 @@ pub fn build_calldata(cmd: &SymbolicCommand) -> Result<(Expr, Vec<Prop>), Box<dy
   }
 }
 
+fn sym_calldata(sig: &str, typesignature: &[String], concrete_args: &[String], base: Expr) -> (Expr, Vec<Prop>) {
+  todo!()
+  /*
+  // Extend concrete arguments with "<symbolic>" for missing values
+  let args: Vec<String> =
+    concrete_args.iter().cloned().chain(iter::repeat("<symbolic>".to_string())).take(typesignature.len()).collect();
+
+  // Create calldata fragments based on argument type and value
+  let calldatas =
+    typesignature.iter().zip(args.iter()).enumerate().map(|(i, (typ, arg))| mk_arg(typ, arg, i + 1)).collect();
+
+  // Combine fragments into a single buffer and extract props
+  let (cd_buf, props) = combine_fragments(calldatas, base);
+
+  // Add selector to the buffer
+  let with_selector = write_selector(cd_buf, sig);
+
+  // Create size constraints
+  let size_constraints = {
+    let buf_length = expr_buf_length(&with_selector);
+    let cd_len = calldata_len(&calldatas);
+    buf_length >= cd_len && buf_length < 2_u64.pow(64)
+  };
+
+  (with_selector, iter::once(size_constraints).chain(props.into_iter()).collect())
+  */
+}
+
 fn mk_calldata(sig: Option<Sig>, args: &[String]) -> (Expr, Vec<Prop>) {
   match sig {
     Some(Sig { method_signature: name, inputs: types }) => {
-      todo!()
+      sym_calldata(&name, &types, args, Expr::AbstractBuf("txdata".to_string()))
     }
     None => (
       Expr::AbstractBuf("txdata".to_string()),

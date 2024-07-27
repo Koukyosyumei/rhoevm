@@ -4,8 +4,6 @@ use std::fmt::Display;
 
 use crate::modules::types::Addr;
 
-use super::types::ByteString;
-
 #[derive(Debug, Clone)]
 pub struct Sig {
   pub method_signature: String,
@@ -98,13 +96,13 @@ impl Display for AbiType {
 
 // Define AbiKind enum
 #[derive(Debug, Clone, PartialEq)]
-enum AbiKind {
+pub enum AbiKind {
   Dynamic,
   Static,
 }
 
 // Define functions to determine AbiKind and AbiValueType
-fn abi_kind(t: &AbiType) -> AbiKind {
+pub fn abi_kind(t: &AbiType) -> AbiKind {
   match t {
     AbiType::AbiBytesDynamicType => AbiKind::Dynamic,
     AbiType::AbiStringType => AbiKind::Dynamic,
@@ -121,7 +119,7 @@ fn abi_kind(t: &AbiType) -> AbiKind {
   }
 }
 
-fn abi_value_type(v: &AbiValue) -> AbiType {
+pub fn abi_value_type(v: &AbiValue) -> AbiType {
   match v {
     AbiValue::AbiUInt(_, _) => AbiType::AbiUIntType(0),
     AbiValue::AbiInt(_, _) => AbiType::AbiIntType(0),
@@ -136,26 +134,3 @@ fn abi_value_type(v: &AbiValue) -> AbiType {
     AbiValue::AbiFunction(_) => AbiType::AbiFunctionType,
   }
 }
-
-pub fn make_abi_value(typ: &AbiType, str: &String) -> AbiValue {
-  todo!()
-}
-
-pub fn selector(s: &String) -> ByteString {
-  todo!()
-}
-
-/*
-makeAbiValue :: AbiType -> String -> AbiValue
-makeAbiValue typ str = case readP_to_S (parseAbiValue typ) (padStr str) of
-  [(val,"")] -> val
-  _ -> internalError $ "could not parse abi argument: " ++ str ++ " : " ++ show typ
-  where
-    padStr = case typ of
-      (AbiBytesType n) -> padRight' (2 * n + 2) -- +2 is for the 0x prefix
-      _ -> id
-
-selector :: Text -> BS.ByteString
-selector s = BSLazy.toStrict . runPut $
-  putWord32be (abiKeccak (encodeUtf8 s)).unFunctionSelector
-*/

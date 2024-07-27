@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::error::Error;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::vec;
@@ -11,7 +9,7 @@ use std::vec;
 use crate::modules::effects::Config;
 use crate::modules::expr::copy_slice;
 use crate::modules::expr::{
-  add, conc_keccak_simp_expr, concrete_prefix, create2_address_, create_address_, drop, emin, eq, gt, index_word,
+  add, conc_keccak_simp_expr, concrete_prefix, create2_address_, create_address_, drop, emin, eq, gt, index_word, or,
   read_byte, read_bytes, read_storage, read_word, read_word_from_bytes, simplify, sub, to_list, word_to_addr,
   write_byte, write_storage, write_word, MAX_BYTES,
 };
@@ -20,10 +18,10 @@ use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
   from_list, keccak, keccak_bytes, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word,
-  pad_left_prime, pad_right, unbox, word256_bytes, Addr, BaseState, Block, BranchCondition, ByteString, Cache,
-  CodeLocation, Contract, ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, GVar,
-  Gas, Memory, MutableMemory, PartialExec, Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData,
-  TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
+  pad_left_prime, pad_right, unbox, word256_bytes, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract,
+  ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, GVar, Gas, Memory,
+  MutableMemory, PartialExec, Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState,
+  VMOpts, VMResult, W256W256Map, VM, W256, W64,
 };
 
 use super::format::format_prop;
@@ -980,9 +978,9 @@ impl VM {
         Op::Create => {
           not_static(self, || {});
           //if let [x_value, x_offset, x_size, xs @ ..] = &self.state.stack.clone()[..] {
-          if let [xs @ .., x_size, x_offset, x_value] = &self.state.stack.clone()[..] {
+          if let [_xs @ .., x_size, x_offset, x_value] = &self.state.stack.clone()[..] {
             access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
-            let available_gas = 0; // Example available gas
+            //let available_gas = 0; // Example available gas
             let (cost, gas) = (0, Gas::Symbolic); //cost_of_create(0, available_gas, x_size, false); // Example fees
             let new_addr = create_address(self, self_contract.clone(), this_contract.nonce); // Example self and nonce
             let _ = access_account_for_gas(self, new_addr.clone());
@@ -1056,10 +1054,10 @@ impl VM {
           true
         }
         Op::Callcode => {
-          if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_value, x_to, x_gas] =
+          if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_value, x_to, _x_gas] =
             &self.state.stack.clone()[..]
           {
-            force_addr(x_to, "unable to determine a call target", |x_to_| {});
+            force_addr(x_to, "unable to determine a call target", |_| {});
             // gasTryFrom(x_gas)
             delegate_call(
               self,
@@ -1119,7 +1117,7 @@ impl VM {
           true //false
         }
         Op::Delegatecall => {
-          if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_to, x_gas] =
+          if let [_xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_to, _x_gass] =
             &self.state.stack.clone()[..]
           {
             match 0 {
@@ -1375,7 +1373,20 @@ impl VM {
                   Box::new(Expr::Add(Box::new(*x_from.clone()), Box::new(*x_size.clone()))),
                   Box::new(*x_from.clone()),
                 );
-                //branch(self, &or(oob, overflow), jump);
+
+                let mut cond = BranchReachability::NONE;
+                branch(self, &or(oob, overflow), |arg0: BranchReachability| Ok(cond = arg0));
+                if cond == BranchReachability::ONLYELSE {
+                  copy_bytes_to_memory(
+                    self.state.returndata.clone(),
+                    *x_size.clone(),
+                    *x_from.clone(),
+                    *x_to.clone(),
+                    self,
+                  );
+                } else {
+                  vm_error("ReturnDataOutOfBounds");
+                }
               }
             }
           } else {
@@ -2817,11 +2828,11 @@ fn call_checks<F>(
 ) where
   F: FnOnce(Gas),
 {
-  let fees = vm.block.schedule.clone();
+  //let fees = vm.block.schedule.clone();
   access_memory_range(vm, x_in_offset.clone(), x_in_size.clone(), || {});
   access_memory_range(vm, x_out_offset.clone(), x_out_size.clone(), || {});
-  let available_gas = vm.state.gas.clone();
-  let recipient_exists = account_exists(x_context.clone(), vm);
+  //let available_gas = vm.state.gas.clone();
+  //let recipient_exists = account_exists(x_context.clone(), vm);
   let from = vm.config.override_caller.clone().unwrap_or(vm.state.contract.clone());
   let from_maybe = vm.env.contracts.get(&from);
   let from_balance = if let Some(fm) = from_maybe { Some(fm.balance.clone()) } else { None };
