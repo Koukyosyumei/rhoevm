@@ -134,7 +134,7 @@ fn min_distance(ka: Expr, kb: Expr) -> Prop {
 fn compute(e: &Expr) -> AddableVec<Prop> {
   match e.clone() {
     Expr::Keccak(buf) => {
-      let b = simplify(&buf);
+      let b = simplify(buf);
       match keccak(b).unwrap() {
         lit @ Expr::Lit(_) => AddableVec::from_vec(vec![Prop::PEq(e.clone(), lit)]),
         _ => AddableVec::from_vec(vec![]),

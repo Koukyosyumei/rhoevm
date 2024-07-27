@@ -263,7 +263,7 @@ fn to_buf(model: BufModel) -> Option<Expr> {
     BufModel::Comp(CompressedBuf::Write { byte, idx, next }) => {
       let next = to_buf(BufModel::Comp(unbox(next)));
       if let Some(n) = next {
-        Some(write_byte(Expr::Lit(idx), Expr::LitByte(byte), n))
+        Some(write_byte(Box::new(Expr::Lit(idx)), Box::new(Expr::LitByte(byte)), Box::new(n)))
       } else {
         None
       }
@@ -393,7 +393,7 @@ fn discover_max_reads(props: &Vec<Prop>, benv: &BufEnv, senv: &StoreEnv) -> Hash
   let buf_map = all_reads.into_iter().fold(HashMap::new(), |mut m, (idx, size, buf)| {
     match base_buf(buf.clone(), benv) {
       Expr::AbstractBuf(b) => {
-        m.insert(b.clone(), add(idx, size));
+        m.insert(b.clone(), add(Box::new(idx), Box::new(size)));
       }
       _ => {}
     }
@@ -404,7 +404,7 @@ fn discover_max_reads(props: &Vec<Prop>, benv: &BufEnv, senv: &StoreEnv) -> Hash
   let merged_map = {
     let mut map = buf_map.clone();
     for (key, value) in all_bufs {
-      map.entry(key).and_modify(|e| *e = emax(e.clone(), value.clone())).or_insert(value);
+      map.entry(key).and_modify(|e| *e = emax(Box::new(e.clone()), Box::new(value.clone()))).or_insert(value);
     }
     map
   };
@@ -651,11 +651,11 @@ fn referenced_block_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<P
     match x {
       Expr::Origin => {
         //context_set.insert((("origin"), vec![in_range(160, Origin.clone())]));
-        AddableVec::from_vec(vec![(("origin".to_string()), vec![in_range(160, Expr::Origin)])])
+        AddableVec::from_vec(vec![(("origin".to_string()), vec![in_range(160, Box::new(Expr::Origin))])])
       }
       Expr::Coinbase => {
         //context_set.insert((("coinbase"), vec![in_range(160, Coinbase.clone())]));
-        AddableVec::from_vec(vec![(("coinbase".to_string()), vec![in_range(160, Expr::Coinbase)])])
+        AddableVec::from_vec(vec![(("coinbase".to_string()), vec![in_range(160, Box::new(Expr::Coinbase))])])
       }
       Expr::Timestamp => {
         //context_set.insert((("timestamp"), vec![]));
@@ -818,7 +818,7 @@ fn assert_read(read: (Expr, Expr, Expr)) -> Vec<Prop> {
 fn keep_read(read: &(Expr, Expr, Expr), benv: &BufEnv) -> bool {
   match read {
     (Expr::Lit(idx), Expr::Lit(size), buf) => {
-      if let Some(l) = min_length(benv, buf) {
+      if let Some(l) = min_length(benv, Box::new(buf.clone())) {
         idx.clone() + size.clone() <= W256(l as u128, 0)
       } else {
         true
@@ -1209,9 +1209,9 @@ fn internal(size: Expr, src_offset: Expr, dst_offset: Expr, dst: Builder) -> Bui
   match size {
     Expr::Lit(W256(0, 0)) => dst,
     _ => {
-      let size_prime = sub(size, Expr::Lit(W256(1, 0)));
-      let enc_dst_off = expr_to_smt(add(dst_offset.clone(), size_prime.clone()));
-      let enc_src_off = expr_to_smt(add(src_offset.clone(), size_prime.clone()));
+      let size_prime = sub(Box::new(size), Box::new(Expr::Lit(W256(1, 0))));
+      let enc_dst_off = expr_to_smt(add(Box::new(dst_offset.clone()), Box::new(size_prime.clone())));
+      let enc_src_off = expr_to_smt(add(Box::new(src_offset.clone()), Box::new(size_prime.clone())));
       let child = internal(size_prime, src_offset.clone(), dst_offset.clone(), dst);
       format!("(store {} {} (select src {}))", child, enc_dst_off, enc_src_off)
     }
@@ -1695,9 +1695,9 @@ fn find_storage_reads(p: &Prop) -> HashMap<(Expr, Option<W256>), HashSet<Expr>> 
   fn f(expr: &Expr) -> AddableVec<((Expr, Option<W256>), HashSet<Expr>)> {
     match expr {
       Expr::SLoad(slot, store) => {
-        if contains_node(|e: &Expr| is_abstract_store(e.clone()), *store.clone()) {
-          let addr = get_addr(*store.clone()).unwrap_or_else(|| panic!("could not extract address from store"));
-          let idx = get_logical_idx(*store.clone());
+        if contains_node(|e: &Expr| is_abstract_store(e.clone()), store.clone()) {
+          let addr = get_addr(store.clone()).unwrap_or_else(|| panic!("could not extract address from store"));
+          let idx = get_logical_idx(store.clone());
           let hs = HashSet::from([*slot.clone()]);
           AddableVec::from_vec(vec![((addr, idx), hs)])
         } else {

@@ -710,7 +710,7 @@ impl VM {
         Op::Mload => {
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
             let buf = read_memory(self, *x.clone(), Expr::Lit(W256(32, 0)));
-            let w = read_word_from_bytes(&Expr::Lit(W256(0, 0)), &buf);
+            let w = read_word_from_bytes(Box::new(Expr::Lit(W256(0, 0))), Box::new(buf));
             self.state.stack = std::iter::once(w).chain(xs.iter().cloned()).collect();
             next(self, op);
             access_memory_word(self, *x.clone(), || {});
@@ -744,11 +744,11 @@ impl VM {
                   }
                   _ => {
                     let buf = freeze_memory(&mem);
-                    self.state.memory = Memory::SymbolicMemory(write_word(*x.clone(), *y.clone(), buf));
+                    self.state.memory = Memory::SymbolicMemory(write_word(x.clone(), y.clone(), Box::new(buf)));
                   }
                 },
                 Memory::SymbolicMemory(mem) => {
-                  self.state.memory = Memory::SymbolicMemory(write_word(*x.clone(), *y.clone(), mem.clone()));
+                  self.state.memory = Memory::SymbolicMemory(write_word(x.clone(), y.clone(), Box::new(mem.clone())));
                 }
               }
               self.state.stack = xs.to_vec();
@@ -765,7 +765,7 @@ impl VM {
         Op::Mstore8 => {
           if let Some((x, rest)) = self.state.stack.clone().split_last() {
             if let Some((y, xs)) = rest.split_last() {
-              let y_byte = index_word(Expr::Lit(W256(31, 0)), *y.clone());
+              let y_byte = index_word(Box::new(Expr::Lit(W256(31, 0))), y.clone());
               next(self, op);
               match &self.state.memory {
                 Memory::ConcreteMemory(mem) => match y_byte {
@@ -780,11 +780,12 @@ impl VM {
                   }
                   _ => {
                     let buf = freeze_memory(&mem);
-                    self.state.memory = Memory::SymbolicMemory(write_byte(*x.clone(), y_byte, buf));
+                    self.state.memory = Memory::SymbolicMemory(write_byte(x.clone(), Box::new(y_byte), Box::new(buf)));
                   }
                 },
                 Memory::SymbolicMemory(mem) => {
-                  self.state.memory = Memory::SymbolicMemory(write_byte(*x.clone(), y_byte, mem.clone()));
+                  self.state.memory =
+                    Memory::SymbolicMemory(write_byte(x.clone(), Box::new(y_byte), Box::new(mem.clone())));
                 }
               }
               self.state.stack = xs.to_vec();
@@ -825,10 +826,10 @@ impl VM {
               // Access current storage
               let mut current: Expr = Expr::Mempty;
               access_storage(self, self_contract.clone(), *x.clone(), |current_| current = current_);
-              let original = match conc_keccak_simp_expr(Expr::SLoad(
-                Box::new(*x.clone()),
+              let original = match conc_keccak_simp_expr(Box::new(Expr::SLoad(
+                x.clone(),
                 Box::new(this_contract.orig_storage.clone()),
-              )) {
+              ))) {
                 Expr::Lit(v) => v,
                 _ => W256(0, 0),
               };
@@ -859,9 +860,9 @@ impl VM {
               next(self, op);
               self.state.stack = xs.to_vec();
               self.env.contracts.get_mut(&self_contract.clone()).unwrap().storage = write_storage(
-                *x.clone(),
-                *new.clone(),
-                self.env.contracts.get_mut(&self_contract.clone()).unwrap().storage.clone(),
+                x.clone(),
+                new.clone(),
+                Box::new(self.env.contracts.get_mut(&self_contract.clone()).unwrap().storage.clone()),
               );
 
               match (maybe_lit_word(current), maybe_lit_word(*new.clone())) {
@@ -1008,7 +1009,7 @@ impl VM {
             &self.state.stack.clone()[..]
           {
             let mut gt0 = BranchReachability::NONE;
-            let else_vm_ = branch(self, &gt(*x_value.clone(), Expr::Lit(W256(0, 0))), |gt0_| Ok(gt0 = gt0_));
+            let else_vm_ = branch(self, &gt(x_value.clone(), Box::new(Expr::Lit(W256(0, 0)))), |gt0_| Ok(gt0 = gt0_));
             if gt0 == BranchReachability::ONLYTHEN || gt0 == BranchReachability::BOTH {
               not_static(self, || {});
             }
@@ -1103,7 +1104,7 @@ impl VM {
               } else {
                 let frame_returned = finish_frame(self, FrameResult::FrameReturned(output.clone()));
                 let frame_errored = finish_frame(self, FrameResult::FrameErrored(EvmError::InvalidFormat));
-                match read_byte(Expr::Lit(W256(0, 0)), output) {
+                match read_byte(Box::new(Expr::Lit(W256(0, 0))), Box::new(output)) {
                   Expr::Lit(W256(0xef, 0)) => frame_errored,
                   _ => frame_returned,
                 }
@@ -1194,7 +1195,7 @@ impl VM {
         }
         Op::Staticcall => {
           if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_to, x_gas] = &self.state.stack[..] {
-            match word_to_addr(*x_to.clone()) {
+            match word_to_addr(x_to.clone()) {
               // wordToAddr(x_to)
               None => {
                 let loc = codeloc(self);
@@ -1255,7 +1256,9 @@ impl VM {
                 let funds = this_contract.balance.clone(); // this.balance
                 let recipient_exists = false; // accountExists(x_to, vm)
                 let mut has_funds = BranchReachability::NONE;
-                let else_vm_ = branch(self, &eq(funds, Expr::Lit(W256(0, 0))), |has_funds_| Ok(has_funds = has_funds_));
+                let else_vm_ = branch(self, &eq(Box::new(funds), Box::new(Expr::Lit(W256(0, 0)))), |has_funds_| {
+                  Ok(has_funds = has_funds_)
+                });
                 let c_new = if !recipient_exists
                   && (has_funds == BranchReachability::ONLYTHEN || has_funds == BranchReachability::BOTH)
                 {
@@ -1375,7 +1378,7 @@ impl VM {
                 );
 
                 let mut cond = BranchReachability::NONE;
-                branch(self, &or(oob, overflow), |arg0: BranchReachability| Ok(cond = arg0));
+                branch(self, &or(Box::new(oob), Box::new(overflow)), |arg0: BranchReachability| Ok(cond = arg0));
                 if cond == BranchReachability::ONLYELSE {
                   copy_bytes_to_memory(
                     self.state.returndata.clone(),
@@ -1663,7 +1666,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
                 Expr::ConcreteBuf(bs) => {
                   on_contract_code(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)))
                 }
-                _ => match to_list(output.clone()) {
+                _ => match to_list(Box::new(output.clone())) {
                   None => {
                     vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
                       pc: vm.state.pc.clone(),
@@ -1867,7 +1870,7 @@ fn access_memory_word(vm: &mut VM, x: Expr, continue_fn: impl Fn()) {
 }
 
 fn copy_call_bytes_to_memory(vm: &mut VM, bs: Expr, size: Expr, y_offset: Expr) {
-  let size_min = emin(size, buf_length(bs.clone()));
+  let size_min = emin(Box::new(size), Box::new(buf_length(bs.clone())));
   copy_bytes_to_memory(bs, size_min, Expr::Lit(W256(0, 0)), y_offset, vm);
 }
 
@@ -1900,10 +1903,22 @@ fn read_memory(vm: &mut VM, offset_: Expr, size_: Expr) -> Expr {
       }
       _ => {
         let buf = freeze_memory(mem);
-        copy_slice(offset_, Expr::Lit(W256(0, 0)), size_, buf, Expr::Mempty)
+        copy_slice(
+          Box::new(offset_),
+          Box::new(Expr::Lit(W256(0, 0))),
+          Box::new(size_),
+          Box::new(buf),
+          Box::new(Expr::Mempty),
+        )
       }
     },
-    Memory::SymbolicMemory(mem) => copy_slice(offset_, Expr::Lit(W256(0, 0)), size_, mem.clone(), Expr::Mempty),
+    Memory::SymbolicMemory(mem) => copy_slice(
+      Box::new(offset_),
+      Box::new(Expr::Lit(W256(0, 0))),
+      Box::new(size_),
+      Box::new(mem.clone()),
+      Box::new(Expr::Mempty),
+    ),
   }
 }
 
@@ -1974,7 +1989,7 @@ fn stack_op1(vm: &mut VM, gas: u64, op: &str) -> bool {
     let res = match op {
       "iszero" => Box::new(Expr::IsZero(a.clone())),
       "not" => Box::new(Expr::Not(a.clone())),
-      "calldataload" => read_word(&a, &vm.state.calldata), // Box::new(Expr::Mempty),
+      "calldataload" => read_word(a.clone(), Box::new(vm.state.calldata.clone())), // Box::new(Expr::Mempty),
       _ => Box::new(Expr::Mempty),
     };
     vm.state.stack = xs.to_vec();
@@ -2114,9 +2129,9 @@ fn buf_length_env(env: HashMap<i32, Expr>, use_env: bool, buf: Expr) -> Expr {
     match buf {
       Expr::ConcreteBuf(b) => max_expr(l, Expr::Lit(W256(b.len() as u128, 0))),
       Expr::AbstractBuf(b) => max_expr(l, Expr::BufLength(Box::new(Expr::AbstractBuf(b)))),
-      Expr::WriteWord(idx, _, b) => go(max_expr(l, add(*idx, Expr::Lit(W256(32, 0)))), *b, env, use_env),
-      Expr::WriteByte(idx, _, b) => go(max_expr(l, add(*idx, Expr::Lit(W256(1, 0)))), *b, env, use_env),
-      Expr::CopySlice(_, dst_offset, size, _, dst) => go(max_expr(l, add(*dst_offset, *size)), *dst, env, use_env),
+      Expr::WriteWord(idx, _, b) => go(max_expr(l, add(idx, Box::new(Expr::Lit(W256(32, 0))))), *b, env, use_env),
+      Expr::WriteByte(idx, _, b) => go(max_expr(l, add(idx, Box::new(Expr::Lit(W256(1, 0))))), *b, env, use_env),
+      Expr::CopySlice(_, dst_offset, size, _, dst) => go(max_expr(l, add(dst_offset, size)), *dst, env, use_env),
       Expr::GVar(GVar::BufVar(a)) => {
         if use_env {
           if let Some(b) = env.get(&a) {
@@ -2157,13 +2172,13 @@ pub fn access_storage<F>(vm: &mut VM, addr: Expr, slot: Expr, continue_fn: F)
 where
   F: FnOnce(Expr),
 {
-  let slot_conc = conc_keccak_simp_expr(slot.clone());
+  let slot_conc = conc_keccak_simp_expr(Box::new(slot.clone()));
 
   match vm.env.contracts.get(&addr) {
-    Some(c) => match read_storage(&slot, &c.storage) {
-      Some(x) => match read_storage(&slot_conc, &c.storage) {
+    Some(c) => match read_storage(Box::new(slot.clone()), Box::new(c.storage.clone())) {
+      Some(x) => match read_storage(Box::new(slot_conc.clone()), Box::new(c.storage.clone())) {
         Some(_) => continue_fn(x),
-        None => rpc_call(vm, addr, slot.clone(), c.clone(), slot_conc, continue_fn),
+        None => rpc_call(vm, addr, slot.clone(), c.clone(), slot_conc.clone(), continue_fn),
       },
       None => rpc_call(vm, addr, slot.clone(), c.clone(), slot_conc, continue_fn),
     },
@@ -2182,7 +2197,7 @@ where
     if let Some(addr_) = maybe_lit_addr(addr.clone()) {
       if force_concrete(vm, &slot_conc.clone(), "cannot read symbolic slots via RPC", |_| {}) {
         match vm.cache.fetched.clone().get(&addr_) {
-          Some(fetched) => match read_storage(&slot, &fetched.storage) {
+          Some(fetched) => match read_storage(Box::new(slot), Box::new(fetched.storage.clone())) {
             Some(val) => continue_fn(val),
             None => mk_query(vm, addr, maybe_lit_word(slot_conc.clone()).unwrap().0 as u64, continue_fn),
           },
@@ -2197,8 +2212,11 @@ where
       }));
     }
   } else {
-    vm.env.contracts.entry(addr).or_insert(empty_contract()).storage =
-      write_storage(slot, Expr::Lit(W256(0, 0)), vm.env.contracts.get(&addr).unwrap().storage.clone());
+    vm.env.contracts.entry(addr).or_insert(empty_contract()).storage = write_storage(
+      Box::new(slot),
+      Box::new(Expr::Lit(W256(0, 0))),
+      Box::new(vm.env.contracts.get(&addr).unwrap().storage.clone()),
+    );
     continue_fn(Expr::Lit(W256(0, 0)))
   }
 }
@@ -2314,8 +2332,11 @@ fn delegate_call(
       _ => {
         //burn(vm, 0, || {});
         let calldata = read_memory(vm, x_in_offset.clone(), x_in_size);
-        let abi =
-          maybe_lit_word(read_bytes(4, Expr::Lit(W256(0, 0)), read_memory(vm, x_in_offset, Expr::Lit(W256(4, 0)))));
+        let abi = maybe_lit_word(read_bytes(
+          4,
+          Box::new(Expr::Lit(W256(0, 0))),
+          Box::new(read_memory(vm, x_in_offset, Expr::Lit(W256(4, 0)))),
+        ));
         let new_context = FrameContext::CallContext {
           target: x_to.clone(),
           context: x_context.clone(),
@@ -2398,7 +2419,7 @@ fn create(
     next(vm, op);
   } else {
     let mut condition = BranchReachability::NONE;
-    branch(vm, &gt(x_value.clone(), this.balance.clone()), |condition_| Ok(condition = condition_));
+    branch(vm, &gt(Box::new(x_value.clone()), Box::new(this.balance.clone())), |condition_| Ok(condition = condition_));
     if condition == BranchReachability::ONLYTHEN || condition == BranchReachability::BOTH {
       vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
       vm.state.returndata = Expr::Mempty;
@@ -2567,15 +2588,16 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr) -> Result<(), EvmError
 
   match (src_balance, dst_balance.clone()) {
     (Some(src_bal), Some(_)) => {
-      branch(vm, &gt(val.clone(), src_bal.clone()), |cond| {
+      branch(vm, &gt(Box::new(val.clone()), Box::new(src_bal.clone())), |cond| {
         if cond == BranchReachability::ONLYTHEN || cond == BranchReachability::BOTH {
           Err(EvmError::BalanceTooLow(Box::new(val.clone()), Box::new(src_bal.clone())))
         } else {
           Ok(())
         }
       });
-      vm.env.contracts.entry(src).or_insert(empty_contract()).balance = sub(src_bal, val.clone());
-      vm.env.contracts.entry(dst).or_insert(empty_contract()).balance = add(dst_balance.unwrap(), val.clone());
+      vm.env.contracts.entry(src).or_insert(empty_contract()).balance = sub(Box::new(src_bal), Box::new(val.clone()));
+      vm.env.contracts.entry(dst).or_insert(empty_contract()).balance =
+        add(Box::new(dst_balance.unwrap()), Box::new(val.clone()));
       Ok(())
     }
     (None, Some(_)) => match src {
@@ -2696,8 +2718,8 @@ where
   let mut new_vm = None;
   let mut branchcond = BranchReachability::NONE;
 
-  let cond_simp = simplify(cond);
-  let cond_simp_conc = conc_keccak_simp_expr(cond_simp);
+  let cond_simp = simplify(Box::new(cond.clone()));
+  let cond_simp_conc = conc_keccak_simp_expr(Box::new(cond_simp));
   let then_branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)))));
   let else_branch_cond = Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)));
 
@@ -2719,7 +2741,7 @@ where
     let mut new_vm_ = vm.clone();
     new_vm_.constraints.pop();
     new_vm_.constraints.push(else_branch_cond);
-    if (itr_cnt >= 32) {
+    if itr_cnt >= 32 {
       *new_vm_.iterations.entry(loc).or_insert((0, new_vm_.state.stack.clone())) = (0, new_vm_.state.stack.clone())
     }
     new_vm = Some(new_vm_);
@@ -2792,11 +2814,11 @@ fn parse_init_code(buf: Expr) -> Option<ContractCode> {
   match buf {
     Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(b, Box::new(Expr::Mempty))),
     _ => {
-      let conc = concrete_prefix(&buf);
+      let conc = concrete_prefix(Box::new(buf.clone()));
       if conc.is_empty() {
         None
       } else {
-        let sym = drop(W256(conc.len() as u128, 0), buf);
+        let sym = drop(W256(conc.len() as u128, 0), Box::new(buf));
         Some(ContractCode::InitCode(conc, Box::new(sym)))
       }
     }
@@ -2856,7 +2878,8 @@ fn call_checks<F>(
     (Some(fb), _) => {
       burn(vm, cost - gas_left, || {});
       let mut is_greater = BranchReachability::NONE;
-      let else_vm_ = branch(vm, &gt(x_value.clone(), fb), |is_greater_| Ok(is_greater = is_greater_));
+      let else_vm_ =
+        branch(vm, &gt(Box::new(x_value.clone()), Box::new(fb)), |is_greater_| Ok(is_greater = is_greater_));
       if is_greater == BranchReachability::ONLYELSE || is_greater == BranchReachability::BOTH {
         vm.state.stack = xs.to_vec();
         vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
