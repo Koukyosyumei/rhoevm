@@ -2,16 +2,16 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Display;
 
-use crate::modules::types::Addr;
+use crate::modules::types::{Addr, ByteString};
 
 #[derive(Debug, Clone)]
 pub struct Sig {
   pub method_signature: String,
-  pub inputs: Vec<String>,
+  pub inputs: Vec<AbiType>,
 }
 
 impl Sig {
-  pub fn new(method_signature: &str, inputs: &[String]) -> Self {
+  pub fn new(method_signature: &str, inputs: &[AbiType]) -> Self {
     Self { method_signature: method_signature.to_string(), inputs: inputs.to_vec() }
   }
 }
@@ -133,4 +133,12 @@ pub fn abi_value_type(v: &AbiValue) -> AbiType {
     AbiValue::AbiTuple(v) => AbiType::AbiTupleType(v.iter().map(abi_value_type).collect()),
     AbiValue::AbiFunction(_) => AbiType::AbiFunctionType,
   }
+}
+
+pub fn make_abi_value(typ: &AbiType, str: &String) -> AbiValue {
+  todo!()
+}
+
+pub fn selector(s: &String) -> ByteString {
+  todo!()
 }

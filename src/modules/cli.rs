@@ -8,11 +8,13 @@ use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};
 use crate::modules::format::{hex_byte_string, strip_0x};
 //use crate::modules::solvers::{with_solvers, Solver};
+use crate::modules::symexec::mk_calldata;
 use crate::modules::transactions::init_tx;
 use crate::modules::types::{
   Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
 };
 
+use super::abi::AbiType;
 use super::evm::buf_length;
 
 type URL = String;
@@ -52,18 +54,18 @@ pub struct SymbolicCommand {
   // Symbolic execution opts
   pub root: Option<String>, // Path to project root directory (default: .)
   // project_type: Option<ProjectType>,       // Is this a Foundry or DappTools project (default: Foundry)
-  initial_storage: Option<InitialStorage>, // Starting state for storage: Empty, Abstract (default Abstract)
-  sig: Option<String>,                     // Signature of types to decode/encode
-  arg: Vec<String>,                        // Values to encode
-  pub get_models: bool,                    // Print example testcase for each execution path
-  pub show_tree: bool,                     // Print branches explored in tree view
-  pub show_reachable_tree: bool,           // Print only reachable branches explored in tree view
-  pub smt_timeout: Option<usize>,          // Timeout given to SMT solver in seconds (default: 300)
-  pub max_iterations: Option<i64>,         // Number of times we may revisit a particular branching point
-  pub solver: Option<String>,              // Used SMT solver: z3 (default), cvc5, or bitwuzla
-  pub smt_debug: bool,                     // Print smt queries sent to the solver
-  pub debug: bool,                         // Debug printing of internal behaviour
-  pub trace: bool,                         // Dump trace
+  pub initial_storage: Option<InitialStorage>, // Starting state for storage: Empty, Abstract (default Abstract)
+  pub sig: Option<String>,                     // Signature of types to decode/encode
+  pub arg: Vec<String>,                        // Values to encode
+  pub get_models: bool,                        // Print example testcase for each execution path
+  pub show_tree: bool,                         // Print branches explored in tree view
+  pub show_reachable_tree: bool,               // Print only reachable branches explored in tree view
+  pub smt_timeout: Option<usize>,              // Timeout given to SMT solver in seconds (default: 300)
+  pub max_iterations: Option<i64>,             // Number of times we may revisit a particular branching point
+  pub solver: Option<String>,                  // Used SMT solver: z3 (default), cvc5, or bitwuzla
+  pub smt_debug: bool,                         // Print smt queries sent to the solver
+  pub debug: bool,                             // Debug printing of internal behaviour
+  pub trace: bool,                             // Dump trace
   pub assertions: Option<Vec<W256>>, // List of solc panic codes to check for (default: user defined assertion violations only)
   pub ask_smt_iterations: i64, // Number of times we may revisit a particular branching point before consulting the SMT solver to check reachability (default: 1)
   pub num_cex_fuzz: i64,       // Number of fuzzing tries to generate a counterexample (default: 3)
@@ -308,46 +310,6 @@ pub fn build_calldata(cmd: &SymbolicCommand) -> Result<(Expr, Vec<Prop>), Box<dy
   }
 }
 
-fn sym_calldata(sig: &str, typesignature: &[String], concrete_args: &[String], base: Expr) -> (Expr, Vec<Prop>) {
-  todo!()
-  /*
-  // Extend concrete arguments with "<symbolic>" for missing values
-  let args: Vec<String> =
-    concrete_args.iter().cloned().chain(iter::repeat("<symbolic>".to_string())).take(typesignature.len()).collect();
-
-  // Create calldata fragments based on argument type and value
-  let calldatas =
-    typesignature.iter().zip(args.iter()).enumerate().map(|(i, (typ, arg))| mk_arg(typ, arg, i + 1)).collect();
-
-  // Combine fragments into a single buffer and extract props
-  let (cd_buf, props) = combine_fragments(calldatas, base);
-
-  // Add selector to the buffer
-  let with_selector = write_selector(cd_buf, sig);
-
-  // Create size constraints
-  let size_constraints = {
-    let buf_length = expr_buf_length(&with_selector);
-    let cd_len = calldata_len(&calldatas);
-    buf_length >= cd_len && buf_length < 2_u64.pow(64)
-  };
-
-  (with_selector, iter::once(size_constraints).chain(props.into_iter()).collect())
-  */
-}
-
-fn mk_calldata(sig: Option<Sig>, args: &[String]) -> (Expr, Vec<Prop>) {
-  match sig {
-    Some(Sig { method_signature: name, inputs: types }) => {
-      sym_calldata(&name, &types, args, Expr::AbstractBuf("txdata".to_string()))
-    }
-    None => (
-      Expr::AbstractBuf("txdata".to_string()),
-      vec![Prop::PLEq(buf_length(Expr::AbstractBuf("txdata".to_string())), Expr::Lit(W256(2 ^ 64, 0)))],
-    ),
-  }
-}
-
 fn function_abi(sig: &str) -> Result<AbiMethod, Box<dyn std::error::Error>> {
   // Implementation here
   Ok(AbiMethod { method_signature: sig.to_string(), inputs: vec![] })
@@ -355,5 +317,5 @@ fn function_abi(sig: &str) -> Result<AbiMethod, Box<dyn std::error::Error>> {
 
 struct AbiMethod {
   method_signature: String,
-  inputs: Vec<(String, String)>,
+  inputs: Vec<(String, AbiType)>,
 }

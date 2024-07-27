@@ -12,6 +12,7 @@ pub mod keccak;
 pub mod op;
 pub mod rlp;
 pub mod smt;
+pub mod symexec;
 pub mod transactions;
 pub mod traversals;
 pub mod types;
@@ -21,5 +22,5 @@ pub mod exec;
 pub mod solidity;
 pub mod solvers;
 pub mod stepper;
-pub mod symexec;
+
 */

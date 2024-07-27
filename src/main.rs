@@ -39,9 +39,11 @@ fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) 
 
 fn main() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
+  cmd.sig = Some("set".to_string());
   cmd.code = Some("6080604052348015600e575f80fd5b5060a78061001b5f395ff3fe6080604052348015600e575f80fd5b50600436106026575f3560e01c8063b8e010de14602a575b5f80fd5b60306032565b005b60646014101560425760416044565b5b565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52600160045260245ffdfea264697066735822122065b7f39f5ddce2e77d2ab00791f4d370969e41f919ccaaa8b11514e85980b54764736f6c63430008180033".into());
   let callcode = build_calldata(&cmd).unwrap();
   println!("calldata is {}", callcode.0);
+
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
   let mut i = 0;
