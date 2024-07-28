@@ -288,7 +288,18 @@ pub fn shl(x: Box<Expr>, y: Box<Expr>) -> Expr {
 }
 
 pub fn shr(x: Box<Expr>, y: Box<Expr>) -> Expr {
-  op2(Expr::SHR, |x, y| if x > W256(256, 0) { W256(0, 0) } else { y >> x.0 as u32 }, x, y)
+  op2(
+    Expr::SHR,
+    |x, y| {
+      if x > W256(256, 0) {
+        W256(0, 0)
+      } else {
+        y >> x.0 as u32
+      }
+    },
+    x,
+    y,
+  )
 }
 
 pub fn sar(x: Box<Expr>, y: Box<Expr>) -> Expr {
@@ -1201,12 +1212,12 @@ fn go_expr(expr: Box<Expr>) -> Expr {
     },
 
     Expr::SHL(a_, b_) => match (*a_.clone(), *b_.clone()) {
-      (Expr::Lit(a), b) => shl(Box::new(Expr::Lit(a << 1)), b_),
+      (Expr::Lit(a), b) => shl(Box::new(Expr::Lit(a)), b_),
       _ => shl(a_, b_),
     },
 
     Expr::SHR(a_, b_) => match (*a_.clone(), *b_.clone()) {
-      (Expr::Lit(a), b) => shr(Box::new(Expr::Lit(a >> 1)), b_),
+      (Expr::Lit(a), b) => shr(Box::new(Expr::Lit(a)), b_),
       _ => shr(a_, b_),
     },
 

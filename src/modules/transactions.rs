@@ -1,4 +1,3 @@
-
 use crate::modules::evm::initial_contract;
 use crate::modules::types::{
   update_balance, Contract, ContractCode, Expr, ExprContractMap, RuntimeCodeStruct, VM, W256,
@@ -52,14 +51,14 @@ pub fn init_tx(vm: &mut VM) -> &mut VM {
   // Update state based on conditions
   let mut init_state = pre_state.clone();
   if creation {
-    init_state.insert(to_addr.clone(), update_balance(to_contract, old_balance));
+    init_state.insert(*to_addr.clone(), update_balance(to_contract, old_balance));
   } else {
     touch_account(&mut init_state, &to_addr);
   }
 
   if let Some(is) = init_state.get_mut(&origin) {
     if let Expr::Lit(b) = is.balance.clone() {
-      if let Expr::Lit(v) = value.clone() {
+      if let Expr::Lit(v) = *value.clone() {
         is.balance = Expr::Lit(b - v)
       }
     }
@@ -67,7 +66,7 @@ pub fn init_tx(vm: &mut VM) -> &mut VM {
 
   if let Some(is) = init_state.get_mut(&to_addr) {
     if let Expr::Lit(b) = is.balance.clone() {
-      if let Expr::Lit(v) = value.clone() {
+      if let Expr::Lit(v) = *value.clone() {
         is.balance = Expr::Lit(b + v)
       }
     }

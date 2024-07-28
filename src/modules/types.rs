@@ -37,6 +37,16 @@ pub type Nibble = i32;
 pub type ByteString = Vec<u8>;
 pub type FunctionSelector = u32;
 
+/*
+-- Function Selectors ------------------------------------------------------------------------------
+
+
+-- | https://docs.soliditylang.org/en/v0.8.19/abi-spec.html#function-selector
+newtype FunctionSelector = FunctionSelector { unFunctionSelector :: Word32 }
+  deriving (Bits, Num, Eq, Ord, Real, Enum, Integral)
+instance Show FunctionSelector where show s = "0x" <> showHex s ""
+*/
+
 impl W256 {
   // Method to convert a decimal string to W256
   pub fn from_dec_str(s: &str) -> Result<Self, &'static str> {
@@ -675,7 +685,7 @@ impl fmt::Display for Expr {
       Expr::SStore(key, value, old_storage) => {
         write!(f, "SStore({}, {}, {})", key, value, old_storage)
       }
-      Expr::ConcreteBuf(buf) => write!(f, "ConcreteBuf({:?})", buf),
+      Expr::ConcreteBuf(buf) => write!(f, "ConcreteBuf({:x?})", buf),
       Expr::AbstractBuf(name) => write!(f, "AbstractBuf({})", name),
       Expr::ReadWord(index, src) => write!(f, "ReadWord({}, {})", index, src),
       Expr::ReadByte(index, src) => write!(f, "ReadByte({}, {})", index, src),
@@ -1334,18 +1344,18 @@ impl Memory {
 // The "registers" of the VM along with memory and data stack
 #[derive(Clone)]
 pub struct FrameState {
-  pub contract: Expr,
-  pub code_contract: Expr,
+  pub contract: Box<Expr>,
+  pub code_contract: Box<Expr>,
   pub code: ContractCode,
   pub pc: usize,
   pub stack: Vec<Box<Expr>>,
   pub memory: Memory,
   pub memory_size: u64,
-  pub calldata: Expr,
-  pub callvalue: Expr,
-  pub caller: Expr,
+  pub calldata: Box<Expr>,
+  pub callvalue: Box<Expr>,
+  pub caller: Box<Expr>,
   pub gas: Gas,
-  pub returndata: Expr,
+  pub returndata: Box<Expr>,
   pub static_flag: bool,
 }
 
@@ -1971,4 +1981,15 @@ pub fn keccak(buf: Expr) -> Result<Expr, &'static str> {
 pub fn keccak_prime(input: &ByteString) -> W256 {
   let hash_result = keccak_bytes(input);
   word256(&hash_result[..32].to_vec())
+}
+
+pub fn word32(xs: &[u8]) -> u32 {
+  xs.iter().rev().enumerate().fold(0, |acc, (n, &x)| acc | (u32::from(x) << (n)))
+}
+
+pub fn abi_keccak(input: &[u8]) -> FunctionSelector {
+  let hash_result = keccak_bytes(&input.to_vec());
+  let selector_bytes = &hash_result[..4];
+  let selector = word32(selector_bytes);
+  selector
 }

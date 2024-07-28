@@ -98,7 +98,7 @@ fn test_vm_opsha3() {
 
   vm.exec1(&mut vms);
   assert_eq!(vm.state.stack.len(), 1);
-  assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Keccak(ConcreteBuf([128, 112]))");
+  assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Keccak(ConcreteBuf([80, 70]))");
 }
 
 #[test]
