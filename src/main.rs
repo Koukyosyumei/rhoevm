@@ -1,7 +1,6 @@
 use env_logger;
-use log::info;
+use log::{error, info};
 use std::cmp::min;
-use std::env;
 use std::error::Error;
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
@@ -54,6 +53,8 @@ fn main() {
   let mut do_size = 0;
   let mut end = false;
   let mut found_calldataload = false;
+  let mut prev_op = "".to_string();
+  let mut prev_valid_op = "".to_string();
 
   env_logger::init();
 
@@ -62,11 +63,29 @@ fn main() {
       prev_pc = vm.state.pc;
       do_size = vm.decoded_opcodes.len();
       let continue_flag = vm.exec1(&mut vms, if found_calldataload { 32 } else { 1 });
+      prev_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
 
-      info!("pc: {}, op: {}", prev_pc, vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)],);
+      if !found_calldataload && prev_valid_op == "RETURN" && prev_op != "UNKNOWN" {
+        vm.state.base_pc = prev_pc;
+        info!("set base_pc = 0x{:x}", prev_pc);
+      }
+
+      if prev_op != "UNKNOWN" {
+        prev_valid_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
+      }
+
+      info!("pc: 0x{:x}, op: {}", prev_pc, prev_op);
 
       if !found_calldataload {
-        found_calldataload = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)] == "CALLDATALOAD";
+        found_calldataload = prev_valid_op == "CALLDATALOAD";
+      }
+
+      if found_calldataload && prev_op == "REVERT" {
+        let mut msg = "REVERT DETECTED\nConstraints (Raw Format):= true".to_string();
+        for e in &vm.constraints_raw_expr {
+          msg = msg + &format!(" && {}\n", *e);
+        }
+        error!("{}", msg);
       }
 
       if continue_flag {
@@ -85,6 +104,7 @@ fn main() {
     }
     info!("---------------");
     vm.constraints.clear();
+    vm.constraints_raw_expr.clear();
     vm.state.pc += 1;
   }
 }

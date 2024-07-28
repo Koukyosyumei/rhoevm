@@ -190,10 +190,9 @@ fn show_hex(x: u64, prefix: &str) -> String {
   format!("{}{:x}", prefix, x)
 }
 
-pub fn op_string(i: u64, o: Op) -> String {
+pub fn op_string(o: &Op) -> String {
   let show_pc = |x| show_pc(x);
-  let pc = show_pc(i);
-  let op = match o {
+  let result = match o {
     Op::Stop => "STOP",
     Op::Add => "ADD",
     Op::Mul => "MUL",
@@ -266,17 +265,17 @@ pub fn op_string(i: u64, o: Op) -> String {
     Op::Delegatecall => "DELEGATECALL",
     Op::Create2 => "CREATE2",
     Op::Selfdestruct => "SELFDESTRUCT",
-    Op::Dup(x) => &format!("{}{}", &&"DUP", (x)).to_string(),
-    Op::Swap(x) => &format!("{} {}", &&"SWAP {}", (x)).to_string(),
-    Op::Log(x) => &format!("{} {}", &&"LOG {}", (x)).to_string(),
+    Op::Dup(x) => &format!("{}{}", &&"DUP", x).to_string(),
+    Op::Swap(x) => &format!("{}{}", &&"SWAP", x).to_string(),
+    Op::Log(x) => &format!("{}{}", &&"LOG", x).to_string(),
     Op::Push0 => "PUSH0",
-    Op::Push(x) => &format!("{}{}", &&"PUSH", (x)).to_string(),
+    Op::Push(x) => &format!("{}{}", &&"PUSH", x).to_string(),
     Op::PushExpr(x) => match x {
       Expr::Lit(v) => &format!("{} {}", &&"PUSH 0x{}", show_hex(v.0 as u64, "")).to_string(),
       _ => panic!("invalid expr"),
     },
     Op::Revert => "REVERT",
-    Op::Unknown(x) => &format!("{} {}", &&"UNKNOWN {}", (x)).to_string(),
+    Op::Unknown(x) => &format!("{}", &&"UNKNOWN").to_string(),
   };
-  format!("{} {}", &pc, &op)
+  result.to_string()
 }

@@ -1,3 +1,4 @@
+use log::{error, info};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -35,6 +36,7 @@ pub fn blank_state() -> FrameState {
     code_contract: Box::new(Expr::LitAddr(W256(0, 0))),
     code: ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Vec::new())),
     pc: 0,
+    base_pc: 0,
     stack: Vec::new(),
     memory: Memory::ConcreteMemory(Vec::new()),
     memory_size: 0,
@@ -104,6 +106,7 @@ pub fn make_vm(opts: VMOpts) -> VM {
     },
     state: FrameState {
       pc: 0,
+      base_pc: 0,
       stack: Vec::new(),
       memory,
       memory_size: 0,
@@ -126,6 +129,7 @@ pub fn make_vm(opts: VMOpts) -> VM {
     cache: Cache { fetched: HashMap::new(), path: HashMap::new() },
     burned: Gas::Concerete(initial_gas()),
     constraints: opts.calldata.1.clone(),
+    constraints_raw_expr: vec![],
     iterations: HashMap::new(),
     config: RuntimeConfig {
       allow_ffi: opts.allow_ffi,
@@ -289,7 +293,7 @@ impl VM {
       };
 
       let decoded_op = get_op(op);
-      self.decoded_opcodes.push(op_string(self.state.pc as u64, decoded_op.clone()).to_string());
+      self.decoded_opcodes.push(op_string(&decoded_op).to_string());
 
       match decoded_op {
         Op::Push0 => {
@@ -323,7 +327,8 @@ impl VM {
               from_list(padded_bytes)
             }
           };
-          self.decoded_opcodes.push(xs.to_string());
+          let num_decoded_opcodes = self.decoded_opcodes.len() - 1;
+          self.decoded_opcodes[num_decoded_opcodes] += &(" ".to_string() + &xs.to_string());
 
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_verylow, || {});
@@ -924,7 +929,7 @@ impl VM {
               force_concrete(self, x, "JUMPI: symbolic jumpdest", |x_| x_int = x_.to_int());
 
               let mut condition = BranchReachability::NONE;
-              let else_vm_ = branch(self, y, |condition_| Ok(condition = condition_), max_num_iterations);
+              let else_vm_ = branch(self, y.clone(), |condition_| Ok(condition = condition_), max_num_iterations);
 
               if condition == BranchReachability::ONLYTHEN || condition == BranchReachability::BOTH {
                 match x_int {
@@ -1011,7 +1016,7 @@ impl VM {
             let mut gt0 = BranchReachability::NONE;
             let else_vm_ = branch(
               self,
-              &gt(x_value.clone(), Box::new(Expr::Lit(W256(0, 0)))),
+              Box::new(gt(x_value.clone(), Box::new(Expr::Lit(W256(0, 0))))),
               |gt0_| Ok(gt0 = gt0_),
               max_num_iterations,
             );
@@ -1268,7 +1273,7 @@ impl VM {
                 let mut has_funds = BranchReachability::NONE;
                 let else_vm_ = branch(
                   self,
-                  &eq(Box::new(funds), Box::new(Expr::Lit(W256(0, 0)))),
+                  Box::new(eq(Box::new(funds), Box::new(Expr::Lit(W256(0, 0))))),
                   |has_funds_| Ok(has_funds = has_funds_),
                   max_num_iterations,
                 );
@@ -1393,7 +1398,7 @@ impl VM {
                 let mut cond = BranchReachability::NONE;
                 branch(
                   self,
-                  &or(Box::new(oob), Box::new(overflow)),
+                  Box::new(or(Box::new(oob), Box::new(overflow))),
                   |arg0: BranchReachability| Ok(cond = arg0),
                   max_num_iterations,
                 );
@@ -2365,6 +2370,7 @@ fn delegate_call(
         vm.state = FrameState {
           gas: x_gas.clone(),
           pc: 0,
+          base_pc: 0,
           code: cleared_init_code,
           code_contract: Box::new(x_to.clone()),
           stack: vec![],
@@ -2428,7 +2434,7 @@ fn create(
     let mut condition = BranchReachability::NONE;
     branch(
       vm,
-      &gt(Box::new(x_value.clone()), Box::new(this.balance.clone())),
+      Box::new(gt(Box::new(x_value.clone()), Box::new(this.balance.clone()))),
       |condition_| Ok(condition = condition_),
       max_num_iterations,
     );
@@ -2526,9 +2532,9 @@ fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError>
   match &vm.state.code {
     ContractCode::InitCode(ops, buf_) => match *buf_.clone() {
       Expr::ConcreteBuf(b) if b.len() == 0 => {
-        if is_valid_jump_dest(vm, x) {
+        if is_valid_jump_dest(vm, x + vm.state.base_pc) {
           vm.state.stack = xs;
-          vm.state.pc = x;
+          vm.state.pc = x + vm.state.base_pc;
           return Ok(());
         } else {
           return Err(EvmError::BadJumpDestination);
@@ -2536,13 +2542,16 @@ fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError>
         // return Ok(());
       }
       _ => {
-        if x > ops.len() {
-          vm.result = Some(VMResult::Unfinished(PartialExec::JumpIntoSymbolicCode { pc: vm.state.pc, jump_dst: x }));
+        if x + vm.state.base_pc > ops.len() {
+          vm.result = Some(VMResult::Unfinished(PartialExec::JumpIntoSymbolicCode {
+            pc: vm.state.pc,
+            jump_dst: x + vm.state.base_pc,
+          }));
           return Ok(());
         } else {
-          if is_valid_jump_dest(vm, x) {
+          if is_valid_jump_dest(vm, x + vm.state.base_pc) {
             vm.state.stack = xs;
-            vm.state.pc = x;
+            vm.state.pc = x + vm.state.base_pc;
             return Ok(());
           } else {
             return Err(EvmError::BadJumpDestination);
@@ -2551,9 +2560,9 @@ fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError>
       }
     },
     _ => {
-      if is_valid_jump_dest(vm, x) {
+      if is_valid_jump_dest(vm, x + vm.state.base_pc) {
         vm.state.stack = xs;
-        vm.state.pc = x;
+        vm.state.pc = x + vm.state.base_pc;
         return Ok(());
       } else {
         return Err(EvmError::BadJumpDestination);
@@ -2579,7 +2588,10 @@ fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
   match op {
     // Some(0x5b) if contract.code_ops[contract.op_idx_map[x as usize] as usize].1 == Op::Jumpdest => true,
     Some(0x5b) => true,
-    _ => false,
+    _ => {
+      error!("{}, current pc: 0x{:x}, target pc: 0x{:x}", EvmError::BadJumpDestination, vm.state.pc, x);
+      false
+    }
   }
 }
 
@@ -2602,7 +2614,7 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr, max_num_iterations: u3
     (Some(src_bal), Some(_)) => {
       branch(
         vm,
-        &gt(Box::new(val.clone()), Box::new(src_bal.clone())),
+        Box::new(gt(Box::new(val.clone()), Box::new(src_bal.clone()))),
         |cond| {
           if cond == BranchReachability::ONLYTHEN || cond == BranchReachability::BOTH {
             Err(EvmError::BalanceTooLow(Box::new(val.clone()), Box::new(src_bal.clone())))
@@ -2712,7 +2724,7 @@ enum BranchReachability {
   NONE,
 }
 
-fn branch<F>(vm: &mut VM, cond: &Expr, continue_fn: F, max_num_iterations: u32) -> Option<VM>
+fn branch<F>(vm: &mut VM, cond: Box<Expr>, continue_fn: F, max_num_iterations: u32) -> Option<VM>
 where
   F: FnOnce(BranchReachability) -> Result<(), EvmError>,
 {
@@ -2729,26 +2741,23 @@ where
   }
 
   if itr_cnt >= max_num_iterations as i64 {
-    println!("LOOP DETECTED");
+    info!("LOOP DETECTED");
   }
 
   let mut new_vm = None;
   let mut branchcond = BranchReachability::NONE;
 
-  let cond_simp = simplify(Box::new(cond.clone()));
-  println!("cond_simp {}", cond_simp);
+  let cond_simp = simplify(cond.clone());
   let cond_simp_conc = conc_keccak_simp_expr(Box::new(cond_simp));
-  println!("cond_simp_conc {}", cond_simp_conc);
   let then_branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)))));
   let else_branch_cond = Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)));
-
-  println!("New Condition: {}", cond);
 
   let mut pathconds = vm.constraints.clone();
   pathconds.push(then_branch_cond.clone());
   let v = solve_constraints(vm, &pathconds);
   if v {
-    println!("- THEN-BRANCH: SAT");
+    info!("THEN-BRANCH: SAT");
+    vm.constraints_raw_expr.push(cond.clone());
     vm.constraints.push(then_branch_cond);
   }
 
@@ -2756,8 +2765,9 @@ where
   pathconds.push(else_branch_cond.clone());
   let u = solve_constraints(vm, &pathconds);
   if u || (v && itr_cnt >= max_num_iterations as i64) {
-    println!("- ELSE-BRANCH: SAT");
+    info!("ELSE-BRANCH: SAT");
     let mut new_vm_ = vm.clone();
+    new_vm_.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
     new_vm_.constraints.pop();
     new_vm_.constraints.push(else_branch_cond);
     if itr_cnt >= max_num_iterations as i64 {
@@ -2778,14 +2788,6 @@ where
 
   new_vm
 }
-
-/*
-fn choose_path(loc: CodeLocation, bc: BranchCondition) {
-  match (loc, bc) {
-    (loc, BranchCondition::Case(v)) => {}
-    (loc, BranchCondition::Unknown) => {}
-  }
-}*/
 
 fn collision(c_: Option<Contract>) -> bool {
   match c_ {
@@ -2900,7 +2902,7 @@ fn call_checks<F>(
       let mut is_greater = BranchReachability::NONE;
       let else_vm_ = branch(
         vm,
-        &gt(Box::new(x_value.clone()), Box::new(fb)),
+        Box::new(gt(Box::new(x_value.clone()), Box::new(fb))),
         |is_greater_| Ok(is_greater = is_greater_),
         max_num_iterations,
       );
