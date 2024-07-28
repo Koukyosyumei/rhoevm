@@ -8,6 +8,8 @@ use rhoevm::modules::format::{hex_byte_string, strip_0x};
 use rhoevm::modules::transactions::init_tx;
 use rhoevm::modules::types::{ContractCode, Expr, Memory, Prop, RuntimeCodeStruct, VM, W256};
 
+const MAX_NUM_ITERATIONS: u32 = 1;
+
 fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
   let (miner, block_num, base_fee, prev_ran) = (Expr::SymAddr("miner".to_string()), W256(0, 0), W256(0, 0), W256(0, 0));
 
@@ -45,19 +47,19 @@ fn test_vm_exec_1() {
   let mut vms = vec![];
 
   assert_eq!(vm.state.pc, 0);
-  vm.exec1(&mut vms);
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.decoded_opcodes.len(), 2);
   assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)"]);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x80)");
   assert_eq!(vm.state.pc, 2);
 
-  vm.exec1(&mut vms);
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.state.pc, 4);
   assert_eq!(vm.decoded_opcodes.len(), 4);
   assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)"]);
   assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x40)");
 
-  vm.exec1(&mut vms);
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.state.pc, 5);
   assert_eq!(vm.decoded_opcodes.len(), 5);
   assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)", "04 MSTORE"]);
@@ -76,7 +78,7 @@ fn test_vm_op2() {
 
   vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
   vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
-  vm.exec1(&mut vms);
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.state.stack.len(), 1);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Add(Lit(0x2), Lit(0x1))");
 }
@@ -96,7 +98,7 @@ fn test_vm_opsha3() {
   mem[0x41] = 0x70;
   vm.state.memory = Memory::ConcreteMemory(mem);
 
-  vm.exec1(&mut vms);
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.state.stack.len(), 1);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Keccak(ConcreteBuf([80, 70]))");
 }
@@ -114,7 +116,7 @@ fn test_vm_opswap() {
   vm.state.stack.push(Box::new(Expr::Lit(W256(3, 0))));
   vm.state.stack.push(Box::new(Expr::Lit(W256(4, 0))));
 
-  vm.exec1(&mut vms);
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.state.stack.len(), 4);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x4)");
   assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x2)");
@@ -133,7 +135,7 @@ fn test_vm_opdup() {
   vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
   vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
 
-  vm.exec1(&mut vms);
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.decoded_opcodes, vec!["00 DUP2"]);
   assert_eq!(vm.state.stack.len(), 3);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x1)");
@@ -150,7 +152,7 @@ fn test_vm_oppc() {
   let mut vms = vec![];
 
   vm.state.pc = 5;
-  vm.exec1(&mut vms);
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.decoded_opcodes, vec!["05 PC"]);
   assert_eq!(vm.state.stack.len(), 1);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x5)");
@@ -164,11 +166,11 @@ fn test_vm_jumpi_onlythen() {
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
 
-  vm.exec1(&mut vms); // PUSH 0x80 (0x60 0x80)
-  vm.exec1(&mut vms); // PUSH 0x80 (0x60 0x80)
-  vm.exec1(&mut vms); // EQ        (0x14)
-  vm.exec1(&mut vms); // PUSH 09   (0x60 0x09)
-  assert!(vm.exec1(&mut vms)); // JUMPI     (0x57)
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // PUSH 0x80 (0x60 0x80)
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // PUSH 0x80 (0x60 0x80)
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // EQ        (0x14)
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // PUSH 09   (0x60 0x09)
+  assert!(vm.exec1(&mut vms, MAX_NUM_ITERATIONS)); // JUMPI     (0x57)
   assert_eq!(vm.state.pc, 9);
   assert_eq!(vms.len(), 0);
 }
@@ -181,11 +183,11 @@ fn test_vm_jumpi_onlyelse() {
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
 
-  vm.exec1(&mut vms); // PUSH 0x80 (0x60 0x80)
-  vm.exec1(&mut vms); // PUSH 0x40 (0x60 0x40)
-  vm.exec1(&mut vms); // EQ        (0x14)
-  vm.exec1(&mut vms); // PUSH 09   (0x60 0x09)
-  assert!(!vm.exec1(&mut vms)); // JUMPI     (0x57)
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // PUSH 0x80 (0x60 0x80)
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // PUSH 0x40 (0x60 0x40)
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // EQ        (0x14)
+  vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // PUSH 09   (0x60 0x09)
+  assert!(!vm.exec1(&mut vms, MAX_NUM_ITERATIONS)); // JUMPI     (0x57)
   assert_eq!(vm.state.pc, 7);
   assert_eq!(vms.len(), 1);
   assert_eq!(vms[0].state.pc, 8);

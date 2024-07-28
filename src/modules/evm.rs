@@ -220,7 +220,7 @@ fn is_precompile(expr: &Expr) -> bool {
 }
 
 impl VM {
-  pub fn exec1(&mut self, vm_queue: &mut Vec<VM>) -> bool {
+  pub fn exec1(&mut self, vm_queue: &mut Vec<VM>, max_num_iterations: u32) -> bool {
     // let mut vm.state.stack = &vm.state.stack;
     let self_contract = self.state.contract.clone();
     let binding = self.env.clone();
@@ -924,7 +924,7 @@ impl VM {
               force_concrete(self, x, "JUMPI: symbolic jumpdest", |x_| x_int = x_.to_int());
 
               let mut condition = BranchReachability::NONE;
-              let else_vm_ = branch(self, y, |condition_| Ok(condition = condition_));
+              let else_vm_ = branch(self, y, |condition_| Ok(condition = condition_), max_num_iterations);
 
               if condition == BranchReachability::ONLYTHEN || condition == BranchReachability::BOTH {
                 match x_int {
@@ -997,6 +997,7 @@ impl VM {
               vec![],
               new_addr,
               init_code,
+              max_num_iterations,
             );
           } else {
             underrun();
@@ -1008,7 +1009,12 @@ impl VM {
             &self.state.stack.clone()[..]
           {
             let mut gt0 = BranchReachability::NONE;
-            let else_vm_ = branch(self, &gt(x_value.clone(), Box::new(Expr::Lit(W256(0, 0)))), |gt0_| Ok(gt0 = gt0_));
+            let else_vm_ = branch(
+              self,
+              &gt(x_value.clone(), Box::new(Expr::Lit(W256(0, 0)))),
+              |gt0_| Ok(gt0 = gt0_),
+              max_num_iterations,
+            );
             if gt0 == BranchReachability::ONLYTHEN || gt0 == BranchReachability::BOTH {
               not_static(self, || {});
             }
@@ -1032,6 +1038,7 @@ impl VM {
                     *x_out_size.clone(),
                     xs.to_vec(),
                     |callee_| callee = callee_,
+                    max_num_iterations,
                   );
                   let from_ = else_vm.config.override_caller.clone();
                   else_vm.state.callvalue = x_value.clone();
@@ -1043,7 +1050,7 @@ impl VM {
                   }
                   touch_account(&mut else_vm, &from_.clone().unwrap());
                   touch_account(&mut else_vm, &callee);
-                  let _ = transfer(&mut else_vm, from_.unwrap(), callee, *x_value.clone());
+                  let _ = transfer(&mut else_vm, from_.unwrap(), callee, *x_value.clone(), max_num_iterations);
                 }
               });
               vm_queue.push(else_vm);
@@ -1073,6 +1080,7 @@ impl VM {
               *x_out_size.clone(),
               xs.to_vec(),
               |_| {},
+              max_num_iterations,
             );
             self.state.callvalue = x_value.clone();
             self.state.caller = Box::new(self.config.override_caller.clone().unwrap());
@@ -1150,6 +1158,7 @@ impl VM {
                       *x_out_size.clone(),
                       vec![],
                       |_| {},
+                      max_num_iterations,
                     );
                     touch_account(self, &self_contract);
                   }
@@ -1186,6 +1195,7 @@ impl VM {
               vec![],
               new_addr,
               Expr::ConcreteBuf(init_code.clone()),
+              max_num_iterations,
             );
           } else {
             underrun();
@@ -1225,6 +1235,7 @@ impl VM {
                       *x_out_size.clone(),
                       xs.to_vec(),
                       |callee_| callee = callee_,
+                      max_num_iterations,
                     );
                     // zoom(state, || {
                     //     assign(callvalue, Expr::Lit(W256(0, 0)));
@@ -1255,9 +1266,12 @@ impl VM {
                 let funds = this_contract.balance.clone(); // this.balance
                 let recipient_exists = false; // accountExists(x_to, vm)
                 let mut has_funds = BranchReachability::NONE;
-                let else_vm_ = branch(self, &eq(Box::new(funds), Box::new(Expr::Lit(W256(0, 0)))), |has_funds_| {
-                  Ok(has_funds = has_funds_)
-                });
+                let else_vm_ = branch(
+                  self,
+                  &eq(Box::new(funds), Box::new(Expr::Lit(W256(0, 0)))),
+                  |has_funds_| Ok(has_funds = has_funds_),
+                  max_num_iterations,
+                );
                 let c_new = if !recipient_exists
                   && (has_funds == BranchReachability::ONLYTHEN || has_funds == BranchReachability::BOTH)
                 {
@@ -1377,7 +1391,12 @@ impl VM {
                 );
 
                 let mut cond = BranchReachability::NONE;
-                branch(self, &or(Box::new(oob), Box::new(overflow)), |arg0: BranchReachability| Ok(cond = arg0));
+                branch(
+                  self,
+                  &or(Box::new(oob), Box::new(overflow)),
+                  |arg0: BranchReachability| Ok(cond = arg0),
+                  max_num_iterations,
+                );
                 if cond == BranchReachability::ONLYELSE {
                   copy_bytes_to_memory(
                     *self.state.returndata.clone(),
@@ -2255,6 +2274,7 @@ fn delegate_call(
   x_out_size: Expr,
   xs: Vec<Box<Expr>>,
   continue_fn: impl FnOnce(Expr),
+  max_num_iterations: u32,
 ) {
   if is_precompile_addr(&x_to) {
     force_concrete_addr2(
@@ -2299,6 +2319,7 @@ fn delegate_call(
       x_out_size.clone(),
       &xs,
       |x_gas_| x_gas = x_gas_,
+      max_num_iterations,
     );
     let mut target_code = ContractCode::UnKnownCode(Box::new(Expr::Mempty));
     let mut taregt_codehash = Expr::Mempty;
@@ -2374,6 +2395,7 @@ fn create(
   xs: Vec<Expr>,
   new_addr: Expr,
   init_code: Expr,
+  max_num_iterations: u32,
 ) {
   let x_size_val = match x_size {
     Expr::Lit(v) => v,
@@ -2404,7 +2426,12 @@ fn create(
     next(vm, op);
   } else {
     let mut condition = BranchReachability::NONE;
-    branch(vm, &gt(Box::new(x_value.clone()), Box::new(this.balance.clone())), |condition_| Ok(condition = condition_));
+    branch(
+      vm,
+      &gt(Box::new(x_value.clone()), Box::new(this.balance.clone())),
+      |condition_| Ok(condition = condition_),
+      max_num_iterations,
+    );
     if condition == BranchReachability::ONLYTHEN || condition == BranchReachability::BOTH {
       vm.state.stack = vec![Box::new(Expr::Lit(W256(0, 0)))];
       vm.state.returndata = Box::new(Expr::Mempty);
@@ -2441,7 +2468,7 @@ fn create(
             vm.env.contracts.insert(new_addr.clone(), Contract { balance: old_bal.clone(), ..new_contract });
             vm.env.contracts.insert(self_addr.clone(), Contract { nonce: this.nonce.map(|n| n + 1), ..this });
 
-            let _ = transfer(vm, self_addr.clone(), new_addr.clone(), x_value.clone());
+            let _ = transfer(vm, self_addr.clone(), new_addr.clone(), x_value.clone(), max_num_iterations);
             vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context.clone())));
             next(vm, op);
             vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
@@ -2557,7 +2584,7 @@ fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
 }
 
 // Handles transfers of value between accounts
-fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr) -> Result<(), EvmError> {
+fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr, max_num_iterations: u32) -> Result<(), EvmError> {
   if let Expr::Lit(W256(0, 0)) = val {
     return Ok(());
   }
@@ -2573,13 +2600,18 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr) -> Result<(), EvmError
 
   match (src_balance, dst_balance.clone()) {
     (Some(src_bal), Some(_)) => {
-      branch(vm, &gt(Box::new(val.clone()), Box::new(src_bal.clone())), |cond| {
-        if cond == BranchReachability::ONLYTHEN || cond == BranchReachability::BOTH {
-          Err(EvmError::BalanceTooLow(Box::new(val.clone()), Box::new(src_bal.clone())))
-        } else {
-          Ok(())
-        }
-      });
+      branch(
+        vm,
+        &gt(Box::new(val.clone()), Box::new(src_bal.clone())),
+        |cond| {
+          if cond == BranchReachability::ONLYTHEN || cond == BranchReachability::BOTH {
+            Err(EvmError::BalanceTooLow(Box::new(val.clone()), Box::new(src_bal.clone())))
+          } else {
+            Ok(())
+          }
+        },
+        max_num_iterations,
+      );
       vm.env.contracts.entry(src).or_insert(empty_contract()).balance = sub(Box::new(src_bal), Box::new(val.clone()));
       vm.env.contracts.entry(dst).or_insert(empty_contract()).balance =
         add(Box::new(dst_balance.unwrap()), Box::new(val.clone()));
@@ -2588,7 +2620,7 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr) -> Result<(), EvmError
     (None, Some(_)) => match src {
       Expr::LitAddr(_) => {
         vm.env.contracts.insert(src.clone(), mkc(src.clone()));
-        transfer(vm, src, dst, val)
+        transfer(vm, src, dst, val, max_num_iterations)
       }
       Expr::SymAddr(_) => {
         let pc = vm.state.pc;
@@ -2605,7 +2637,7 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr) -> Result<(), EvmError
     (_, None) => match dst {
       Expr::LitAddr(_) => {
         vm.env.contracts.insert(dst.clone(), mkc(dst.clone()));
-        transfer(vm, src, dst, val)
+        transfer(vm, src, dst, val, max_num_iterations)
       }
       Expr::SymAddr(_) => {
         let pc = vm.state.pc;
@@ -2680,7 +2712,7 @@ enum BranchReachability {
   NONE,
 }
 
-fn branch<F>(vm: &mut VM, cond: &Expr, continue_fn: F) -> Option<VM>
+fn branch<F>(vm: &mut VM, cond: &Expr, continue_fn: F, max_num_iterations: u32) -> Option<VM>
 where
   F: FnOnce(BranchReachability) -> Result<(), EvmError>,
 {
@@ -2696,7 +2728,7 @@ where
     *vm.iterations.entry(loc.clone()).or_insert((0, vm.state.stack.clone())) = (0, vm.state.stack.clone());
   }
 
-  if itr_cnt >= 32 {
+  if itr_cnt >= max_num_iterations as i64 {
     println!("LOOP DETECTED");
   }
 
@@ -2723,22 +2755,22 @@ where
   pathconds.pop();
   pathconds.push(else_branch_cond.clone());
   let u = solve_constraints(vm, &pathconds);
-  if u || (v && itr_cnt >= 32) {
+  if u || (v && itr_cnt >= max_num_iterations as i64) {
     println!("- ELSE-BRANCH: SAT");
     let mut new_vm_ = vm.clone();
     new_vm_.constraints.pop();
     new_vm_.constraints.push(else_branch_cond);
-    if itr_cnt >= 32 {
+    if itr_cnt >= max_num_iterations as i64 {
       *new_vm_.iterations.entry(loc).or_insert((0, new_vm_.state.stack.clone())) = (0, new_vm_.state.stack.clone())
     }
     new_vm = Some(new_vm_);
   }
 
-  if v && u && itr_cnt < 32 {
+  if v && u && itr_cnt < max_num_iterations as i64 {
     branchcond = BranchReachability::BOTH;
-  } else if v && itr_cnt < 32 {
+  } else if v && itr_cnt < max_num_iterations as i64 {
     branchcond = BranchReachability::ONLYTHEN;
-  } else if u || (v && itr_cnt >= 32) {
+  } else if u || (v && itr_cnt >= max_num_iterations as i64) {
     branchcond = BranchReachability::ONLYELSE;
   }
 
@@ -2834,6 +2866,7 @@ fn call_checks<F>(
   x_out_size: Expr,
   xs: &Vec<Box<Expr>>,
   continue_fn: F,
+  max_num_iterations: u32,
 ) where
   F: FnOnce(Gas),
 {
@@ -2865,8 +2898,12 @@ fn call_checks<F>(
     (Some(fb), _) => {
       burn(vm, cost - gas_left, || {});
       let mut is_greater = BranchReachability::NONE;
-      let else_vm_ =
-        branch(vm, &gt(Box::new(x_value.clone()), Box::new(fb)), |is_greater_| Ok(is_greater = is_greater_));
+      let else_vm_ = branch(
+        vm,
+        &gt(Box::new(x_value.clone()), Box::new(fb)),
+        |is_greater_| Ok(is_greater = is_greater_),
+        max_num_iterations,
+      );
       if is_greater == BranchReachability::ONLYELSE || is_greater == BranchReachability::BOTH {
         vm.state.stack = xs.to_vec();
         vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
@@ -2911,6 +2948,7 @@ fn call_checks<F>(
           x_out_size,
           xs,
           continue_fn,
+          max_num_iterations,
         );
       }
       Expr::SymAddr(_) => {
