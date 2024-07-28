@@ -54,7 +54,7 @@ where
   map.into_iter().map(|(k, v)| (v, k)).collect()
 }
 
-fn eliminate_expr<'a>(e: Expr) -> (Expr, BufEnv, StoreEnv) {
+pub fn eliminate_expr<'a>(e: Expr) -> (Expr, BufEnv, StoreEnv) {
   let mut state = init_state();
   let (_, e_prime) = go(&mut state, e);
   (e_prime, invert_key_val(state.bufs.clone()), invert_key_val(state.stores.clone()))
@@ -78,13 +78,4 @@ pub fn eliminate_props(props: Vec<Prop>) -> (Vec<Prop>, BufEnv, StoreEnv) {
   let mut state = init_state();
   let (_, props_prime) = eliminate_props_prime(&mut state, props);
   (props_prime, invert_key_val(state.bufs.clone()), invert_key_val(state.stores.clone()))
-}
-
-fn map_expr_m<F, S>(f: F, expr: Expr) -> (S, Expr)
-where
-  F: Fn(Expr) -> (S, Expr),
-  S: Clone,
-{
-  // Dummy implementation for map_expr_m
-  f(expr)
 }

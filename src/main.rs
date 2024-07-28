@@ -48,7 +48,6 @@ fn main() {
 
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
-  let mut i = 0;
   let mut prev_pc = 0;
   let mut do_size = 0;
   let mut end = false;
@@ -81,7 +80,7 @@ fn main() {
       }
 
       if found_calldataload && prev_op == "REVERT" {
-        let mut msg = "REVERT DETECTED\nConstraints (Raw Format):= true".to_string();
+        let mut msg = "REVERT DETECTED\nConstraints (Raw Format):=\n true".to_string();
         for e in &vm.constraints_raw_expr {
           msg = msg + &format!(" && {}\n", *e);
         }
@@ -100,7 +99,6 @@ fn main() {
       } else {
         vm = vms.pop().unwrap();
       }
-      i += 1;
     }
     info!("---------------");
     vm.constraints.clear();

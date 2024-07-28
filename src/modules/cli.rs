@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::process::exit;
 
-use crate::modules::abi::Sig;
+use crate::modules::abi::{AbiType, Sig};
 use crate::modules::evm::{abstract_contract, initial_contract, make_vm};
 use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};
@@ -13,9 +13,6 @@ use crate::modules::transactions::init_tx;
 use crate::modules::types::{
   Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
 };
-
-use super::abi::AbiType;
-use super::evm::buf_length;
 
 type URL = String;
 

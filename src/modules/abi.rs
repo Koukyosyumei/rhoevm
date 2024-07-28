@@ -1,11 +1,8 @@
-use byteorder::BigEndian;
-use num_traits::ToBytes;
 use serde::{Deserialize, Serialize};
-use sha3::{Digest, Keccak256};
 use std::fmt;
 use std::fmt::Display;
 
-use crate::modules::types::{abi_keccak, pad_right, word32, Addr, ByteString};
+use crate::modules::types::{abi_keccak, pad_right, Addr, ByteString};
 
 #[derive(Debug, Clone)]
 pub struct Sig {

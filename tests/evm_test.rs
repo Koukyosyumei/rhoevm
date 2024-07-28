@@ -48,21 +48,21 @@ fn test_vm_exec_1() {
 
   assert_eq!(vm.state.pc, 0);
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
-  assert_eq!(vm.decoded_opcodes.len(), 2);
-  assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)"]);
+  assert_eq!(vm.decoded_opcodes.len(), 1);
+  assert_eq!(vm.decoded_opcodes, vec!["PUSH1 Lit(0x80)"]);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x80)");
   assert_eq!(vm.state.pc, 2);
 
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.state.pc, 4);
-  assert_eq!(vm.decoded_opcodes.len(), 4);
-  assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)"]);
+  assert_eq!(vm.decoded_opcodes.len(), 2);
+  assert_eq!(vm.decoded_opcodes, vec!["PUSH1 Lit(0x80)", "PUSH1 Lit(0x40)"]);
   assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x40)");
 
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.state.pc, 5);
-  assert_eq!(vm.decoded_opcodes.len(), 5);
-  assert_eq!(vm.decoded_opcodes, vec!["00 PUSH1", "Lit(0x80)", "02 PUSH1", "Lit(0x40)", "04 MSTORE"]);
+  assert_eq!(vm.decoded_opcodes.len(), 3);
+  assert_eq!(vm.decoded_opcodes, vec!["PUSH1 Lit(0x80)", "PUSH1 Lit(0x40)", "MSTORE"]);
   let mut mem = vec![0; 96];
   mem[0x40 + 15] = 0x80;
   assert_eq!(vm.state.memory, Memory::ConcreteMemory(mem));
@@ -136,7 +136,7 @@ fn test_vm_opdup() {
   vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
 
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
-  assert_eq!(vm.decoded_opcodes, vec!["00 DUP2"]);
+  assert_eq!(vm.decoded_opcodes, vec!["DUP2"]);
   assert_eq!(vm.state.stack.len(), 3);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x1)");
   assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x2)");
@@ -153,7 +153,7 @@ fn test_vm_oppc() {
 
   vm.state.pc = 5;
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
-  assert_eq!(vm.decoded_opcodes, vec!["05 PC"]);
+  assert_eq!(vm.decoded_opcodes, vec!["PC"]);
   assert_eq!(vm.state.stack.len(), 1);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x5)");
 }
