@@ -7,14 +7,9 @@
 
 [WIP] symbolic EVM execution engine written in Rust
 
-- build
+- install
 
-```
-TBD
-```
-
-- test
-
-```
+```bash
 cargo test 2>/dev/null
+sudo cp ./target/debug/rhoevm /usr/local/bin/rhoevm
 ```
