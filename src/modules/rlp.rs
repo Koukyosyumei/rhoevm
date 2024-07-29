@@ -17,11 +17,33 @@ impl fmt::Display for RLP {
   }
 }
 
-fn slice(offset: usize, size: usize, bs: &ByteString) -> ByteString {
+/*
+
+
+fn rlpdecode(bs: &ByteString) -> Option<RLP> {
+  let (pre, len, is_list, optimal) = item_info(bs);
+  if optimal && pre + len == bs.len() {
+    let content = &bs[pre..].to_vec();
+    if is_list {
+      let items = rlplengths(content.clone(), 0, len)
+        .iter()
+        .map(|(s, e)| rlpdecode(&slice(*s, *e, content)))
+        .collect::<Option<Vec<_>>>()?;
+
+      Some(RLP::List(items))
+    } else {
+      Some(RLP::BS(content.to_vec()))
+    }
+  } else {
+    None
+  }
+}*/
+
+pub fn slice(offset: usize, size: usize, bs: &ByteString) -> ByteString {
   bs[offset..offset + size].to_vec()
 }
 
-fn item_info(bs: &ByteString) -> (usize, usize, bool, bool) {
+pub fn item_info(bs: &ByteString) -> (usize, usize, bool, bool) {
   if bs.is_empty() {
     return (0, 0, false, false);
   }
@@ -46,26 +68,7 @@ fn item_info(bs: &ByteString) -> (usize, usize, bool, bool) {
   }
 }
 
-fn rlpdecode(bs: &ByteString) -> Option<RLP> {
-  let (pre, len, is_list, optimal) = item_info(bs);
-  if optimal && pre + len == bs.len() {
-    let content = &bs[pre..].to_vec();
-    if is_list {
-      let items = rlplengths(content.clone(), 0, len)
-        .iter()
-        .map(|(s, e)| rlpdecode(&slice(*s, *e, content)))
-        .collect::<Option<Vec<_>>>()?;
-
-      Some(RLP::List(items))
-    } else {
-      Some(RLP::BS(content.to_vec()))
-    }
-  } else {
-    None
-  }
-}
-
-fn rlplengths(bs: ByteString, acc: usize, top: usize) -> Vec<(usize, usize)> {
+pub fn rlplengths(bs: ByteString, acc: usize, top: usize) -> Vec<(usize, usize)> {
   let mut result = Vec::new();
   let mut current_acc = acc;
   let mut current_bs = bs;

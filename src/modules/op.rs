@@ -177,21 +177,12 @@ pub fn get_op(x: u8) -> Op {
   }
 }
 
-fn show_pc(x: u64) -> String {
-  if x < 10_u64 {
-    "0".to_string() + &x.to_string()
-  } else {
-    show_hex(x, "")
-  }
-}
-
 fn show_hex(x: u64, prefix: &str) -> String {
   // Replace this with your actual hex formatting logic (e.g., using format!("{:x}", x))
   format!("{}{:x}", prefix, x)
 }
 
 pub fn op_string(o: &Op) -> String {
-  let show_pc = |x| show_pc(x);
   let result = match o {
     Op::Stop => "STOP",
     Op::Add => "ADD",
@@ -275,7 +266,7 @@ pub fn op_string(o: &Op) -> String {
       _ => panic!("invalid expr"),
     },
     Op::Revert => "REVERT",
-    Op::Unknown(x) => &format!("{}", &&"UNKNOWN").to_string(),
+    Op::Unknown(_) => &format!("{}", &&"UNKNOWN").to_string(),
   };
   result.to_string()
 }

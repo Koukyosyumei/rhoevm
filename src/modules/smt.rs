@@ -82,14 +82,14 @@ impl fmt::Display for BuilderState {
 
 // BufModel enum
 #[derive(Debug, PartialEq, Eq)]
-enum BufModel {
+pub enum BufModel {
   Comp(CompressedBuf),
   Flat(Vec<u8>),
 }
 
 // CompressedBuf enum
 #[derive(Debug, PartialEq, Eq)]
-enum CompressedBuf {
+pub enum CompressedBuf {
   Base { byte: u8, length: W256 },
   Write { byte: u8, idx: W256, next: Box<CompressedBuf> },
 }
@@ -233,7 +233,7 @@ impl fmt::Display for CexVars {
 }
 
 // Function to flatten buffers in SMTCex
-fn flatten_bufs(cex: SMTCex) -> Option<SMTCex> {
+pub fn flatten_bufs(cex: SMTCex) -> Option<SMTCex> {
   let bs = cex
     .buffers
     .into_iter()
@@ -254,14 +254,14 @@ fn unbox<T>(value: Box<T>) -> T {
   *value
 }
 
-fn to_buf(model: BufModel) -> Option<Expr> {
+pub fn to_buf(model: BufModel) -> Option<Expr> {
   match model {
     BufModel::Comp(CompressedBuf::Base { byte, length }) if length <= W256(120_000_000, 0) => {
       let bytes = vec![byte; length.0 as usize];
       Some(Expr::ConcreteBuf(bytes))
     }
     BufModel::Comp(CompressedBuf::Write { byte, idx, next }) => {
-      let next = to_buf(BufModel::Comp(unbox(next)));
+      let next = to_buf(BufModel::Comp(*next));
       if let Some(n) = next {
         Some(write_byte(Box::new(Expr::Lit(idx)), Box::new(Expr::LitByte(byte)), Box::new(n)))
       } else {
@@ -281,12 +281,12 @@ fn collapse(model: BufModel) -> Option<BufModel> {
   }
 }
 
-struct AbstState {
-  words: HashMap<Expr, i32>,
-  count: i32,
+pub struct AbstState {
+  pub words: HashMap<Expr, i32>,
+  pub count: i32,
 }
 
-fn get_var(cex: &SMTCex, name: &str) -> W256 {
+pub fn get_var(cex: &SMTCex, name: &str) -> W256 {
   cex.vars.get(&Expr::Var(name.to_string())).unwrap().clone()
 }
 
@@ -498,16 +498,11 @@ fn abstract_away_props(conf: &Config, ps: Vec<Prop>) -> (Vec<Prop>, AbstState) {
   (abstracted, state)
 }
 
-fn go(a: &Expr) -> AbstState {
-  todo!()
-  /*go :: Expr a -> State AbstState (Expr a) */
-}
-
-fn abstract_away(conf: &Config, prop: &Prop, state: &mut AbstState) -> Prop {
+pub fn abstract_away(conf: &Config, prop: &Prop, state: &mut AbstState) -> Prop {
   todo!()
 }
 
-fn abstr_expr(e: &Expr, state: &mut AbstState) -> Expr {
+pub fn abstr_expr(e: &Expr, state: &mut AbstState) -> Expr {
   let v = match state.words.get(e) {
     Some(&v) => v,
     None => {

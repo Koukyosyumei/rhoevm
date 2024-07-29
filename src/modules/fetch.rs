@@ -16,7 +16,7 @@ pub enum BlockNumber {
 }
 
 #[derive(Debug)]
-enum RpcQuery {
+pub enum RpcQuery {
   QueryCode(Addr),
   QueryBlock,
   QueryBalance(Addr),
@@ -45,7 +45,7 @@ struct RpcRequest {
 }
 
 impl RpcRequest {
-  fn new(method: String, params: Vec<Value>) -> Self {
+  pub fn new(method: String, params: Vec<Value>) -> Self {
     RpcRequest { jsonrpc: "2.0".to_string(), id: 1, method, params }
   }
 }
@@ -263,31 +263,3 @@ pub type Fetcher = (App, Query);
 pub fn check_branch(branch_condition: &Prop, path_conditions: &Prop) -> BranchCondition {
   todo!()
 }
-
-/*
--- | Checks which branches are satisfiable, checking the pathconditions for consistency
--- if the third argument is true.
--- When in debug mode, we do not want to be able to navigate to dead paths,
--- but for normal execution paths with inconsistent pathconditions
--- will be pruned anyway.
-checkBranch :: App m => SolverGroup -> Prop -> Prop -> m BranchCondition
-checkBranch solvers branchcondition pathconditions = do
-  conf <- readConfig
-  liftIO $ checkSat solvers (assertProps conf [(branchcondition .&& pathconditions)]) >>= \case
-    -- the condition is unsatisfiable
-    Unsat -> -- if pathconditions are consistent then the condition must be false
-      pure $ Case False
-    -- Sat means its possible for condition to hold
-    Sat _ -> do -- is its negation also possible?
-      checkSat solvers (assertProps conf [(pathconditions .&& (PNeg branchcondition))]) >>= \case
-        -- No. The condition must hold
-        Unsat -> pure $ Case True
-        -- Yes. Both branches possible
-        Sat _ -> pure EVM.Types.Unknown
-        -- Explore both branches in case of timeout
-        EVM.Solvers.Unknown -> pure EVM.Types.Unknown
-        Error e -> internalError $ "SMT Solver pureed with an error: " <> T.unpack e
-    -- If the query times out, we simply explore both paths
-    EVM.Solvers.Unknown -> pure EVM.Types.Unknown
-    Error e -> internalError $ "SMT Solver pureed with an error: " <> T.unpack e
-*/
