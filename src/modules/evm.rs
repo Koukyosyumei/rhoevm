@@ -2589,7 +2589,7 @@ fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
     // Some(0x5b) if contract.code_ops[contract.op_idx_map[x as usize] as usize].1 == Op::Jumpdest => true,
     Some(0x5b) => true,
     _ => {
-      error!("{}, current pc: 0x{:x}, target pc: 0x{:x}", EvmError::BadJumpDestination, vm.state.pc, x);
+      error!("{}, current pc: 0x{:x}, offset: 0x{:x}", EvmError::BadJumpDestination, vm.state.pc, x);
       false
     }
   }
