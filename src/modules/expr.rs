@@ -1742,12 +1742,12 @@ pub fn slice(offset: Box<Expr>, size: Box<Expr>, src: Box<Expr>) -> Expr {
 }
 
 pub fn buf_length(buf: Expr) -> Expr {
-  let e = buf_length_env(HashMap::new(), false, buf.clone());
+  let e = buf_length_env(&HashMap::new(), false, buf.clone());
   e
 }
 
-fn buf_length_env(env: HashMap<i32, Expr>, use_env: bool, buf: Expr) -> Expr {
-  fn go(l: Expr, buf: Expr, env: &HashMap<i32, Expr>, use_env: bool) -> Expr {
+pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> Expr {
+  fn go(l: Expr, buf: Expr, env: &HashMap<usize, Expr>, use_env: bool) -> Expr {
     match buf {
       Expr::ConcreteBuf(b) => emax(Box::new(l), Box::new(Expr::Lit(W256(b.len() as u128, 0)))),
       Expr::AbstractBuf(b) => emax(Box::new(l), Box::new(Expr::BufLength(Box::new(Expr::AbstractBuf(b))))),
@@ -1762,7 +1762,7 @@ fn buf_length_env(env: HashMap<i32, Expr>, use_env: bool, buf: Expr) -> Expr {
       }
       Expr::GVar(GVar::BufVar(a)) => {
         if use_env {
-          if let Some(b) = env.get(&a) {
+          if let Some(b) = env.get(&(a as usize)) {
             go(l, b.clone(), env, use_env)
           } else {
             panic!("Cannot compute length of open expression")

@@ -5,8 +5,8 @@ use std::{fmt, vec};
 use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
 use crate::modules::expr::{
-  add, buf_length, conc_keccak_props, contains_node, emax, get_addr, get_logical_idx, in_range, min_length,
-  simplify_props, sub, write_byte,
+  add, buf_length, buf_length_env, conc_keccak_props, contains_node, emax, get_addr, get_logical_idx, in_range,
+  min_length, simplify_props, sub, write_byte,
 };
 use crate::modules::format::format_prop;
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};
@@ -289,9 +289,23 @@ pub fn get_var(cex: &SMTCex, name: &str) -> W256 {
   cex.vars.get(&Expr::Var(name.to_string())).unwrap().clone()
 }
 
+fn encode_store(n: usize, expr: &Expr) -> SMT2 {
+  let expr_to_smt = expr_to_smt(expr.clone());
+  let txt = format!("(define-fun store{} () Storage {})", n, expr_to_smt);
+  SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
+}
+
+fn encode_buf(n: usize, expr: &Expr, bufs: &BufEnv) -> SMT2 {
+  let buf_smt = expr_to_smt(expr.clone());
+  let def_buf = format!("(define-fun buf{} () Buf {})", n, buf_smt);
+  let len_smt = expr_to_smt(buf_length_env(bufs, true, expr.clone()));
+  let def_len = format!("(define-fun buf{}_length () (_ BitVec 256) {})", n, len_smt);
+  SMT2(vec![def_buf, def_len], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
+}
+
 fn declare_intermediates(bufs: &BufEnv, stores: &StoreEnv) -> SMT2 {
   let enc_ss = stores.iter().map(|(k, v)| encode_store(*k, v)).collect::<Vec<_>>();
-  let enc_bs = bufs.iter().map(|(k, v)| encode_buf(*k, v)).collect::<Vec<_>>();
+  let enc_bs = bufs.iter().map(|(k, v)| encode_buf(*k, v, bufs)).collect::<Vec<_>>();
   let mut sorted = enc_ss;
   sorted.extend(enc_bs);
   sorted.sort_by(|SMT2(l, _, _, _), SMT2(r, _, _, _)| r.cmp(l));
@@ -315,7 +329,7 @@ fn declare_addrs(names: Vec<Builder>) -> SMT2 {
 }
 
 fn declare_vars(names: Vec<Builder>) -> SMT2 {
-  let declarations: Vec<String> =
+  let declarations: HashSet<String> =
     names.iter().map(|name| format!("(declare-fun {} () (_ BitVec 256))", name)).collect();
   let cexvars = CexVars { calldata: names.to_vec(), ..CexVars::new() };
 
@@ -464,18 +478,6 @@ fn declare_block_context(names: &Vec<(Builder, Vec<Prop>)>) -> SMT2 {
   let cexvars = CexVars { block_context: names.iter().map(|(n, _)| n.clone()).collect(), ..CexVars::new() };
 
   SMT2(declarations, RefinementEqs(vec![], vec![]), cexvars, vec![])
-}
-
-fn encode_store(n: usize, expr: &Expr) -> SMT2 {
-  let expr_to_smt = expr_to_smt(expr.clone());
-  let txt = format!("(define-fun store{} () Storage {})", n, expr_to_smt);
-  SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
-}
-
-fn encode_buf(n: usize, expr: &Expr) -> SMT2 {
-  let expr_to_smt = expr_to_smt(expr.clone());
-  let txt = format!("(define-fun buf{} () Buf {})", n, expr_to_smt);
-  SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
 }
 
 fn abstract_away_props(conf: &Config, ps: Vec<Prop>) -> (Vec<Prop>, AbstState) {
