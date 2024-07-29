@@ -1,7 +1,11 @@
 use env_logger;
-use log::{error, info};
+use log::{debug, error, info};
 use std::cmp::min;
+use std::env;
 use std::error::Error;
+use std::fs::File;
+use std::io::Read;
+use tiny_keccak::{Hasher, Keccak};
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
 use rhoevm::modules::evm::{abstract_contract, opslen};
@@ -39,14 +43,68 @@ fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) 
 }
 
 fn main() {
+  // Initialize the logger with the default settings.
+  env_logger::init();
+
+  // Collect command-line arguments.
+  let args: Vec<String> = env::args().collect();
+  if args.len() < 3 {
+    error!("Usage: <program> <filename> <function_signature>");
+    return;
+  }
+  let filename = &args[1];
+  let function_signature = &args[2];
+  info!("Loading binary from file: {}", filename);
+  info!("Using function signature: {}", function_signature);
+
+  // Load the binary file.
+  let mut f = match File::open(filename) {
+    Ok(file) => file,
+    Err(e) => {
+      error!("Failed to open file '{}': {}", filename, e);
+      return;
+    }
+  };
+  let mut binary = String::new();
+  if let Err(e) = f.read_to_string(&mut binary) {
+    error!("Failed to read file '{}': {}", filename, e);
+    return;
+  }
+  debug!("File '{}' read successfully.", filename);
+
+  // Calculate the function signature.
+  let mut hasher = Keccak::v256();
+  hasher.update(function_signature.as_bytes());
+  let mut output = [0u8; 32];
+  hasher.finalize(&mut output);
+  let function_selector = &output[..4];
+  let function_selector_hex: String = function_selector.iter().map(|byte| format!("{:02x}", byte)).collect();
+  info!("Calculated function selector: 0x{}", function_selector_hex);
+
+  // Build command and calldata.
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   //cmd.sig = Some("set".to_string());
   cmd.value = Some(W256(0, 0));
-  cmd.calldata = Some("0xb8e010de".into());
-  cmd.code = Some("6080604052348015600e575f80fd5b5060a78061001b5f395ff3fe6080604052348015600e575f80fd5b50600436106026575f3560e01c8063b8e010de14602a575b5f80fd5b60306032565b005b60646014101560425760416044565b5b565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52600160045260245ffdfea264697066735822122065b7f39f5ddce2e77d2ab00791f4d370969e41f919ccaaa8b11514e85980b54764736f6c63430008180033".into());
-  let callcode = build_calldata(&cmd).unwrap();
+  cmd.calldata = Some(function_selector_hex.clone().into()); //Some("0xb8e010de".into());
+  cmd.code = Some(binary.into());
+  let callcode = match build_calldata(&cmd) {
+    Ok(calldata) => calldata,
+    Err(e) => {
+      error!("Failed to build calldata: {}", e);
+      return;
+    }
+  };
+  info!("Calldata constructed successfully for function '{}'\n", function_signature);
 
-  let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
+  // Initialize VM and start execution.
+  let mut vm = match dummy_symvm_from_command(&cmd, callcode) {
+    Ok(vm) => vm,
+    Err(e) => {
+      error!("Failed to initialize symbolic VM: {}", e);
+      return;
+    }
+  };
+
   let mut vms = vec![];
   let mut prev_pc = 0;
   let mut do_size = 0;
@@ -55,8 +113,7 @@ fn main() {
   let mut prev_op = "".to_string();
   let mut prev_valid_op = "".to_string();
 
-  env_logger::init();
-
+  info!("Starting EVM symbolic execution...");
   while !end {
     loop {
       prev_pc = vm.state.pc;
@@ -66,14 +123,14 @@ fn main() {
 
       if !found_calldataload && prev_valid_op == "RETURN" && prev_op != "UNKNOWN" {
         vm.state.base_pc = prev_pc;
-        info!("set base_pc = 0x{:x}", prev_pc);
+        debug!("Base PC set to 0x{:x}", prev_pc);
       }
 
       if prev_op != "UNKNOWN" {
         prev_valid_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
       }
 
-      info!("pc: 0x{:x}, op: {}", prev_pc, prev_op);
+      debug!("PC: 0x{:x}, Opcode: {}", prev_pc, prev_op);
 
       if !found_calldataload {
         found_calldataload = prev_valid_op == "CALLDATALOAD";
@@ -85,6 +142,7 @@ fn main() {
           msg = msg + &format!(" && {}\n", *e);
         }
         error!("{}", msg);
+        end = true;
       }
 
       if continue_flag {
@@ -100,9 +158,12 @@ fn main() {
         vm = vms.pop().unwrap();
       }
     }
-    info!("---------------");
+    if !end {
+      debug!("---------------");
+    }
     vm.constraints.clear();
     vm.constraints_raw_expr.clear();
     vm.state.pc += 1;
   }
+  info!("EVM execution completed.");
 }

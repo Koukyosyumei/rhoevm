@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::{debug, error, info};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -2756,7 +2756,7 @@ where
   pathconds.push(then_branch_cond.clone());
   let v = solve_constraints(vm, &pathconds);
   if v {
-    info!("THEN-BRANCH: SAT");
+    debug!("THEN-BRANCH: SAT");
     vm.constraints_raw_expr.push(cond.clone());
     vm.constraints.push(then_branch_cond);
   }
@@ -2765,7 +2765,7 @@ where
   pathconds.push(else_branch_cond.clone());
   let u = solve_constraints(vm, &pathconds);
   if u || (v && itr_cnt >= max_num_iterations as i64) {
-    info!("ELSE-BRANCH: SAT");
+    debug!("ELSE-BRANCH: SAT");
     let mut new_vm_ = vm.clone();
     new_vm_.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
     new_vm_.constraints.pop();
