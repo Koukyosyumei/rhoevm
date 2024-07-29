@@ -251,7 +251,7 @@ impl VM {
           Expr::Lit(W256(0, 0)),
           vec![],
         );
-        match self.state.stack.first() {
+        match self.state.stack.last() {
           Some(boxed_expr) => {
             if **boxed_expr == Expr::Lit(W256(0, 0)) {
               todo!();
@@ -449,7 +449,7 @@ impl VM {
           true
         }
         Op::Balance => {
-          if let Some(x) = self.state.stack.clone().first() {
+          if let Some(x) = self.state.stack.clone().last() {
             force_addr(x, "BALANCE", |a| {
               access_and_burn(&a, || {
                 let mut c = empty_contract();
@@ -599,7 +599,7 @@ impl VM {
           true
         }
         Op::Extcodesize => {
-          if let Some(x) = self.state.stack.clone().first().clone() {
+          if let Some(x) = self.state.stack.clone().last().clone() {
             force_addr(x, "EXTCODESIZE", |a| {
               access_and_burn(&a, || {
                 let mut c = empty_contract();
