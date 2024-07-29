@@ -350,15 +350,16 @@ impl VM {
           true
         }
         Op::Swap(i) => {
-          if self.state.stack.len() < i as usize + 1 {
+          let stack_len = self.state.stack.len();
+          if stack_len < i as usize + 1 {
             underrun();
           } else {
             burn(self, fees.g_verylow, || {});
             next(self, op);
-            let a = self.state.stack[0].clone();
-            let b = self.state.stack[i as usize].clone();
-            self.state.stack[0] = b;
-            self.state.stack[i as usize] = a;
+            let a = self.state.stack[stack_len - 1].clone();
+            let b = self.state.stack[stack_len - 1 - i as usize].clone();
+            self.state.stack[stack_len - 1] = b;
+            self.state.stack[stack_len - 1 - i as usize] = a;
           }
           true
         }

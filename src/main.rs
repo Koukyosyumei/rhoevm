@@ -14,6 +14,24 @@ use rhoevm::modules::format::{hex_byte_string, strip_0x};
 use rhoevm::modules::transactions::init_tx;
 use rhoevm::modules::types::{ContractCode, Expr, Prop, RuntimeCodeStruct, VM, W256};
 
+/*
+   ╭────────╮
+   │  R H O  │
+   │  E V M  │
+   ╰────────╯
+  ╱╲╱╲╱╲╱╲╱╲
+ /  ╲╲╲╲╲╲╲╲  \
+/    ╲╲╲╲╲╲╲    \
+\    ╱╱╱╱╱╱╱    /
+ \  ╱╱╱╱╱╱╱  /
+  ╲╱╱╱╱╱╱╱╲╱
+   ╲╲╲╲╲╲╲╲
+    ╲╲╲╲╲╲
+     ╲╲╲╲
+      ╲╲
+       ╲
+*/
+
 fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
   let (miner, block_num, base_fee, prev_ran) = (Expr::SymAddr("miner".to_string()), W256(0, 0), W256(0, 0), W256(0, 0));
 
@@ -85,7 +103,9 @@ fn main() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   //cmd.sig = Some("set".to_string());
   cmd.value = Some(W256(0, 0));
-  cmd.calldata = Some(function_selector_hex.clone().into()); //Some("0xb8e010de".into());
+  let mut calldata_bytes = function_selector_hex.clone().as_bytes().to_vec();
+  //calldata_bytes.extend(18.to_be_bytes());
+  cmd.calldata = Some(calldata_bytes); //Some("0xb8e010de".into());
   cmd.code = Some(binary.into());
   let callcode = match build_calldata(&cmd) {
     Ok(calldata) => calldata,
