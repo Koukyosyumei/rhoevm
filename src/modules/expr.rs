@@ -10,7 +10,6 @@ use crate::modules::types::{
   keccak, keccak_prime, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, GVar, Prop, W256, W64,
 };
 
-use super::evm::buf_length;
 use super::types::{ByteString, Word8};
 // ** Constants **
 
@@ -97,18 +96,22 @@ pub fn emin(l: Box<Expr>, r: Box<Expr>) -> Expr {
 }
 
 pub fn emax(l: Box<Expr>, r: Box<Expr>) -> Expr {
-  norm_args(
-    Expr::Min,
-    |x, y| {
-      if x >= y {
-        x
-      } else {
-        y
-      }
-    },
-    l,
-    r,
-  )
+  match (*l.clone(), *r.clone()) {
+    (Expr::Lit(W256(0, 0)), y) => y,
+    (x, Expr::Lit(W256(0, 0))) => x,
+    (_, _) => norm_args(
+      Expr::Max,
+      |x, y| {
+        if x >= y {
+          x
+        } else {
+          y
+        }
+      },
+      l.clone(),
+      r.clone(),
+    ),
+  }
 }
 
 pub fn sdiv(l: Box<Expr>, r: Box<Expr>) -> Expr {
@@ -1242,11 +1245,8 @@ pub fn simplify_prop(prop: Prop) -> Prop {
   let mut fp: &dyn Fn(&Prop) -> Prop = &go_prop;
   let new_prop = map_prop_prime(&mut fp, simp_inner_expr(prop.clone()));
 
-  if new_prop == prop {
-    prop
-  } else {
-    simplify_prop(new_prop)
-  }
+  let sp = if new_prop == prop { prop.clone() } else { simplify_prop(new_prop) };
+  sp
 }
 
 fn simp_inner_expr(prop: Prop) -> Prop {
@@ -1556,7 +1556,7 @@ pub fn simplify_props(ps: Vec<Prop>) -> Vec<Prop> {
 
 // Simplify reads by removing irrelevant writes
 fn simplify_reads(expr: Box<Expr>) -> Expr {
-  match *expr.clone() {
+  let r = match *expr.clone() {
     Expr::ReadWord(a, b) => match *a {
       Expr::Lit(idx) => *read_word(Box::new(Expr::Lit(idx.clone())), Box::new(strip_writes(idx, W256(32, 0), b))),
       _ => *expr,
@@ -1566,7 +1566,9 @@ fn simplify_reads(expr: Box<Expr>) -> Expr {
       _ => *expr,
     },
     _ => *expr,
-  }
+  };
+  println!("sr: {}", r);
+  r
 }
 
 // Strip writes that are out of range
@@ -1741,4 +1743,41 @@ pub fn drop(n: W256, buf: Box<Expr>) -> Expr {
 
 pub fn slice(offset: Box<Expr>, size: Box<Expr>, src: Box<Expr>) -> Expr {
   copy_slice(offset, Box::new(Expr::Lit(W256(0, 0))), size, src, Box::new(Expr::Mempty))
+}
+
+pub fn buf_length(buf: Expr) -> Expr {
+  let e = buf_length_env(HashMap::new(), false, buf.clone());
+  e
+}
+
+fn buf_length_env(env: HashMap<i32, Expr>, use_env: bool, buf: Expr) -> Expr {
+  fn go(l: Expr, buf: Expr, env: &HashMap<i32, Expr>, use_env: bool) -> Expr {
+    match buf {
+      Expr::ConcreteBuf(b) => emax(Box::new(l), Box::new(Expr::Lit(W256(b.len() as u128, 0)))),
+      Expr::AbstractBuf(b) => emax(Box::new(l), Box::new(Expr::BufLength(Box::new(Expr::AbstractBuf(b))))),
+      Expr::WriteWord(idx, _, b) => {
+        go(emax(Box::new(l), Box::new(add(idx, Box::new(Expr::Lit(W256(32, 0)))))), *b, env, use_env)
+      }
+      Expr::WriteByte(idx, _, b) => {
+        go(emax(Box::new(l), Box::new(add(idx, Box::new(Expr::Lit(W256(1, 0)))))), *b, env, use_env)
+      }
+      Expr::CopySlice(_, dst_offset, size, _, dst) => {
+        go(emax(Box::new(l), Box::new(add(dst_offset, size))), *dst, env, use_env)
+      }
+      Expr::GVar(GVar::BufVar(a)) => {
+        if use_env {
+          if let Some(b) = env.get(&a) {
+            go(l, b.clone(), env, use_env)
+          } else {
+            panic!("Cannot compute length of open expression")
+          }
+        } else {
+          emax(Box::new(l), Box::new(Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(a))))))
+        }
+      }
+      _ => panic!("unsupported expression: {}", buf),
+    }
+  }
+
+  go(Expr::Lit(W256(0, 0)), buf, &env, use_env)
 }

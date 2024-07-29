@@ -52,8 +52,8 @@ pub struct SymbolicCommand {
   pub root: Option<String>, // Path to project root directory (default: .)
   // project_type: Option<ProjectType>,       // Is this a Foundry or DappTools project (default: Foundry)
   pub initial_storage: Option<InitialStorage>, // Starting state for storage: Empty, Abstract (default Abstract)
-  pub sig: Option<String>,                     // Signature of types to decode/encode
-  pub arg: Vec<String>,                        // Values to encode
+  pub sig: Option<Sig>,                        // Signature of types to decode/encode
+  pub concrete_arg: Vec<String>,               // Values to encode
   pub get_models: bool,                        // Print example testcase for each execution path
   pub show_tree: bool,                         // Print branches explored in tree view
   pub show_reachable_tree: bool,               // Print only reachable branches explored in tree view
@@ -292,12 +292,7 @@ pub fn build_calldata(cmd: &SymbolicCommand) -> Result<(Expr, Vec<Prop>), Box<dy
     }
 
     // Calldata according to given ABI with possible specializations from the `arg` list
-    (None, Some(sig)) => {
-      let method = function_abi(sig)?;
-      let sig =
-        Sig::new(&method.method_signature, &method.inputs.iter().map(|input| input.1.clone()).collect::<Vec<_>>());
-      Ok(mk_calldata(Some(sig), &cmd.arg))
-    }
+    (None, Some(sig)) => Ok(mk_calldata(Some(sig.clone()), &cmd.concrete_arg)),
 
     // Both args provided
     (_, _) => {

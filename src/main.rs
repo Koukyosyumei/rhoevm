@@ -11,6 +11,7 @@ use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
 use rhoevm::modules::evm::{abstract_contract, opslen};
 use rhoevm::modules::format::{hex_byte_string, strip_0x};
 
+use rhoevm::modules::abi::{parse_abi_file, Sig};
 use rhoevm::modules::transactions::init_tx;
 use rhoevm::modules::types::{ContractCode, Expr, Prop, RuntimeCodeStruct, VM, W256};
 
@@ -73,25 +74,61 @@ fn main() {
 
   print_ascii_art();
 
-  let filename = &args[1];
-  let function_signature = &args[2];
-  info!("Loading binary from file: {}", filename);
-  info!("Using function signature: {}", function_signature);
+  let base_filename = &args[1];
+  let function_name = &args[2];
+
+  let bin_filename = base_filename.to_string() + &".bin".to_string();
+  let abi_filename = base_filename.to_string() + &".abi".to_string();
 
   // Load the binary file.
-  let mut f = match File::open(filename) {
+  info!("Loading binary from file: {}", bin_filename);
+  let mut f = match File::open(bin_filename.clone()) {
     Ok(file) => file,
     Err(e) => {
-      error!("Failed to open file '{}': {}", filename, e);
+      error!("Failed to open file '{}': {}", bin_filename, e);
       return;
     }
   };
   let mut binary = String::new();
   if let Err(e) = f.read_to_string(&mut binary) {
-    error!("Failed to read file '{}': {}", filename, e);
+    error!("Failed to read file '{}': {}", bin_filename, e);
     return;
   }
-  debug!("File '{}' read successfully.", filename);
+  debug!("File '{}' read successfully.", bin_filename);
+
+  // Load the abi file.
+  info!("Loading abi from file: {}", abi_filename);
+  let mut j = match File::open(abi_filename.clone()) {
+    Ok(file) => file,
+    Err(e) => {
+      error!("Failed to open file '{}': {}", abi_filename, e);
+      return;
+    }
+  };
+  let mut abi_json = String::new();
+  if let Err(e) = j.read_to_string(&mut abi_json) {
+    error!("Failed to read file '{}': {}", abi_filename, e);
+    return;
+  }
+  let abi_map = parse_abi_file(&abi_json);
+  debug!("File '{}' read successfully.", abi_filename);
+  if !abi_map.contains_key(function_name) {
+    error!("Cannot find the specified function `{}`", function_name);
+    return;
+  }
+
+  let mut function_signature = function_name.clone() + "(";
+  for t in abi_map[function_name].clone() {
+    println!("  Type: {:?} {}", t, t);
+    function_signature += &format!("{},", t);
+  }
+  if abi_map[function_name].len() != 0 {
+    function_signature.pop();
+    function_signature.push(')');
+  } else {
+    function_signature += ")";
+  }
+  info!("Using function signature: {}", function_signature);
 
   // Calculate the function signature.
   let mut hasher = Keccak::v256();
@@ -104,9 +141,9 @@ fn main() {
 
   // Build command and calldata.
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
-  //cmd.sig = Some(function_signature.to_string());
+  cmd.sig = Some(Sig::new(&function_signature, &abi_map[function_name]));
   cmd.value = Some(W256(0, 0));
-  cmd.calldata = Some(function_selector_hex.clone().as_bytes().to_vec());
+  //cmd.calldata = Some(function_selector_hex.clone().as_bytes().to_vec());
   cmd.code = Some(binary.into());
   let callcode = match build_calldata(&cmd) {
     Ok(calldata) => calldata,
@@ -115,6 +152,7 @@ fn main() {
       return;
     }
   };
+  info!("Callcode: {}", callcode.0);
   info!("Calldata constructed successfully for function '{}'\n", function_signature);
 
   // Initialize VM and start execution.

@@ -689,8 +689,8 @@ impl fmt::Display for Expr {
       Expr::AbstractBuf(name) => write!(f, "AbstractBuf({})", name),
       Expr::ReadWord(index, src) => write!(f, "ReadWord({}, {})", index, src),
       Expr::ReadByte(index, src) => write!(f, "ReadByte({}, {})", index, src),
-      Expr::WriteWord(dst, value, prev) => write!(f, "WriteWord({}, {}, {})", dst, value, prev),
-      Expr::WriteByte(dst, value, prev) => write!(f, "WriteByte({}, {}, {})", dst, value, prev),
+      Expr::WriteWord(index, value, buf) => write!(f, "WriteWord({}, {}, {})", index, value, buf),
+      Expr::WriteByte(index, value, buf) => write!(f, "WriteByte({}, {}, {})", index, value, buf),
       Expr::CopySlice(src_offset, dst_offset, size, src, dst) => {
         write!(f, "CopySlice({}, {}, {}, {}, {})", src_offset, dst_offset, size, src, dst)
       }

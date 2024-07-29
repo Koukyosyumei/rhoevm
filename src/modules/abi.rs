@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
+use tiny_keccak::{Hasher, Keccak};
 
 use crate::modules::types::{abi_keccak, pad_right, Addr, ByteString};
 
@@ -135,89 +137,95 @@ pub fn abi_value_type(v: &AbiValue) -> AbiType {
   }
 }
 
-/*
-parseAbiValue :: AbiType -> ReadP AbiValue
-parseAbiValue (AbiUIntType n) = do W256 w <- readS_to_P reads
-                                   pure $ AbiUInt n w
-parseAbiValue (AbiIntType n) = do W256 w <- readS_to_P reads
-                                  pure $ AbiInt n (unsafeInto w)
-parseAbiValue AbiAddressType = AbiAddress <$> readS_to_P reads
-parseAbiValue AbiBoolType = (do W256 w <- readS_to_P reads
-                                pure $ AbiBool (w /= 0))
-                            <|> (do Boolz b <- readS_to_P reads
-                                    pure $ AbiBool b)
-parseAbiValue (AbiBytesType n) = AbiBytes n <$> do ByteStringS bytes <- bytesP
-                                                   pure bytes
-parseAbiValue AbiBytesDynamicType = AbiBytesDynamic <$> do ByteStringS bytes <- bytesP
-                                                           pure bytes
-parseAbiValue AbiStringType = AbiString <$> do Char8.pack <$> readS_to_P reads
-parseAbiValue (AbiArrayDynamicType typ) =
-  AbiArrayDynamic typ <$> do a <- listP (parseAbiValue typ)
-                             pure $ Vector.fromList a
-parseAbiValue (AbiArrayType n typ) =
-  AbiArray n typ <$> do a <- listP (parseAbiValue typ)
-                        pure $ Vector.fromList a
-parseAbiValue (AbiTupleType _) = internalError "tuple types not supported"
-parseAbiValue AbiFunctionType = AbiFunction <$> do ByteStringS
-*/
+// Deserialize the ABI JSON structure
+#[derive(Deserialize, Debug)]
+pub struct AbiEntry {
+  #[serde(rename = "type")]
+  pub abi_type: String,
+  pub name: Option<String>,
+  pub inputs: Option<Vec<AbiInputOutput>>,
+  pub outputs: Option<Vec<AbiInputOutput>>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AbiInputOutput {
+  #[serde(rename = "type")]
+  pub abi_type: String,
+  pub name: Option<String>,
+}
+
+impl AbiType {
+  // Function to convert a Solidity type to AbiType
+  pub fn from_solidity_type(sol_type: &str) -> Self {
+    if let Some(size) = sol_type.strip_prefix("uint").and_then(|s| s.parse::<i32>().ok()) {
+      AbiType::AbiUIntType(size)
+    } else if let Some(size) = sol_type.strip_prefix("int").and_then(|s| s.parse::<i32>().ok()) {
+      AbiType::AbiIntType(size)
+    } else if sol_type == "address" {
+      AbiType::AbiAddressType
+    } else if sol_type == "bool" {
+      AbiType::AbiBoolType
+    } else if let Some(size) = sol_type.strip_prefix("bytes").and_then(|s| s.parse::<i32>().ok()) {
+      AbiType::AbiBytesType(size)
+    } else if sol_type == "bytes" {
+      AbiType::AbiBytesDynamicType
+    } else if sol_type == "string" {
+      AbiType::AbiStringType
+    } else if let Some(inner_type) = sol_type.strip_prefix("[]") {
+      AbiType::AbiArrayDynamicType(Box::new(AbiType::from_solidity_type(inner_type)))
+    } else if let Some((size_str, inner_type)) = sol_type.split_once('[') {
+      if let Some(size) = size_str.parse::<i32>().ok() {
+        let inner_type = inner_type.strip_suffix(']').unwrap_or(inner_type);
+        AbiType::AbiArrayType(size, Box::new(AbiType::from_solidity_type(inner_type)))
+      } else {
+        AbiType::AbiBytesDynamicType // fallback
+      }
+    } else if sol_type == "function" {
+      AbiType::AbiFunctionType
+    } else if sol_type.starts_with("tuple") {
+      let mut types = Vec::new();
+      if let Some(inner_types) =
+        sol_type.strip_prefix("tuple").and_then(|s| s.strip_prefix("(").and_then(|s| s.strip_suffix(")")))
+      {
+        for type_str in inner_types.split(",") {
+          types.push(AbiType::from_solidity_type(type_str));
+        }
+      }
+      AbiType::AbiTupleType(types)
+    } else {
+      panic!("Unknown Solidity type: {}", sol_type)
+    }
+  }
+}
+
+pub fn parse_abi_file(abi_json: &str) -> HashMap<String, Vec<AbiType>> {
+  // Parse the ABI JSON
+  let abi_entries: Vec<AbiEntry> = serde_json::from_str(abi_json).expect("Failed to parse ABI JSON");
+
+  // Create a map from function/event names to their types
+  let mut abi_map: HashMap<String, Vec<AbiType>> = HashMap::new();
+
+  for entry in abi_entries {
+    if let Some(name) = entry.name {
+      let mut types = Vec::new();
+
+      if let Some(inputs) = entry.inputs {
+        for input in inputs {
+          let abi_type = AbiType::from_solidity_type(&input.abi_type);
+          types.push(abi_type);
+        }
+      }
+
+      abi_map.insert(name, types);
+    }
+  }
+
+  abi_map
+}
 
 // Implement parsing for each ABI type
 fn parse_abi_value(abi_type: &AbiType, input: &Vec<u8>) -> AbiValue {
   todo!()
-  /*
-  match abi_type {
-    AbiType::AbiUIntType(n) => AbiValue::AbiUInt(*n, word32(input)),
-
-    AbiType::AbiIntType(n) => AbiValue::AbiInt(*n, word32(input) as i32),
-
-    AbiType::AbiAddressType => AbiValue::AbiAddress(hex::encode(input)),
-
-    AbiType::AbiBoolType => alt((
-      map(be_u256, |w| AbiValue::AbiBool(w != BigUint::from(0u8))),
-      map(take(1usize), |b: &[u8]| AbiValue::AbiBool(b[0] != 0)),
-    ))(input),
-
-    AbiType::AbiBytesType(n) => map(take(n), |bytes: &[u8]| AbiValue::AbiBytes(n, bytes.to_vec()))(input),
-
-    AbiType::AbiBytesDynamicType => {
-      length_data(be_u256)(input).map(|(remaining, bytes)| (remaining, AbiValue::AbiBytesDynamic(bytes.to_vec())))
-    }
-
-    AbiType::AbiStringType => map(digit1, |s: &str| AbiValue::AbiString(s.to_string()))(input),
-
-    AbiType::AbiArrayDynamicType(boxed_type) => length_data(be_u256)(input).and_then(|(remaining, data)| {
-      let mut items = Vec::new();
-      let mut slice = data;
-
-      while !slice.is_empty() {
-        let (rest, item) = parse_abi_value(*boxed_type.clone(), slice)?;
-        slice = rest;
-        items.push(item);
-      }
-
-      Ok((remaining, AbiValue::AbiArrayDynamic(boxed_type, items)))
-    }),
-
-    AbiType::AbiArrayType(n, boxed_type) => {
-      let mut items = Vec::new();
-      let mut slice = input;
-
-      for _ in 0..n {
-        let (rest, item) = parse_abi_value(*boxed_type.clone(), slice)?;
-        slice = rest;
-        items.push(item);
-      }
-
-      Ok((slice, AbiValue::AbiArray(n, boxed_type, items)))
-    }
-
-    AbiType::AbiTupleType(_) => {
-      // Tuples are currently not supported
-      Err(nom::Err::Error((input, nom::error::ErrorKind::Tag)))
-    }
-
-    AbiType::AbiFunctionType => map(take(4usize), |bytes: &[u8]| AbiValue::AbiFunction(bytes.to_vec()))(input),
-  }*/
 }
 
 pub fn make_abi_value(typ: &AbiType, str: &String) -> AbiValue {
@@ -230,45 +238,9 @@ pub fn make_abi_value(typ: &AbiType, str: &String) -> AbiValue {
 }
 
 pub fn selector(s: &String) -> ByteString {
-  let utf8_encoded = s.as_bytes();
-  let hashed_s = abi_keccak(utf8_encoded);
-  hashed_s.to_le_bytes().to_vec()
+  let mut hasher = Keccak::v256();
+  hasher.update(s.as_bytes());
+  let mut output = [0u8; 32];
+  hasher.finalize(&mut output);
+  (output[..4]).to_vec()
 }
-
-/*
-makeAbiValue :: AbiType -> String -> AbiValue
-makeAbiValue typ str = case readP_to_S (parseAbiValue typ) (padStr str) of
-  [(val,"")] -> val
-  _ -> internalError $ "could not parse abi argument: " ++ str ++ " : " ++ show typ
-  where
-    padStr = case typ of
-      (AbiBytesType n) -> padRight' (2 * n + 2) -- +2 is for the 0x prefix
-      _ -> id
-
-selector :: Text -> BS.ByteString
-selector s = BSLazy.toStrict . runPut $
-  putWord32be (abiKeccak (encodeUtf8 s)).unFunctionSelector
-*/
-
-/*
-fn selector(s: &str) -> Vec<u8> {
-    // Step 1: UTF-8 encode the input string
-    let utf8_encoded = s.as_bytes();
-
-    // Step 2: Compute the Keccak256 hash
-    let mut hasher = Keccak256::new();
-    hasher.update(utf8_encoded);
-    let hash_result = hasher.finalize();
-
-    // Step 3: Retrieve the function selector (first 4 bytes)
-    let mut selector_bytes = [0u8; 4];
-    selector_bytes.copy_from_slice(&hash_result[..4]);
-
-    // Step 4: Convert the function selector to a 32-bit word in big-endian format
-    let mut cursor = Cursor::new(Vec::new());
-    cursor.write_u32::<BigEndian>(u32::from_be_bytes(selector_bytes)).unwrap();
-
-    // Return the serialized bytes
-    cursor.into_inner()
-}
-*/

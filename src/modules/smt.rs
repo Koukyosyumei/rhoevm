@@ -4,10 +4,9 @@ use std::{fmt, vec};
 
 use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
-use crate::modules::evm::buf_length;
 use crate::modules::expr::{
-  add, conc_keccak_props, contains_node, emax, get_addr, get_logical_idx, in_range, min_length, simplify_props, sub,
-  write_byte,
+  add, buf_length, conc_keccak_props, contains_node, emax, get_addr, get_logical_idx, in_range, min_length,
+  simplify_props, sub, write_byte,
 };
 use crate::modules::format::format_prop;
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};

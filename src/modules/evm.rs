@@ -9,9 +9,9 @@ use std::vec;
 use crate::modules::effects::Config;
 use crate::modules::expr::copy_slice;
 use crate::modules::expr::{
-  add, conc_keccak_simp_expr, concrete_prefix, create2_address_, create_address_, drop, emin, eq, gt, index_word, or,
-  read_byte, read_bytes, read_storage, read_word, read_word_from_bytes, simplify, sub, to_list, word_to_addr,
-  write_byte, write_storage, write_word, MAX_BYTES,
+  add, buf_length, conc_keccak_simp_expr, concrete_prefix, create2_address_, create_address_, drop, emin, eq, gt,
+  index_word, or, read_byte, read_bytes, read_storage, read_word, read_word_from_bytes, simplify, sub, to_list,
+  word_to_addr, write_byte, write_storage, write_word, MAX_BYTES,
 };
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
@@ -510,7 +510,7 @@ impl VM {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
             next(self, op);
-            push_sym(self, Box::new(Expr::Lit(W256(len_buf(&self.state.calldata) as u128, 0))));
+            push_sym(self, Box::new(buf_length(*self.state.calldata.clone())));
           });
           true
         }
@@ -2127,50 +2127,6 @@ fn codelen(cc: &ContractCode) -> Expr {
     ContractCode::InitCode(ops, args) => keccak(Expr::ConcreteBuf(ops.clone())).unwrap(),
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => Expr::Lit(W256(ops.len() as u128, 0)),
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => Expr::Lit(W256(ops.len() as u128, 0)),
-  }
-}
-
-pub fn buf_length(buf: Expr) -> Expr {
-  buf_length_env(HashMap::new(), false, buf)
-}
-
-fn buf_length_env(env: HashMap<i32, Expr>, use_env: bool, buf: Expr) -> Expr {
-  fn go(l: Expr, buf: Expr, env: &HashMap<i32, Expr>, use_env: bool) -> Expr {
-    match buf {
-      Expr::ConcreteBuf(b) => max_expr(l, Expr::Lit(W256(b.len() as u128, 0))),
-      Expr::AbstractBuf(b) => max_expr(l, Expr::BufLength(Box::new(Expr::AbstractBuf(b)))),
-      Expr::WriteWord(idx, _, b) => go(max_expr(l, add(idx, Box::new(Expr::Lit(W256(32, 0))))), *b, env, use_env),
-      Expr::WriteByte(idx, _, b) => go(max_expr(l, add(idx, Box::new(Expr::Lit(W256(1, 0))))), *b, env, use_env),
-      Expr::CopySlice(_, dst_offset, size, _, dst) => go(max_expr(l, add(dst_offset, size)), *dst, env, use_env),
-      Expr::GVar(GVar::BufVar(a)) => {
-        if use_env {
-          if let Some(b) = env.get(&a) {
-            go(l, b.clone(), env, use_env)
-          } else {
-            panic!("Cannot compute length of open expression")
-          }
-        } else {
-          max_expr(l, Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(a)))))
-        }
-      }
-      _ => Expr::Lit(W256(0, 0)), //panic!("unsupported expression: {}", buf),
-    }
-  }
-
-  go(Expr::Lit(W256(0, 0)), buf, &env, use_env)
-}
-
-fn max_expr(a: Expr, b: Expr) -> Expr {
-  // Implement the logic to compute the maximum of two ExprWord values
-  // This is a placeholder implementation
-  if let Expr::Lit(a_val) = a {
-    if let Expr::Lit(b_val) = b {
-      Expr::Lit(a_val.max(b_val))
-    } else {
-      b
-    }
-  } else {
-    a
   }
 }
 
