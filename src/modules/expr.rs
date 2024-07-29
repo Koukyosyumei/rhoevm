@@ -652,21 +652,18 @@ pub fn read_word(idx: Box<Expr>, buf: Box<Expr>) -> Box<Expr> {
 
 pub fn read_word_from_bytes(idx: Box<Expr>, buf: Box<Expr>) -> Box<Expr> {
   if let (Expr::Lit(idx_val), Expr::ConcreteBuf(bs)) = (*idx.clone(), *buf.clone()) {
-    println!("55555555555555");
-    if let i = idx_val {
-      let end = i.clone() + W256(32, 0);
-      let slice = if (i.0 as usize) < bs.len() {
-        if end.0 as usize <= bs.len() {
-          &bs[(i.0 as usize)..(end.0 as usize)]
-        } else {
-          &bs[(i.0 as usize)..]
-        }
+    let end = idx_val.clone() + W256(32, 0);
+    let slice = if (idx_val.0 as usize) < bs.len() {
+      if end.0 as usize <= bs.len() {
+        &bs[(idx_val.0 as usize)..(end.0 as usize)]
       } else {
-        &[]
-      };
-      let padded: Vec<u8> = slice.iter().cloned().chain(std::iter::repeat(0)).take(32).collect();
-      return Box::new(Expr::Lit(W256::from_bytes(padded.try_into().unwrap())));
-    }
+        &bs[(idx_val.0 as usize)..]
+      }
+    } else {
+      &[]
+    };
+    let padded: Vec<u8> = slice.iter().cloned().chain(std::iter::repeat(0)).take(32).collect();
+    return Box::new(Expr::Lit(W256::from_bytes(padded.try_into().unwrap())));
   }
   let bytes: Vec<Expr> =
     (0..32).map(|i| read_byte(Box::new(add(idx.clone(), Box::new(Expr::Lit(W256(i, 0))))), buf.clone())).collect();
@@ -1557,7 +1554,7 @@ pub fn simplify_props(ps: Vec<Prop>) -> Vec<Prop> {
 
 // Simplify reads by removing irrelevant writes
 fn simplify_reads(expr: Box<Expr>) -> Expr {
-  let r = match *expr.clone() {
+  match *expr.clone() {
     Expr::ReadWord(a, b) => match *a {
       Expr::Lit(idx) => *read_word(Box::new(Expr::Lit(idx.clone())), Box::new(strip_writes(idx, W256(32, 0), b))),
       _ => *expr,
@@ -1567,9 +1564,7 @@ fn simplify_reads(expr: Box<Expr>) -> Expr {
       _ => *expr,
     },
     _ => *expr,
-  };
-  println!("sr: {}", r);
-  r
+  }
 }
 
 // Strip writes that are out of range

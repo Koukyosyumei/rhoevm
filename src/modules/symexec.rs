@@ -129,7 +129,6 @@ pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[Stri
     type_signature.iter().zip(args.iter()).enumerate().map(|(i, (typ, arg))| mk_arg(typ, arg, i + 1)).collect();
   let (cd_buf, props) = combine_fragments(&calldatas, base);
   let with_selector = write_selector(cd_buf, sig);
-  println!("with {}", with_selector);
   let size_constraints = Prop::PAnd(
     Box::new(Prop::PGEq(
       (Expr::BufLength(Box::new(with_selector.clone()))),

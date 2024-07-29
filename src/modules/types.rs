@@ -618,7 +618,7 @@ impl fmt::Display for Expr {
       Expr::Lit(val) => write!(f, "Lit(0x{})", val.to_hex()),
       Expr::Var(name) => write!(f, "Var({})", name),
       Expr::GVar(gvar) => write!(f, "GVar({})", gvar),
-      Expr::LitByte(val) => write!(f, "LitByte({})", val),
+      Expr::LitByte(val) => write!(f, "LitByte(0x{:x})", val),
       Expr::IndexWord(expr1, expr2) => write!(f, "IndexWord({}, {})", expr1, expr2),
       Expr::EqByte(expr1, expr2) => write!(f, "EqByte({}, {})", expr1, expr2),
       Expr::JoinBytes(exprs) => write!(f, "JoinBytes({:?})", exprs),

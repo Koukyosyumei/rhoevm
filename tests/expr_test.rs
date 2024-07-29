@@ -309,7 +309,7 @@ fn test_read_byte_concrete() {
   let idx = Expr::Lit(W256(1, 0));
   let buf = Expr::ConcreteBuf(vec![0x00, 0xAB, 0x00]);
 
-  let expected = Expr::Lit(W256(0xAB, 0));
+  let expected = Expr::LitByte(0xAB);
   assert_eq!(read_byte(Box::new(idx), Box::new(buf)), expected);
 }
 
@@ -403,12 +403,8 @@ fn test_copy_slice_abstract_src() {
   );
   assert_eq!(
     result,
-    Expr::CopySlice(
-      Box::new(Expr::Lit(W256(0, 0))),
-      Box::new(Expr::Lit(W256(0, 0))),
-      Box::new(Expr::Lit(W256(31, 0))),
-      Box::new(src.clone()),
-      Box::new(Expr::ConcreteBuf(vec![0; 32])),
-    )
+    Expr::ConcreteBuf(vec![
+      1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
+    ])
   );
 }
