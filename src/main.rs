@@ -14,23 +14,23 @@ use rhoevm::modules::format::{hex_byte_string, strip_0x};
 use rhoevm::modules::transactions::init_tx;
 use rhoevm::modules::types::{ContractCode, Expr, Prop, RuntimeCodeStruct, VM, W256};
 
-/*
-   ╭────────╮
-   │  R H O  │
-   │  E V M  │
-   ╰────────╯
-  ╱╲╱╲╱╲╱╲╱╲
- /  ╲╲╲╲╲╲╲╲  \
-/    ╲╲╲╲╲╲╲    \
-\    ╱╱╱╱╱╱╱    /
- \  ╱╱╱╱╱╱╱  /
-  ╲╱╱╱╱╱╱╱╲╱
-   ╲╲╲╲╲╲╲╲
-    ╲╲╲╲╲╲
-     ╲╲╲╲
-      ╲╲
-       ╲
-*/
+fn print_ascii_art() {
+  println!("   ╭───────────────╮");
+  println!("   │  R H O  │");
+  println!("   │  E V M  │");
+  println!("   ╰───────────────╯");
+  println!("  ╱╲╱╲╱╲╱╲╱╲");
+  println!(" /  ╲╲╲╲╲╲╲╲  \\");
+  println!("/    ╲╲╲╲╲╲╲    \\");
+  println!("\\    ╱╱╱╱╱╱╱    /");
+  println!(" \\  ╱╱╱╱╱╱╱  /");
+  println!("  ╲╱╱╱╱╱╱╱╲╱");
+  println!("   ╲╲╲╲╲╲╲╲");
+  println!("    ╲╲╲╲╲╲");
+  println!("     ╲╲╲╲");
+  println!("      ╲╲");
+  println!("       ╲");
+}
 
 fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
   let (miner, block_num, base_fee, prev_ran) = (Expr::SymAddr("miner".to_string()), W256(0, 0), W256(0, 0), W256(0, 0));
@@ -70,6 +70,9 @@ fn main() {
     error!("Usage: <program> <filename> <function_signature>");
     return;
   }
+
+  print_ascii_art();
+
   let filename = &args[1];
   let function_signature = &args[2];
   info!("Loading binary from file: {}", filename);
@@ -103,8 +106,7 @@ fn main() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   //cmd.sig = Some("set".to_string());
   cmd.value = Some(W256(0, 0));
-  let mut calldata_bytes = function_selector_hex.clone().as_bytes().to_vec();
-  //calldata_bytes.extend(18.to_be_bytes());
+  let calldata_bytes = function_selector_hex.clone().as_bytes().to_vec();
   cmd.calldata = Some(calldata_bytes); //Some("0xb8e010de".into());
   cmd.code = Some(binary.into());
   let callcode = match build_calldata(&cmd) {
