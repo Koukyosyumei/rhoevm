@@ -22,6 +22,9 @@
 `rhoevm` is a symbolic EVM execution engine written in Rust. It is inspired by [`hevm`](https://github.com/ethereum/hevm), which is implemented in Haskell. This project aims to provide a robust tool for analyzing Ethereum smart contracts by symbolically executing the EVM bytecode.
 
 
+> [!CAUTION]
+> This project is still in working in progress.
+
 ## install
 
 Ensure you have Rust installed on your machine. Then, build and install rhoevm using the following commands:
