@@ -43,7 +43,7 @@ contract SimpleAssert {
 
 ```bash
 $RUST_LOG=info rhoevm SimpleAssert.bin "set()"
-[2024-07-29T01:35:43Z INFO  rhoevm] Loading binary from file: ../mytest/build/SimpleAssert.bin
+[2024-07-29T01:35:43Z INFO  rhoevm] Loading binary from file: SimpleAssert.bin
 [2024-07-29T01:35:43Z INFO  rhoevm] Using function signature: set()
 [2024-07-29T01:35:43Z INFO  rhoevm] Calculated function selector: 0xb8e010de
 [2024-07-29T01:35:43Z INFO  rhoevm] Calldata constructed successfully for function 'set()'

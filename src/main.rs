@@ -104,10 +104,9 @@ fn main() {
 
   // Build command and calldata.
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
-  //cmd.sig = Some("set".to_string());
+  //cmd.sig = Some(function_signature.to_string());
   cmd.value = Some(W256(0, 0));
-  let calldata_bytes = function_selector_hex.clone().as_bytes().to_vec();
-  cmd.calldata = Some(calldata_bytes); //Some("0xb8e010de".into());
+  cmd.calldata = Some(function_selector_hex.clone().as_bytes().to_vec());
   cmd.code = Some(binary.into());
   let callcode = match build_calldata(&cmd) {
     Ok(calldata) => calldata,
