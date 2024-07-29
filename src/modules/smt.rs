@@ -294,7 +294,7 @@ fn declare_intermediates(bufs: &BufEnv, stores: &StoreEnv) -> SMT2 {
   let enc_bs = bufs.iter().map(|(k, v)| encode_buf(*k, v)).collect::<Vec<_>>();
   let mut sorted = enc_ss;
   sorted.extend(enc_bs);
-  sorted.sort_by(|SMT2(l, _, _, _), SMT2(r, _, _, _)| l.cmp(r));
+  sorted.sort_by(|SMT2(l, _, _, _), SMT2(r, _, _, _)| r.cmp(l));
 
   let decls = sorted; //.iter().map(|SMT2(_, decl, _, _)| decl.clone()).collect::<Vec<_>>();
   let mut smt2 =
@@ -339,19 +339,6 @@ fn base_buf(e: Expr, benv: &BufEnv) -> Expr {
     _ => panic!("unexpected error"),
   }
 }
-
-/*
-    baseBuf :: Expr Buf -> Expr Buf
-    baseBuf (AbstractBuf b) = AbstractBuf b
-    baseBuf (ConcreteBuf b) = ConcreteBuf b
-    baseBuf (GVar (BufVar a)) =
-      case Map.lookup a benv of
-        Just b -> baseBuf b
-        Nothing -> internalError "could not find buffer variable"
-    baseBuf (WriteByte _ _ b) = baseBuf b
-    baseBuf (WriteWord _ _ b) = baseBuf b
-    baseBuf (CopySlice _ _ _ _ dst)= baseBuf dst
-*/
 
 fn discover_max_reads(props: &Vec<Prop>, benv: &BufEnv, senv: &StoreEnv) -> HashMap<String, Expr> {
   // Find all buffer accesses

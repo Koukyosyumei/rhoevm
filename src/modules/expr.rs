@@ -472,10 +472,10 @@ pub fn read_byte(idx: Box<Expr>, buf: Box<Expr>) -> Expr {
       let i = (x.0 as u64) as u32;
       if x.0 <= i as u128 {
         if (i as usize) < b.len() {
-          return Expr::Lit(W256(b[i as usize] as u128, 0));
+          return Expr::LitByte(b[i as usize]);
         }
       }
-      Expr::Lit(W256(0, 0))
+      Expr::LitByte(0)
     }
     (Expr::Lit(x), Expr::WriteByte(idx, val, src)) => {
       if Expr::Lit(x.clone()) == *idx {
@@ -652,6 +652,7 @@ pub fn read_word(idx: Box<Expr>, buf: Box<Expr>) -> Box<Expr> {
 
 pub fn read_word_from_bytes(idx: Box<Expr>, buf: Box<Expr>) -> Box<Expr> {
   if let (Expr::Lit(idx_val), Expr::ConcreteBuf(bs)) = (*idx.clone(), *buf.clone()) {
+    println!("55555555555555");
     if let i = idx_val {
       let end = i.clone() + W256(32, 0);
       let slice = if (i.0 as usize) < bs.len() {
