@@ -6,11 +6,11 @@
    │  R H O  │
    │  E V M  │
    ╰───────────────╯
-  ╱🦀╱╱╱╲╱╲╱╲
+  ╱🦀╱╱╱╲╱╲╱╲ 
  ╱ 🦀╲╲╲╲╲╲  ╲
-╱   🦀╲╲╲╲╲╲  ╲
-╲    ╱🦀╱╱╱╱  ╱
- ╲  ╱🦀╱╱╱╱╱ ╱
+╱   🦀╲╲╲╲╲╲  ╲ symbolic EVM 
+╲    ╱🦀╱╱╱╱  ╱ execution engine
+ ╲  ╱🦀╱╱╱╱╱ ╱  written in Rust
   ╲╱🦀╱╱╱╱╱╲╱
    ╲🦀╲╲╲╲╲╱
     ╲🦀╲╲╲╱
@@ -19,30 +19,47 @@
        ╲
 ```
 
-[WIP] symbolic EVM execution engine written in Rust
+`rhoevm` is a symbolic EVM execution engine written in Rust. It is inspired by hevm, which is implemented in Haskell. This project aims to provide a robust tool for analyzing Ethereum smart contracts by symbolically executing the EVM bytecode.
 
-- install
+
+## install
+
+Ensure you have Rust installed on your machine. Then, build and install rhoevm using the following commands:
 
 ```bash
-cargo test 2>/dev/null
-sudo cp ./target/debug/rhoevm /usr/local/bin/rhoevm
+cargo build --release
+# sudo cp ./target/release/rhoevm /usr/local/bin/rhoevm
 ```
 
-- usage
+## usage
+
+Below is an example of how to use rhoevm with a simple Solidity smart contract.
+
+- Example Solidity Contract
 
 ```javascript
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 contract SimpleAssert {
-    function set() public pure {
+    function check() public pure {
         assert(20 >= 100);
     }
 }
 ```
 
+- Symbolic Execution with rhoevm
+
 ```bash
-$ RUST_LOG=info ./target/debug/rhoevm ./example/build/SimpleAssert "set"
+# Compile the Solidity contract using solc or any preferred compiler.
+# Assuming the compiled binary and ABI are located in ./example/build
+
+$ RUST_LOG=info rhoevm ./example/build/SimpleAssert "check"
+```
+
+- Output
+
+```bash
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -75,3 +92,5 @@ $ RUST_LOG=info ./target/debug/rhoevm ./example/build/SimpleAssert "set"
 
 [2024-07-29T15:16:56Z INFO  rhoevm] EVM execution completed.
 ```
+
+In the above example, rhoevm analyzes the `check` function of the SimpleAssert contract, highlighting a revert condition due to the failed assertion.
