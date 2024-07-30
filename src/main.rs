@@ -189,7 +189,7 @@ fn main() {
         prev_valid_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
       }
 
-      debug!("PC: 0x{:x}, Opcode: {}, Stack Size: {}", prev_pc, prev_op, vm.state.stack.len());
+      debug!("PC: 0x{:x}, Opcode: {}", prev_pc, prev_op);
 
       if !found_calldataload {
         found_calldataload = prev_valid_op == "CALLDATALOAD";
@@ -215,11 +215,10 @@ fn main() {
         break;
       } else {
         vm = vms.pop().unwrap();
+        debug!("---------------");
       }
     }
-    if !end {
-      debug!("---------------");
-    }
+    debug!("---------------");
     vm.constraints.clear();
     vm.constraints_raw_expr.clear();
     vm.state.pc += 1;

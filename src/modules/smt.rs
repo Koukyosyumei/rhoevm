@@ -918,6 +918,15 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   encs.iter().for_each(|p| {
     smt2 += SMT2(vec![(format!("(assert {})", p))], RefinementEqs::new(), CexVars::new(), vec![]);
   });
+
+  let mut cps = ps_elim_abst.clone();
+  cps.extend(abst_props);
+  smt2 += SMT2(
+    vec![],
+    RefinementEqs(abst_smt.iter().map(|s| format!("(assert {})", s)).collect(), cps),
+    CexVars::new(),
+    vec![],
+  );
   smt2
     + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![]))
     + (SMT2(
