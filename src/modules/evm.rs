@@ -388,7 +388,7 @@ impl VM {
         }
         Op::Stop => {
           finish_frame(self, FrameResult::FrameReturned(Expr::Mempty));
-          true
+          false
         }
         Op::Add => stack_op2(self, fees.g_verylow, "add"),
         Op::Mul => stack_op2(self, fees.g_low, "mul"),

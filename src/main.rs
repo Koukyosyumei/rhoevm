@@ -189,7 +189,7 @@ fn main() {
         prev_valid_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
       }
 
-      debug!("PC: 0x{:x}, Opcode: {}", prev_pc, prev_op);
+      debug!("PC: 0x{:x}, Opcode: {}, Stack Size: {}", prev_pc, prev_op, vm.state.stack.len());
 
       if !found_calldataload {
         found_calldataload = prev_valid_op == "CALLDATALOAD";
