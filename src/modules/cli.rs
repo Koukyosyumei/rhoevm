@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::process::exit;
 
-use crate::modules::abi::{AbiType, Sig};
+use crate::modules::abi::{Sig};
 use crate::modules::evm::{abstract_contract, initial_contract, make_vm};
 use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};

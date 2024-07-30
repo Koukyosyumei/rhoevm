@@ -131,8 +131,8 @@ pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[Stri
   let with_selector = write_selector(cd_buf, sig);
   let size_constraints = Prop::PAnd(
     Box::new(Prop::PGEq(
-      (Expr::BufLength(Box::new(with_selector.clone()))),
-      (Expr::Lit(W256((calldatas.len() as u128 * 32 + 4 as u128).into(), 0))),
+      Expr::BufLength(Box::new(with_selector.clone())),
+      Expr::Lit(W256((calldatas.len() as u128 * 32 + 4 as u128).into(), 0)),
     )),
     Box::new(Prop::PBool(true)), //Box::new(Prop::PLT((Expr::BufLength(Box::new(with_selector.clone()))), (Expr::Lit(W256(2_u128.pow(64), 0))))),
   );
