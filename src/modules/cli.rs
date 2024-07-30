@@ -216,13 +216,3 @@ pub fn build_calldata(cmd: &SymbolicCommand) -> Result<(Expr, Vec<Prop>), Box<dy
     }
   }
 }
-
-fn function_abi(sig: &str) -> Result<AbiMethod, Box<dyn std::error::Error>> {
-  // Implementation here
-  Ok(AbiMethod { method_signature: sig.to_string(), inputs: vec![] })
-}
-
-struct AbiMethod {
-  method_signature: String,
-  inputs: Vec<(String, AbiType)>,
-}

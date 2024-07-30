@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::Display;
 use tiny_keccak::{Hasher, Keccak};
 
-use crate::modules::types::{abi_keccak, pad_right, Addr, ByteString};
+use crate::modules::types::{pad_right, Addr, ByteString};
 
 #[derive(Debug, Clone)]
 pub struct Sig {
@@ -224,7 +224,7 @@ pub fn parse_abi_file(abi_json: &str) -> HashMap<String, Vec<AbiType>> {
 }
 
 // Implement parsing for each ABI type
-fn parse_abi_value(abi_type: &AbiType, input: &Vec<u8>) -> AbiValue {
+fn parse_abi_value(_abi_type: &AbiType, _input: &Vec<u8>) -> AbiValue {
   todo!()
 }
 

@@ -19,9 +19,9 @@ use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
   from_list, keccak, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right,
   unbox, word256_bytes, word32, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract, ContractCode, Env,
-  EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, GVar, Gas, Memory, MutableMemory, PartialExec,
-  Prop, Query, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult, W256W256Map,
-  VM, W256, W64,
+  EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory, PartialExec, Prop,
+  Query, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult, W256W256Map, VM,
+  W256, W64,
 };
 
 use super::format::format_prop;
@@ -1522,13 +1522,24 @@ fn copy_bytes_to_memory(bs: Expr, size: Expr, src_offset: Expr, mem_offset: Expr
         _ => {
           // Copy out and move to symbolic memory
           let buf = freeze_memory(&mem);
-          // assign(/* Define your assignment here */);
+          vm.state.memory = Memory::SymbolicMemory(copy_slice(
+            Box::new(src_offset),
+            Box::new(mem_offset),
+            Box::new(size),
+            Box::new(bs),
+            Box::new(buf),
+          ))
         }
       }
     }
     Memory::SymbolicMemory(mem) => {
-      // Implement the logic for symbolic memory
-      // assign(/* Define your assignment here */);
+      vm.state.memory = Memory::SymbolicMemory(copy_slice(
+        Box::new(src_offset),
+        Box::new(mem_offset),
+        Box::new(size),
+        Box::new(bs),
+        Box::new(mem.clone()),
+      ))
     }
   }
 }
