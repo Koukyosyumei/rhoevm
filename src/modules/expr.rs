@@ -329,7 +329,7 @@ pub fn sar(x: Box<Expr>, y: Box<Expr>) -> Expr {
 pub fn in_range(sz: u32, e: Box<Expr>) -> Prop {
   Prop::PAnd(
     Box::new(Prop::PGEq(*e.clone(), Expr::Lit(W256(0, 0)))),
-    Box::new(Prop::PLEq(*e.clone(), Expr::Lit(W256((2 ^ (sz) - 1) as u128, 0)))),
+    Box::new(Prop::PLEq(*e.clone(), Expr::Lit(W256((2_u128.pow(sz) - 1) as u128, 0)))),
   )
 }
 

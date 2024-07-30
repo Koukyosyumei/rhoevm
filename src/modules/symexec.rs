@@ -3,6 +3,8 @@ use crate::modules::abi::{make_abi_value, selector, AbiType, AbiValue};
 use crate::modules::expr::{add, buf_length, in_range, read_byte, write_byte, write_word};
 use crate::modules::types::{Expr, Prop, W256};
 
+use super::format::format_prop;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CalldataFragment {
   St(Vec<Prop>, Expr),
@@ -134,7 +136,7 @@ pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[Stri
       Expr::BufLength(Box::new(with_selector.clone())),
       Expr::Lit(W256((calldatas.len() as u128 * 32 + 4 as u128).into(), 0)),
     )),
-    Box::new(Prop::PBool(true)), //Box::new(Prop::PLT((Expr::BufLength(Box::new(with_selector.clone()))), (Expr::Lit(W256(2_u128.pow(64), 0))))),
+    Box::new(Prop::PBool(true)), //Box::new(Prop::PLT(Expr::BufLength(Box::new(with_selector.clone())), Expr::Lit(W256(2_u128.pow(64), 0)))),
   );
   (with_selector, vec![size_constraints].into_iter().chain(props).collect())
 }

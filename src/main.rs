@@ -9,7 +9,7 @@ use tiny_keccak::{Hasher, Keccak};
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
 use rhoevm::modules::evm::{abstract_contract, opslen};
-use rhoevm::modules::format::{hex_byte_string, strip_0x};
+use rhoevm::modules::format::{format_prop, hex_byte_string, strip_0x};
 
 use rhoevm::modules::abi::{parse_abi_file, Sig};
 use rhoevm::modules::transactions::init_tx;
@@ -119,7 +119,6 @@ fn main() {
 
   let mut function_signature = function_name.clone() + "(";
   for t in abi_map[function_name].clone() {
-    println!("  Type: {:?} {}", t, t);
     function_signature += &format!("{},", t);
   }
   if abi_map[function_name].len() != 0 {
@@ -152,7 +151,6 @@ fn main() {
       return;
     }
   };
-  info!("Callcode: {}", callcode.0);
   info!("Calldata constructed successfully for function '{}'\n", function_signature);
 
   // Initialize VM and start execution.
@@ -219,8 +217,8 @@ fn main() {
       }
     }
     debug!("---------------");
-    vm.constraints.clear();
-    vm.constraints_raw_expr.clear();
+    //vm.constraints.clear();
+    //vm.constraints_raw_expr.clear();
     vm.state.pc += 1;
   }
   info!("EVM execution completed.");
