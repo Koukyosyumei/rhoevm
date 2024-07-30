@@ -59,7 +59,7 @@ contract AssertInput {
 # Compile the Solidity contract using solc or any preferred compiler.
 # Assuming the compiled binary and ABI are located in ./example/build
 
-$ RUST_LOG=info rhoevm ./example/build/SimpleAssert "check"
+$ RUST_LOG=info rhoevm ./example/build/AssertInput "check"
 ```
 
 - Output

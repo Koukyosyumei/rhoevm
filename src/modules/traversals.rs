@@ -738,7 +738,7 @@ where
       ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(expr))
     }
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(exprs)) => {
-      let new_exprs = (exprs.into_iter().map(|expr| expr.map_expr_m(&mut f))).into_iter().collect();
+      let new_exprs = (exprs.into_iter().map(|expr| Box::new(expr.map_expr_m(&mut f)))).into_iter().collect();
       ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(new_exprs))
     }
     ContractCode::InitCode(bytes, buf) => {

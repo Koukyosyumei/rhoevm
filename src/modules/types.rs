@@ -1274,7 +1274,7 @@ impl Contract {
   pub fn bytecode(&self) -> Option<Expr> {
     match &self.code {
       ContractCode::InitCode(_, _) => Some(Expr::Mempty), // Equivalent to Just mempty
-      ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => Some(Expr::ConcreteBuf(bs.clone())),
+      ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => Some(Expr::ConcreteBuf(*bs.clone())),
       ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => Some(from_list(ops.to_vec())),
       ContractCode::UnKnownCode(_) => None,
     }
@@ -1284,14 +1284,14 @@ impl Contract {
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum ContractCode {
   UnKnownCode(Box<Expr>),
-  InitCode(Vec<u8>, Box<Expr>),
+  InitCode(Box<Vec<u8>>, Box<Expr>),
   RuntimeCode(RuntimeCodeStruct),
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum RuntimeCodeStruct {
-  ConcreteRuntimeCode(Vec<u8>),
-  SymbolicRuntimeCode(Vec<Expr>),
+  ConcreteRuntimeCode(Box<Vec<u8>>),
+  SymbolicRuntimeCode(Vec<Box<Expr>>),
 }
 
 // Define the Trace struct
@@ -1621,12 +1621,12 @@ pub enum PartialExec {
 }
 
 // Example function translating fromList logic from Haskell
-pub fn from_list(bs: Vec<Expr>) -> Expr {
-  if bs.iter().all(|expr| matches!(expr, Expr::LitByte(_))) {
+pub fn from_list(bs: Vec<Box<Expr>>) -> Expr {
+  if bs.iter().all(|expr| matches!(**expr, Expr::LitByte(_))) {
     let packed_bytes: Vec<u8> = bs
       .iter()
-      .filter_map(|expr| match expr {
-        Expr::LitByte(b) => Some(*b),
+      .filter_map(|expr| match *expr.clone() {
+        Expr::LitByte(b) => Some(b),
         _ => None,
       })
       .collect();
@@ -1634,17 +1634,17 @@ pub fn from_list(bs: Vec<Expr>) -> Expr {
   } else {
     let mut concrete_bytes = Vec::with_capacity(bs.len());
     for (idx, expr) in bs.iter().enumerate() {
-      match expr {
-        Expr::LitByte(b) => concrete_bytes.push(*b),
+      match **expr {
+        Expr::LitByte(b) => concrete_bytes.push(b),
         _ => concrete_bytes.push(0),
       }
     }
     let mut buf_expr = Expr::ConcreteBuf(concrete_bytes);
 
     for (idx, expr) in bs.into_iter().enumerate() {
-      match expr {
+      match *expr {
         Expr::LitByte(_) => continue,
-        _ => buf_expr = Expr::WriteByte(Box::new(Expr::Lit(W256(0, idx as u128))), Box::new(expr), Box::new(buf_expr)),
+        _ => buf_expr = Expr::WriteByte(Box::new(Expr::Lit(W256(0, idx as u128))), expr, Box::new(buf_expr)),
       }
     }
     buf_expr
@@ -1866,12 +1866,12 @@ pub fn pad_left(n: usize, xs: Vec<u8>) -> Vec<u8> {
   padding.chain(xs.into_iter()).collect()
 }
 
-pub fn pad_left_prime(n: usize, xs: Vec<Expr>) -> Vec<Expr> {
+pub fn pad_left_prime(n: usize, xs: Vec<Box<Expr>>) -> Vec<Box<Expr>> {
   if xs.len() >= n {
     return xs; // No padding needed if already of sufficient length
   }
   let padding_length = n - xs.len();
-  let padding = iter::repeat(Expr::LitByte(0)).take(padding_length);
+  let padding = iter::repeat(Box::new(Expr::LitByte(0))).take(padding_length);
   padding.chain(xs.into_iter()).collect()
 }
 

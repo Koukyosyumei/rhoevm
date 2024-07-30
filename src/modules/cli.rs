@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::process::exit;
 
-use crate::modules::abi::{Sig};
+use crate::modules::abi::Sig;
 use crate::modules::evm::{abstract_contract, initial_contract, make_vm};
 use crate::modules::feeschedule::FEE_SCHEDULE;
 use crate::modules::fetch::{fetch_block_from, fetch_contract_from, BlockNumber};
@@ -110,9 +110,9 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop
           Some(code) => {
             let bs = hex_byte_string("bytes", &strip_0x(code));
             let mc = if cmd.create {
-              ContractCode::InitCode(bs, Box::new(Expr::Mempty))
+              ContractCode::InitCode(Box::new(bs), Box::new(Expr::Mempty))
             } else {
-              ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs))
+              ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(bs)))
             };
             let mut contract = initial_contract(mc);
             contract.orig_storage = contract_.orig_storage;
@@ -127,9 +127,9 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop
     (_, _, Some(code)) => {
       let bs = hex_byte_string("bytes", &strip_0x(code));
       let mc = if cmd.create {
-        ContractCode::InitCode(bs, Box::new(Expr::Mempty))
+        ContractCode::InitCode(Box::new(bs), Box::new(Expr::Mempty))
       } else {
-        ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs))
+        ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(bs)))
       };
       let address =
         if let Some(a) = cmd.origin.clone() { Expr::LitAddr(a) } else { Expr::SymAddr("origin".to_string()) };

@@ -1659,14 +1659,14 @@ where
 }
 
 // Conversion function from Expr<Buf> to Vec<Expr<u8>>
-pub fn to_list(buf: Box<Expr>) -> Option<Vec<Expr>> {
+pub fn to_list(buf: Box<Expr>) -> Option<Vec<Box<Expr>>> {
   match *buf {
     Expr::AbstractBuf(_) => None,
-    Expr::ConcreteBuf(bs) => Some(bs.iter().map(|b| Expr::LitByte(*b)).collect()),
+    Expr::ConcreteBuf(bs) => Some(bs.iter().map(|b| Box::new(Expr::LitByte(*b))).collect()),
     buf => match buf_length(buf.clone()) {
       Expr::Lit(l) => {
         if l <= W256(usize::MAX as u128, 0) {
-          Some((0..l.0).map(|i| read_byte(Box::new(Expr::Lit(W256(i, 0))), Box::new(buf.clone()))).collect())
+          Some((0..l.0).map(|i| Box::new(read_byte(Box::new(Expr::Lit(W256(i, 0))), Box::new(buf.clone())))).collect())
         } else {
           None
         }

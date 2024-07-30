@@ -34,7 +34,7 @@ pub fn blank_state() -> FrameState {
   FrameState {
     contract: Box::new(Expr::LitAddr(W256(0, 0))),
     code_contract: Box::new(Expr::LitAddr(W256(0, 0))),
-    code: ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Vec::new())),
+    code: ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(Vec::new()))),
     pc: 0,
     base_pc: 0,
     stack: Vec::new(),
@@ -194,7 +194,7 @@ pub fn abstract_contract(code: ContractCode, addr: Expr) -> Contract {
 }
 
 pub fn empty_contract() -> Contract {
-  initial_contract(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Vec::new())))
+  initial_contract(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(Vec::new()))))
 }
 
 pub fn initial_contract(code: ContractCode) -> Contract {
@@ -287,7 +287,7 @@ impl VM {
         ContractCode::InitCode(conc, _) => conc[self.state.pc],
         ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => bs[self.state.pc],
         ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
-          match maybe_lit_byte(ops[self.state.pc].clone()) {
+          match maybe_lit_byte(*ops[self.state.pc].clone()) {
             Some(b) => b,
             None => panic!("could not analyze symbolic code"),
           }
@@ -1701,7 +1701,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
               };
               match output {
                 Expr::ConcreteBuf(bs) => {
-                  on_contract_code(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)))
+                  on_contract_code(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(bs))))
                 }
                 _ => match to_list(Box::new(output.clone())) {
                   None => {
@@ -2126,9 +2126,9 @@ fn to_buf(code: &ContractCode) -> Option<Expr> {
 pub fn hashcode(cc: &ContractCode) -> Expr {
   match cc {
     ContractCode::UnKnownCode(a) => Expr::CodeHash(a.clone()),
-    ContractCode::InitCode(ops, args) => keccak(Expr::ConcreteBuf(ops.clone())).unwrap(),
+    ContractCode::InitCode(ops, args) => keccak(Expr::ConcreteBuf(*ops.clone())).unwrap(),
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => {
-      keccak(Expr::ConcreteBuf(ops.clone())).unwrap()
+      keccak(Expr::ConcreteBuf(*ops.clone())).unwrap()
     }
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => keccak(from_list(ops.clone())).unwrap(),
   }
@@ -2137,7 +2137,7 @@ pub fn hashcode(cc: &ContractCode) -> Expr {
 fn codelen(cc: &ContractCode) -> Expr {
   match cc {
     ContractCode::UnKnownCode(a) => Expr::CodeSize(a.clone()),
-    ContractCode::InitCode(ops, args) => keccak(Expr::ConcreteBuf(ops.clone())).unwrap(),
+    ContractCode::InitCode(ops, args) => keccak(Expr::ConcreteBuf(*ops.clone())).unwrap(),
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => Expr::Lit(W256(ops.len() as u128, 0)),
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => Expr::Lit(W256(ops.len() as u128, 0)),
   }
@@ -2334,7 +2334,7 @@ fn delegate_call(
         vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
         let new_memory = Memory::ConcreteMemory(vec![]);
         let cleared_init_code = match target_code {
-          ContractCode::InitCode(_, _) => ContractCode::InitCode(vec![], Box::new(Expr::Mempty)),
+          ContractCode::InitCode(_, _) => ContractCode::InitCode(Box::new(vec![]), Box::new(Expr::Mempty)),
           a => a.clone(),
         };
         vm.state = FrameState {
@@ -2552,7 +2552,7 @@ fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
     ContractCode::InitCode(ops, _) => ops.get(x).cloned(),
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => ops.get(x).cloned(),
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => {
-      ops.get(x).and_then(|byte| maybe_lit_byte(byte.clone()))
+      ops.get(x).and_then(|byte| maybe_lit_byte(*byte.clone()))
     }
   };
 
@@ -2805,14 +2805,14 @@ fn cheat_code() -> Expr {
 
 fn parse_init_code(buf: Expr) -> Option<ContractCode> {
   match buf {
-    Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(b, Box::new(Expr::Mempty))),
+    Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(Box::new(b.to_vec()), Box::new(Expr::Mempty))),
     _ => {
       let conc = concrete_prefix(Box::new(buf.clone()));
       if conc.is_empty() {
         None
       } else {
         let sym = drop(W256(conc.len() as u128, 0), Box::new(buf));
-        Some(ContractCode::InitCode(conc, Box::new(sym)))
+        Some(ContractCode::InitCode(Box::new(conc), Box::new(sym)))
       }
     }
   }
@@ -2955,12 +2955,12 @@ fn un_refund(vm: &mut VM, n: u64) {
 }
 
 fn mk_code_ops(contract_code: ContractCode) -> Vec<(i32, Op)> {
-  fn go(mut i: i32, xs: &Vec<Expr>) -> Vec<(i32, Op)> {
+  fn go(mut i: i32, xs: &Vec<Box<Expr>>) -> Vec<(i32, Op)> {
     let mut result = Vec::new();
     let mut xs = VecDeque::from(xs.to_vec());
 
     while let Some(x) = xs.pop_front() {
-      if let Some(b) = maybe_lit_byte(x) {
+      if let Some(b) = maybe_lit_byte(*x) {
         let op = get_op(b);
         let size = op_size(b);
         result.push((i, op));
@@ -2976,10 +2976,10 @@ fn mk_code_ops(contract_code: ContractCode) -> Vec<(i32, Op)> {
 
   let l = match contract_code {
     ContractCode::UnKnownCode(_) => panic!("Cannot make codeOps for unknown code"),
-    ContractCode::InitCode(bytes, _) => bytes.into_iter().map(|b| Expr::LitByte(b)).collect(),
+    ContractCode::InitCode(bytes, _) => bytes.into_iter().map(|b| Box::new(Expr::LitByte(b))).collect(),
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => {
       // todo: stripBytecodeMetadata ops
-      ops.into_iter().map(|b| Expr::LitByte(b)).collect()
+      ops.into_iter().map(|b| Box::new(Expr::LitByte(b))).collect()
     }
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => ops,
   };

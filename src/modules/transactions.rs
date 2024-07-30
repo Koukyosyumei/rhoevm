@@ -9,7 +9,7 @@ fn touch_account(pre_state: &mut ExprContractMap, addr: &Expr) {
 }
 
 fn new_account() -> Contract {
-  let initial_code = RuntimeCodeStruct::ConcreteRuntimeCode(String::new().into());
+  let initial_code = RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(String::new().as_bytes().to_vec()));
   let runtime_code = ContractCode::RuntimeCode(initial_code);
   initial_contract(runtime_code)
 }

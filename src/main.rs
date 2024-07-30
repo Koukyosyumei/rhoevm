@@ -46,9 +46,9 @@ fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) 
     (_, _, Some(code)) => {
       let bs = hex_byte_string("bytes", &strip_0x(code));
       let mc = if cmd.create {
-        ContractCode::InitCode(bs, Box::new(Expr::Mempty))
+        ContractCode::InitCode(Box::new(bs), Box::new(Expr::Mempty))
       } else {
-        ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs))
+        ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(bs)))
       };
       let address =
         if let Some(a) = cmd.origin.clone() { Expr::LitAddr(a) } else { Expr::SymAddr("origin".to_string()) };
@@ -199,12 +199,16 @@ fn main() {
         if let Some(ref model_str) = vm.state.prev_model {
           let mut msg_model = function_name.to_string() + "(";
           let model = parse_z3_output(&model_str);
+          let mut is_zero_args = true;
           for (k, v) in model.iter() {
             if k[..3] == *"arg" {
               msg_model += &format!("{}={},", k, v.1);
+              is_zero_args = false;
             }
           }
-          msg_model.pop();
+          if !is_zero_args {
+            msg_model.pop();
+          }
           msg_model.push(')');
           error!("model: {}", msg_model);
         }
