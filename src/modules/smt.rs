@@ -1,3 +1,4 @@
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::{fmt, vec};
@@ -1645,16 +1646,23 @@ fn find_buffer_access<T: TraversableTerm>(term: &Vec<T>) -> Vec<(Expr, Expr, Exp
   result
 }
 
-/*
-/*
-findBufferAccess :: TraversableTerm a => [a] -> [(Expr EWord, Expr EWord, Expr Buf)]
-findBufferAccess = foldl (foldTerm go) mempty
-  where
-    go :: Expr a -> [(Expr EWord, Expr EWord, Expr Buf)]
-    go = \case
-      ReadWord idx buf -> [(idx, Lit 32, buf)]
-      ReadByte idx buf -> [(idx, Lit 1, buf)]
-      CopySlice srcOff _ size src _  -> [(srcOff, size, src)]
-      _ -> mempty
-*/
-*/
+// Function to parse Z3 output and extract variable assignments
+pub fn parse_z3_output(z3_output: &str) -> HashMap<String, (String, u128)> {
+  // Regular expression to match (define-fun <name> () (_ BitVec 256) #x<value>)
+  let pattern = r"\(define-fun\s+(\w+)\s+\(\)\s+\(_\s+BitVec\s+256\)\s+#x([0-9a-fA-F]+)\)";
+  let regex = Regex::new(pattern).unwrap();
+
+  // Create a HashMap to store the results
+  let mut result = HashMap::new();
+
+  // Find all matches in the Z3 output
+  for cap in regex.captures_iter(z3_output) {
+    let name = cap[1].to_string();
+    let hex_value = cap[2].to_string();
+    // Convert hex to decimal (u128 to handle large numbers)
+    let decimal_value = u128::from_str_radix(&hex_value, 16).unwrap();
+    result.insert(name, (hex_value, decimal_value));
+  }
+
+  result
+}

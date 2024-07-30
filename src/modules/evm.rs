@@ -46,6 +46,7 @@ pub fn blank_state() -> FrameState {
     gas: Gas::Concerete(initial_gas()),
     returndata: Box::new(Expr::Mempty),
     static_flag: false,
+    prev_model: None,
   }
 }
 
@@ -119,6 +120,7 @@ pub fn make_vm(opts: VMOpts) -> VM {
       gas: opts.gas,
       returndata: Box::new(Expr::Mempty),
       static_flag: false,
+      prev_model: None,
     },
     env: Env {
       chain_id: opts.chain_id.clone(),
@@ -2350,6 +2352,7 @@ fn delegate_call(
           callvalue: vm.state.callvalue.clone(),
           caller: vm.state.caller.clone(),
           static_flag: vm.state.static_flag.clone(),
+          prev_model: None,
         };
         continue_fn(x_to);
       }
@@ -2649,10 +2652,10 @@ fn account_empty(c: &Contract) -> bool {
   cc && c.nonce == Some(0) && c.balance == Expr::Lit(W256(1, 0))
 }
 
-fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> bool {
+fn solve_constraints(vm: &mut VM, pathconds: &Vec<Prop>) -> bool {
   let config = Config::default();
   let smt2 = assert_props(&config, pathconds.to_vec());
-  let content = format_smt2(smt2) + "\n\n(check-sat)";
+  let content = format_smt2(smt2) + "\n\n(check-sat)\n(get-model)";
 
   let mut hasher = DefaultHasher::new();
   let mut pathconds_str: Vec<String> = pathconds.into_iter().map(|p| format!("{}", format_prop(p))).collect();
@@ -2679,7 +2682,8 @@ fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> bool {
   if output.status.success() {
     // Convert the standard output to a String
     let stdout = String::from_utf8(output.stdout).unwrap();
-    return stdout == "sat\n";
+    vm.state.prev_model = Some(stdout.clone());
+    return stdout[..3] == *"sat";
   }
   false
 }

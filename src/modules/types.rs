@@ -1358,6 +1358,7 @@ pub struct FrameState {
   pub gas: Gas,
   pub returndata: Box<Expr>,
   pub static_flag: bool,
+  pub prev_model: Option<String>,
 }
 
 // Define the tree structure

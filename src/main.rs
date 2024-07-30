@@ -9,7 +9,8 @@ use tiny_keccak::{Hasher, Keccak};
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
 use rhoevm::modules::evm::{abstract_contract, opslen};
-use rhoevm::modules::format::{format_prop, hex_byte_string, strip_0x};
+use rhoevm::modules::format::{hex_byte_string, strip_0x};
+use rhoevm::modules::smt::parse_z3_output;
 
 use rhoevm::modules::abi::{parse_abi_file, Sig};
 use rhoevm::modules::transactions::init_tx;
@@ -195,11 +196,25 @@ fn main() {
 
       if found_calldataload && prev_op == "REVERT" {
         error!("REVERT DETECTED @ PC = 0x{:x}", prev_pc);
+        if let Some(ref model_str) = vm.state.prev_model {
+          let mut msg_model = function_name.to_string() + "(";
+          let model = parse_z3_output(&model_str);
+          for (k, v) in model.iter() {
+            if k[..3] == *"arg" {
+              msg_model += &format!("{}={},", k, v.1);
+            }
+          }
+          msg_model.pop();
+          msg_model.push(')');
+          error!("model: {}", msg_model);
+        }
+
         let mut msg = "** Constraints (Raw Format):=\n true".to_string();
         for e in &vm.constraints_raw_expr {
           msg = msg + &format!(" && {}\n", *e);
         }
         debug!("{}", msg);
+
         end = true;
       }
 
