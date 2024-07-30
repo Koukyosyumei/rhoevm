@@ -132,13 +132,32 @@ pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[Stri
   let (cd_buf, props) = combine_fragments(&calldatas, base);
   let with_selector = write_selector(cd_buf, sig);
   let size_constraints = Prop::PAnd(
-    Box::new(Prop::PGEq(
-      Expr::BufLength(Box::new(with_selector.clone())),
-      Expr::Lit(W256((calldatas.len() as u128 * 32 + 4 as u128).into(), 0)),
-    )),
-    Box::new(Prop::PBool(true)), //Box::new(Prop::PLT(Expr::BufLength(Box::new(with_selector.clone())), Expr::Lit(W256(2_u128.pow(64), 0)))),
+    Box::new(Prop::PGEq(Expr::BufLength(Box::new(with_selector.clone())), cd_len(&calldatas))),
+    Box::new(Prop::PLT(Expr::BufLength(Box::new(with_selector.clone())), Expr::Lit(W256(2_u128.pow(64), 0)))),
   );
   (with_selector, vec![size_constraints].into_iter().chain(props).collect())
+}
+
+fn cd_len(cfs: &Vec<CalldataFragment>) -> Expr {
+  let mut cfs_ = cfs.clone();
+  let mut s = Expr::Lit(W256(4, 0));
+  while !cfs_.is_empty() {
+    let c = cfs_.pop().unwrap();
+    match c {
+      CalldataFragment::St(_, _) => {
+        s = add(Box::new(s), Box::new(Expr::Lit(W256(32, 0))));
+      }
+      CalldataFragment::Comp(xs) => {
+        if xs.iter().all(is_st) {
+          for x in xs {
+            cfs_.push(x);
+          }
+        }
+      }
+      _ => panic!("unsupported"),
+    }
+  }
+  s
 }
 
 pub fn mk_calldata(sig: Option<Sig>, concrete_args: &[String]) -> (Expr, Vec<Prop>) {

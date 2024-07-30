@@ -1271,12 +1271,12 @@ fn go_prop(prop: &Prop) -> Prop {
 
     Prop::PLT(a, b) => match (a, b.clone()) {
       (Expr::Var(_), Expr::Lit(W256(0, 0))) => Prop::PBool(false),
+      (Expr::Lit(W256(0, 0)), Expr::Eq(a_, b_)) => Prop::PEq(*a_, *b_),
       (Expr::Lit(l), Expr::Lit(r)) => Prop::PBool(l < r),
-      (Expr::Max(a_, _), Expr::Lit(c)) => match *a_ {
-        Expr::Lit(a_v) if (a_v < c) => Prop::PLT(b, Expr::Lit(c)),
+      (Expr::Max(a_, b_), Expr::Lit(c_)) => match *a_ {
+        Expr::Lit(a_v) if (a_v < c_) => Prop::PLT(*b_, Expr::Lit(c_)),
         _ => prop.clone(),
       },
-      (Expr::Lit(W256(0, 0)), Expr::Eq(a_, b_)) => Prop::PEq(*a_, *b_),
       _ => prop.clone(),
     },
 
