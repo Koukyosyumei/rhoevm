@@ -23,7 +23,7 @@
 
 
 > [!CAUTION]
-> This project is still in work in progress.
+> Currently, this project is a work in progress.
 
 ## install
 
