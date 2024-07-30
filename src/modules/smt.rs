@@ -161,11 +161,11 @@ impl std::ops::AddAssign for SMT2 {
   }
 }
 
-pub fn format_smt2(smt2: SMT2) -> String {
+pub fn format_smt2(smt2: &SMT2) -> String {
   let mut result = format!(";{}", smt2.3.iter().map(|p| format_prop(p)).collect::<Vec<String>>().join("\n"));
   result = result.replace("\n", "\n;");
   result += "\n\n";
-  for s in smt2.0 {
+  for s in smt2.0.clone() {
     result += &(s.to_string() + &("\n".to_string()));
   }
   result

@@ -2655,7 +2655,7 @@ fn account_empty(c: &Contract) -> bool {
 fn solve_constraints(vm: &mut VM, pathconds: &Vec<Prop>) -> bool {
   let config = Config::default();
   let smt2 = assert_props(&config, pathconds.to_vec());
-  let content = format_smt2(smt2) + "\n\n(check-sat)\n(get-model)";
+  let content = format_smt2(&smt2) + "\n\n(check-sat)\n(get-model)";
 
   let mut hasher = DefaultHasher::new();
   let mut pathconds_str: Vec<String> = pathconds.into_iter().map(|p| format!("{}", format_prop(p))).collect();
