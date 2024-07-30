@@ -1004,6 +1004,8 @@ fn structure_array_slots(e: Box<Expr>) -> Expr {
   map_expr(|a: &Expr| go(Box::new(a.clone())), *e)
 }
 
+/// Takes a value and checks if it's within 256 of a precomputed array hash value.
+/// If it is, it returns (array_number, offset).
 fn lit_to_array_pre_image(val: W256) -> Option<(Word8, W256)> {
   fn go(pre_images: &Vec<(W256, Word8)>, val: W256) -> Option<(Word8, W256)> {
     for (image, preimage) in pre_images {
@@ -1020,18 +1022,6 @@ fn lit_to_array_pre_image(val: W256) -> Option<(Word8, W256)> {
 /// Precompute the hashes and store them in a HashMap
 fn pre_images() -> Vec<(W256, u8)> {
   (0..=255).map(|i| (keccak_prime(&word256_bytes(W256(i, 0))), i as u8)).collect()
-}
-
-/// Takes a value and checks if it's within 256 of a precomputed array hash value.
-/// If it is, it returns (array_number, offset).
-fn lit_to_array_preimage(val: W256) -> Option<(Word8, W256)> {
-  let images = pre_images();
-  for (image, preimage) in images {
-    if val.clone() >= image.clone() && (val.clone() - image.clone()).0 <= 255 {
-      return Some((preimage, val - image));
-    }
-  }
-  None
 }
 
 fn slot_pos(pos: Word8) -> ByteString {
@@ -1051,12 +1041,12 @@ fn go_expr(expr: Box<Expr>) -> Expr {
 
     Expr::ReadWord(idx_, buf_) => match (*idx_.clone(), *buf_.clone()) {
       (Expr::Lit(_), _) => simplify_reads(expr),
-      (idx, buf) => *read_word(idx_, buf_),
+      (_, _) => *read_word(idx_, buf_),
     },
 
     Expr::ReadByte(idx_, buf_) => match (*idx_.clone(), *buf_.clone()) {
       (Expr::Lit(_), _) => simplify_reads(expr),
-      (idx, buf) => read_byte(idx_, buf_),
+      (_, _) => read_byte(idx_, buf_),
     },
 
     Expr::BufLength(buf) => buf_length(*buf.clone()),
@@ -1082,7 +1072,7 @@ fn go_expr(expr: Box<Expr>) -> Expr {
         {
           src.clone()
         }
-        (ref src_off @ Expr::Lit(ref n), dst_off, ref size @ Expr::Lit(ref sz), src, dst) => {
+        (ref src_off @ Expr::Lit(_), dst_off, ref size @ Expr::Lit(_), src, dst) => {
           if let Expr::WriteWord(w_off, value, cb) = src.clone() {
             if let Expr::ConcreteBuf(buf) = *cb.clone() {
               let n = if let Expr::Lit(n) = src_off { n.clone() } else { W256(0, 0) };
@@ -1164,13 +1154,13 @@ fn go_expr(expr: Box<Expr>) -> Expr {
     Expr::Eq(a_, b_) => match (*a_.clone(), *b_.clone()) {
       (Expr::Lit(a), Expr::Lit(b)) => Expr::Lit(if a == b { W256(1, 0) } else { W256(0, 0) }),
       (_, Expr::Lit(W256(0, 0))) => iszero(expr.clone()),
-      (a, b) => eq(a_, b_),
+      (_, _) => eq(a_, b_),
     },
 
     Expr::ITE(a_, b_, c_) => match (*a_.clone(), *b_.clone(), *c_.clone()) {
       (Expr::Lit(W256(0, 0)), _, c) => c,
       (Expr::Lit(_), b, _) => b,
-      (a, b, c) => Expr::ITE(a_.clone(), b_.clone(), c_.clone()),
+      (_, _, _) => Expr::ITE(a_.clone(), b_.clone(), c_.clone()),
     },
 
     Expr::And(a_, b_) => match (*a_.clone(), *b_.clone()) {
@@ -1213,12 +1203,12 @@ fn go_expr(expr: Box<Expr>) -> Expr {
     },
 
     Expr::SHL(a_, b_) => match (*a_.clone(), *b_.clone()) {
-      (Expr::Lit(a), b) => shl(Box::new(Expr::Lit(a)), b_),
+      (Expr::Lit(a), _) => shl(Box::new(Expr::Lit(a)), b_),
       _ => shl(a_, b_),
     },
 
     Expr::SHR(a_, b_) => match (*a_.clone(), *b_.clone()) {
-      (Expr::Lit(a), b) => shr(Box::new(Expr::Lit(a)), b_),
+      (Expr::Lit(a), _) => shr(Box::new(Expr::Lit(a)), b_),
       _ => shr(a_, b_),
     },
 
@@ -1226,8 +1216,8 @@ fn go_expr(expr: Box<Expr>) -> Expr {
     Expr::Min(a, b) => emin(a, b),
 
     Expr::Mul(a_, b_) => match (*a_.clone(), *b_.clone()) {
-      (a, Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
-      (Expr::Lit(W256(0, 0)), a) => Expr::Lit(W256(0, 0)),
+      (_, Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
+      (Expr::Lit(W256(0, 0)), _) => Expr::Lit(W256(0, 0)),
       (Expr::Lit(a), Expr::Lit(b)) => Expr::Lit(a * b),
       _ => mul(a_, b_),
     },
@@ -1270,7 +1260,7 @@ fn go_prop(prop: &Prop) -> Prop {
     Prop::PGEq(a, b) => Prop::PLEq(b, a),
 
     Prop::PLEq(Expr::Lit(W256(0, 0)), _) => Prop::PBool(true),
-    Prop::PLEq(Expr::WAddr(_), Expr::Lit(v)) => Prop::PBool(true),
+    Prop::PLEq(Expr::WAddr(_), Expr::Lit(_)) => Prop::PBool(true),
     Prop::PLEq(_, Expr::Lit(x)) if x == MAX_LIT => Prop::PBool(true),
 
     Prop::PLEq(Expr::Var(_), Expr::Lit(val)) if val == MAX_LIT => Prop::PBool(true),
@@ -1282,7 +1272,7 @@ fn go_prop(prop: &Prop) -> Prop {
     Prop::PLT(a, b) => match (a, b.clone()) {
       (Expr::Var(_), Expr::Lit(W256(0, 0))) => Prop::PBool(false),
       (Expr::Lit(l), Expr::Lit(r)) => Prop::PBool(l < r),
-      (Expr::Max(a_, b_), Expr::Lit(c)) => match *a_ {
+      (Expr::Max(a_, _), Expr::Lit(c)) => match *a_ {
         Expr::Lit(a_v) if (a_v < c) => Prop::PLT(b, Expr::Lit(c)),
         _ => prop.clone(),
       },
