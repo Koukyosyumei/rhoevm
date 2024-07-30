@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 contract SimpleAssert {
-    function set() public pure {
+    function check() public pure {
         assert(20 >= 100);
     }
 }
