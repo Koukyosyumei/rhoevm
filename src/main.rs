@@ -194,11 +194,12 @@ fn main() {
       }
 
       if found_calldataload && prev_op == "REVERT" {
-        let mut msg = "REVERT DETECTED\nConstraints (Raw Format):=\n true".to_string();
+        error!("REVERT DETECTED @ PC = 0x{:x}", prev_pc);
+        let mut msg = "** Constraints (Raw Format):=\n true".to_string();
         for e in &vm.constraints_raw_expr {
           msg = msg + &format!(" && {}\n", *e);
         }
-        error!("{}", msg);
+        debug!("{}", msg);
         end = true;
       }
 
