@@ -1,5 +1,5 @@
 use env_logger;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::cmp::min;
 use std::env;
 use std::error::Error;
@@ -74,6 +74,7 @@ fn main() {
   }
 
   print_ascii_art();
+  warn!("Currently, this project is a work in progress.");
 
   let base_filename = &args[1];
   let function_name = &args[2];
