@@ -1,4 +1,4 @@
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -2652,7 +2652,7 @@ fn account_empty(c: &Contract) -> bool {
   cc && c.nonce == Some(0) && c.balance == Expr::Lit(W256(1, 0))
 }
 
-fn solve_constraints(vm: &mut VM, pathconds: &Vec<Prop>) -> bool {
+pub fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> (bool, Option<String>) {
   let config = Config::default();
   let smt2 = assert_props(&config, pathconds.to_vec());
   let content = format_smt2(&smt2) + "\n\n(check-sat)\n(get-model)";
@@ -2682,10 +2682,9 @@ fn solve_constraints(vm: &mut VM, pathconds: &Vec<Prop>) -> bool {
   if output.status.success() {
     // Convert the standard output to a String
     let stdout = String::from_utf8(output.stdout).unwrap();
-    vm.state.prev_model = Some(stdout.clone());
-    return stdout[..3] == *"sat";
+    return (stdout[..3] == *"sat", Some(stdout));
   }
-  false
+  (false, None)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2713,52 +2712,30 @@ where
   }
 
   if itr_cnt >= max_num_iterations as i64 {
-    info!("LOOP DETECTED");
+    warn!("LOOP DETECTED @ PC=0x{}", vm.state.pc);
   }
 
-  let mut new_vm = None;
-  let mut branchcond = BranchReachability::NONE;
+  let mut new_vm = vm.clone();
 
   let cond_simp = simplify(cond.clone());
   let cond_simp_conc = conc_keccak_simp_expr(Box::new(cond_simp));
   let then_branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)))));
   let else_branch_cond = Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)));
 
-  let mut pathconds = vm.constraints.clone();
-  pathconds.push(then_branch_cond.clone());
-  let v = solve_constraints(vm, &pathconds);
-  if v {
-    debug!("THEN-BRANCH: SAT");
-    vm.constraints_raw_expr.push(cond.clone());
-    vm.constraints.push(then_branch_cond);
+  vm.constraints_raw_expr.push(cond.clone());
+  vm.constraints.push(then_branch_cond);
+
+  new_vm.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
+  new_vm.constraints.push(else_branch_cond);
+  if itr_cnt >= max_num_iterations as i64 {
+    //*new_vm.iterations.entry(loc).or_insert((0, new_vm.state.stack.clone())) = (0, new_vm.state.stack.clone())
   }
 
-  pathconds.pop();
-  pathconds.push(else_branch_cond.clone());
-  let u = solve_constraints(vm, &pathconds);
-  if u || (v && itr_cnt >= max_num_iterations as i64) {
-    debug!("ELSE-BRANCH: SAT");
-    let mut new_vm_ = vm.clone();
-    new_vm_.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
-    new_vm_.constraints.pop();
-    new_vm_.constraints.push(else_branch_cond);
-    if itr_cnt >= max_num_iterations as i64 {
-      *new_vm_.iterations.entry(loc).or_insert((0, new_vm_.state.stack.clone())) = (0, new_vm_.state.stack.clone())
-    }
-    new_vm = Some(new_vm_);
-  }
+  let branchreachability =
+    if itr_cnt < max_num_iterations as i64 { BranchReachability::BOTH } else { BranchReachability::ONLYELSE };
+  let _ = continue_fn(branchreachability);
 
-  if v && u && itr_cnt < max_num_iterations as i64 {
-    branchcond = BranchReachability::BOTH;
-  } else if v && itr_cnt < max_num_iterations as i64 {
-    branchcond = BranchReachability::ONLYTHEN;
-  } else if u || (v && itr_cnt >= max_num_iterations as i64) {
-    branchcond = BranchReachability::ONLYELSE;
-  }
-
-  let _ = continue_fn(branchcond);
-
-  new_vm
+  Some(new_vm)
 }
 
 fn collision(c_: Option<Contract>) -> bool {

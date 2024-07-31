@@ -8,7 +8,7 @@ use std::io::Read;
 use tiny_keccak::{Hasher, Keccak};
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
-use rhoevm::modules::evm::{abstract_contract, opslen};
+use rhoevm::modules::evm::{abstract_contract, opslen, solve_constraints};
 use rhoevm::modules::format::{hex_byte_string, strip_0x};
 use rhoevm::modules::smt::parse_z3_output;
 
@@ -162,6 +162,7 @@ fn main() {
       return;
     }
   };
+  let num_initial_constraints = vm.constraints.len();
 
   let mut vms = vec![];
   let mut prev_pc = 0;
@@ -176,7 +177,7 @@ fn main() {
     loop {
       prev_pc = vm.state.pc;
       do_size = vm.decoded_opcodes.len();
-      let continue_flag = vm.exec1(&mut vms, if found_calldataload { 32 } else { 1 });
+      let continue_flag = vm.exec1(&mut vms, if found_calldataload { 10 } else { 1 });
       prev_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
 
       if !found_calldataload && prev_valid_op == "RETURN" && prev_op != "UNKNOWN" {
@@ -195,31 +196,35 @@ fn main() {
       }
 
       if found_calldataload && prev_op == "REVERT" {
-        error!("REVERT DETECTED @ PC = 0x{:x}", prev_pc);
-        if let Some(ref model_str) = vm.state.prev_model {
-          let mut msg_model = function_name.to_string() + "(";
-          let model = parse_z3_output(&model_str);
-          let mut is_zero_args = true;
-          for (k, v) in model.iter() {
-            if k[..3] == *"arg" {
-              msg_model += &format!("{}={},", k, v.1);
-              is_zero_args = false;
-            }
-          }
-          if !is_zero_args {
-            msg_model.pop();
-          }
-          msg_model.push(')');
-          error!("model: {}", msg_model);
-        }
-
-        let mut msg = "** Constraints (Raw Format):=\n true".to_string();
-        for e in &vm.constraints_raw_expr {
-          msg = msg + &format!(" && {}\n", *e);
-        }
-        debug!("{}", msg);
-
+        let (reachability, model) = solve_constraints(&vm, &vm.constraints);
         end = true;
+
+        if reachability {
+          error!("REACHABLE REVERT DETECTED @ PC=0x{:x}", prev_pc);
+          if let Some(ref model_str) = model {
+            let mut msg_model = function_name.to_string() + "(";
+            let model = parse_z3_output(&model_str);
+            let mut is_zero_args = true;
+            for (k, v) in model.iter() {
+              if k[..3] == *"arg" {
+                msg_model += &format!("{}={},", k, v.1);
+                is_zero_args = false;
+              }
+            }
+            if !is_zero_args {
+              msg_model.pop();
+            }
+            msg_model.push(')');
+            error!("model: {}", msg_model);
+          }
+
+          let mut msg = "** Constraints (Raw Format):=\n true".to_string();
+          for e in &vm.constraints_raw_expr {
+            msg = msg + &format!(" && {}\n", *e);
+          }
+          debug!("{}", msg);
+          break;
+        }
       }
 
       if continue_flag {
@@ -237,8 +242,9 @@ fn main() {
       }
     }
     debug!("---------------");
-    //vm.constraints.clear();
-    //vm.constraints_raw_expr.clear();
+    vm.constraints = vm.constraints[..num_initial_constraints].to_vec();
+    //vm.constraints_raw_expr = vm.constraints_raw_expr[..num_initial_constraints].to_vec();
+    vm.constraints_raw_expr.clear();
     vm.state.pc += 1;
   }
   info!("EVM execution completed.");
