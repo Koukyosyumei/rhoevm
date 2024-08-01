@@ -612,7 +612,7 @@ fn join_bytes(bs: Vec<Expr>) -> Expr {
   }
 }
 
-fn eq_byte(x: Box<Expr>, y: Box<Expr>) -> Expr {
+pub fn eq_byte(x: Box<Expr>, y: Box<Expr>) -> Expr {
   match (*x, *y) {
     (Expr::LitByte(x), Expr::LitByte(y)) => Expr::Lit(if x == y { W256(1, 0) } else { W256(0, 0) }),
     (x, y) => Expr::EqByte(Box::new(x), Box::new(y)),

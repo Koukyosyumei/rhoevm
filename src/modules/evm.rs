@@ -9,8 +9,8 @@ use std::vec;
 use crate::modules::effects::Config;
 use crate::modules::expr::copy_slice;
 use crate::modules::expr::{
-  add, buf_length, conc_keccak_simp_expr, concrete_prefix, create2_address_, create_address_, drop, emin, eq, gt,
-  index_word, or, read_byte, read_bytes, read_storage, read_word, read_word_from_bytes, simplify, sub, to_list,
+  add, buf_length, conc_keccak_simp_expr, concrete_prefix, create2_address_, create_address_, drop, emin, eq, eq_byte,
+  gt, index_word, or, read_byte, read_bytes, read_storage, read_word, read_word_from_bytes, simplify, sub, to_list,
   word_to_addr, write_byte, write_storage, write_word, MAX_BYTES,
 };
 use crate::modules::feeschedule::FeeSchedule;
@@ -69,7 +69,11 @@ pub fn make_vm(opts: VMOpts) -> VM {
   let initial_accessed_addrs = ExprSet::from([txorigin.clone(), txto_addr.clone(), opts.coinbase.clone()]);
   let initial_accessed_storage_keys: HashSet<_> =
     txaccess_list.iter().flat_map(|(k, v)| v.iter().map(move |v| (k.clone(), v.clone()))).collect();
-  let touched = if opts.create { vec![txorigin.clone()] } else { vec![txorigin.clone(), txto_addr.clone()] };
+  let touched = if opts.create {
+    vec![Box::new(txorigin.clone())]
+  } else {
+    vec![Box::new(txorigin.clone()), Box::new(txto_addr.clone())]
+  };
 
   let memory = Memory::ConcreteMemory(Vec::new());
 
@@ -1013,6 +1017,26 @@ impl VM {
           true
         }
         Op::Call => {
+          /*
+          Creates a new sub context and execute the code of the given account, then resumes the current one. Note that an account with no code will return success as true.
+
+          If the size of the return data is not known, it can also be retrieved after the call with the instructions RETURNDATASIZE and RETURNDATACOPY (since the Byzantium fork).
+
+          From the Tangerine Whistle fork, gas is capped at all but one 64th (remaining_gas / 64) of the remaining gas of the current context. If a call tries to send more, the gas is changed to match the maximum allowed.
+
+          If the caller doesn't have enough balance to send the value, the call fails but the current context is not reverted.
+
+          Stack input
+            gas: amount of gas to send to the sub context to execute. The gas that is not used by the sub context is returned to this one.
+            address: the account which context to execute.
+            value: value in wei to send to the account.
+            argsOffset: byte offset in the memory in bytes, the calldata of the sub context.
+            argsSize: byte size to copy (size of the calldata).
+            retOffset: byte offset in the memory in bytes, where to store the return data of the sub context.
+            retSize: byte size to copy (size of the return data).
+          Stack output
+            success: return 0 if the sub context reverted, 1 otherwise.
+           */
           if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_value, x_to, x_gas] =
             &self.state.stack.clone()[..]
           {
@@ -1025,15 +1049,13 @@ impl VM {
             );
             if gt0 == BranchReachability::ONLYTHEN || gt0 == BranchReachability::BOTH {
               not_static(self, || {});
-            }
-            if gt0 == BranchReachability::ONLYELSE || gt0 == BranchReachability::BOTH {
-              let mut else_vm = else_vm_.unwrap();
+
               force_addr(x_to, "unable to determine a call target", |x_to| match Some(x_gas) {
                 None => vm_error("IllegalOverflow"),
                 _ => {
                   let mut callee: Expr = Expr::Mempty;
-                  delegate_call(
-                    &mut else_vm,
+                  general_call(
+                    self,
                     op,
                     this_contract.clone(),
                     Gas::Concerete(0),
@@ -1048,19 +1070,22 @@ impl VM {
                     |callee_| callee = callee_,
                     max_num_iterations,
                   );
-                  let from_ = else_vm.config.override_caller.clone();
-                  else_vm.state.callvalue = x_value.clone();
-                  else_vm.state.caller = Box::new(from_.clone().unwrap());
-                  else_vm.state.contract = Box::new(callee.clone());
-                  let reset_caller = else_vm.config.reset_caller;
+                  let from_ = self.config.override_caller.clone();
+                  self.state.callvalue = x_value.clone();
+                  self.state.caller = Box::new(from_.clone().unwrap());
+                  self.state.contract = Box::new(callee.clone());
+                  let reset_caller = self.config.reset_caller;
                   if reset_caller {
-                    else_vm.config.override_caller = None;
+                    self.config.override_caller = None;
                   }
-                  touch_account(&mut else_vm, &from_.clone().unwrap());
-                  touch_account(&mut else_vm, &callee);
-                  let _ = transfer(&mut else_vm, from_.unwrap(), callee, *x_value.clone(), max_num_iterations);
+                  touch_account(self, &from_.clone().unwrap());
+                  touch_account(self, &callee);
+                  let _ = transfer(self, from_.unwrap(), callee, *x_value.clone(), max_num_iterations);
                 }
               });
+            }
+            if gt0 == BranchReachability::ONLYELSE || gt0 == BranchReachability::BOTH {
+              let else_vm = else_vm_.unwrap();
               vm_queue.push(else_vm);
             }
           } else {
@@ -1074,7 +1099,7 @@ impl VM {
           {
             force_addr(x_to, "unable to determine a call target", |_| {});
             // gasTryFrom(x_gas)
-            delegate_call(
+            general_call(
               self,
               op,
               this_contract.clone(),
@@ -1117,11 +1142,23 @@ impl VM {
               if codesize > maxsize {
                 finish_frame(self, FrameResult::FrameErrored(EvmError::MaxCodeSizeExceeded(codesize, maxsize)));
               } else {
-                let frame_returned = finish_frame(self, FrameResult::FrameReturned(output.clone()));
-                let frame_errored = finish_frame(self, FrameResult::FrameErrored(EvmError::InvalidFormat));
-                match read_byte(Box::new(Expr::Lit(W256(0, 0))), Box::new(output)) {
-                  Expr::Lit(W256(0xef, 0)) => frame_errored,
-                  _ => frame_returned,
+                match read_byte(Box::new(Expr::Lit(W256(0, 0))), Box::new(output.clone())) {
+                  Expr::LitByte(0xef) => finish_frame(self, FrameResult::FrameErrored(EvmError::InvalidFormat)),
+                  Expr::LitByte(_) => finish_frame(self, FrameResult::FrameReturned(output.clone())),
+                  y => {
+                    let mut c = BranchReachability::NONE;
+                    let else_vm_ = branch(
+                      self,
+                      Box::new(eq_byte(Box::new(y), Box::new(Expr::LitByte(0xef)))),
+                      |c_| Ok(c = c_),
+                      max_num_iterations,
+                    );
+                    if c == BranchReachability::ONLYELSE {
+                      finish_frame(self, FrameResult::FrameReturned(output.clone()))
+                    } else {
+                      finish_frame(self, FrameResult::FrameErrored(EvmError::InvalidFormat))
+                    }
+                  }
                 }
               }
             } else {
@@ -1152,7 +1189,7 @@ impl VM {
                   // gasTryFrom(x_gas)
                   0 => vm_error("IllegalOverflow"),
                   _ => {
-                    delegate_call(
+                    general_call(
                       self,
                       op,
                       this_contract.clone(),
@@ -1229,7 +1266,7 @@ impl VM {
                   None => vm_error("IllegalOverflow"),
                   _ => {
                     let mut callee = Expr::Mempty;
-                    delegate_call(
+                    general_call(
                       self,
                       op,
                       this_contract.clone(),
@@ -1288,7 +1325,7 @@ impl VM {
                   0
                 };
                 burn(self, 0 + c_new + cost, || {});
-                self.tx.substate.selfdestructs.push(*self_contract);
+                self.tx.substate.selfdestructs.push(self_contract);
                 touch_account(self, &x_to);
                 if has_funds == BranchReachability::ONLYTHEN || has_funds == BranchReachability::BOTH {
                   // fetchAccount(x_to, |_| {
@@ -1588,7 +1625,7 @@ fn fetch_account<F: FnOnce(&Contract)>(vm: &mut VM, addr: &Expr, f: F) {
 
 fn touch_account(vm: &mut VM, addr: &Expr) {
   // Implement account touching logic
-  vm.tx.substate.touched_accounts.push(addr.clone());
+  vm.tx.substate.touched_accounts.push(Box::new(addr.clone()));
 }
 
 fn vm_error(error: &str) {
@@ -2234,8 +2271,8 @@ fn is_precompile_addr(addr: &Expr) -> bool {
   false
 }
 
-// Implement the delegateCall function in Rust
-fn delegate_call(
+// General call implementation ("delegateCall")
+fn general_call(
   vm: &mut VM,
   op: u8,
   this: Contract,
@@ -2331,7 +2368,11 @@ fn delegate_call(
         };
         vm.traces.push(with_trace_location(vm, TraceData::FrameTrace(new_context.clone())));
         next(vm, op);
-        vm.frames.push(Frame { state: vm.state.clone(), context: new_context.clone() });
+        // save the current state
+        let mut cur_state = vm.state.clone();
+        cur_state.stack = xs;
+        vm.frames.push(Frame { state: cur_state, context: new_context.clone() });
+        // update the state
         let new_memory = Memory::ConcreteMemory(vec![]);
         let cleared_init_code = match target_code {
           ContractCode::InitCode(_, _) => ContractCode::InitCode(Box::new(vec![]), Box::new(Expr::Mempty)),
@@ -2340,7 +2381,7 @@ fn delegate_call(
         vm.state = FrameState {
           gas: x_gas.clone(),
           pc: 0,
-          base_pc: 0,
+          base_pc: vm.state.base_pc,
           code: cleared_init_code,
           code_contract: Box::new(x_to.clone()),
           stack: vec![],
@@ -2578,10 +2619,11 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr, max_num_iterations: u3
 
   let mkc = match base_state {
     BaseState::AbstractBase => unknown_contract,
-    BaseState::EmptyBase => |addr| empty_contract(),
+    BaseState::EmptyBase => |_addr| empty_contract(),
   };
 
   match (src_balance, dst_balance.clone()) {
+    // both sender and recipient in state
     (Some(src_bal), Some(_)) => {
       branch(
         vm,
@@ -2600,6 +2642,7 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr, max_num_iterations: u3
         add(Box::new(dst_balance.unwrap()), Box::new(val.clone()));
       Ok(())
     }
+    // sender not in state
     (None, Some(_)) => match src {
       Expr::LitAddr(_) => {
         vm.env.contracts.insert(src.clone(), mkc(src.clone()));
@@ -2617,6 +2660,7 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr, max_num_iterations: u3
       Expr::GVar(_) => panic!("Unexpected GVar"),
       _ => panic!("unexpected error"),
     },
+    // recipient not in state
     (_, None) => match dst {
       Expr::LitAddr(_) => {
         vm.env.contracts.insert(dst.clone(), mkc(dst.clone()));

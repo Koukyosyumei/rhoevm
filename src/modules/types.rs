@@ -1570,8 +1570,8 @@ pub struct TxState {
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct SubState {
-  pub selfdestructs: Vec<Expr>,
-  pub touched_accounts: Vec<Expr>,
+  pub selfdestructs: Vec<Box<Expr>>,
+  pub touched_accounts: Vec<Box<Expr>>,
   pub accessed_addresses: ExprSet,
   pub accessed_storage_keys: ExprW256Set,
   pub refunds: Vec<(Expr, Word64)>,
