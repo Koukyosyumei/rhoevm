@@ -2170,6 +2170,11 @@ fn to_buf(code: &ContractCode) -> Option<Expr> {
 }
 
 // Define other necessary structs, enums, and functions here...
+/*
+instance Semigroup (Expr Buf) where
+  (ConcreteBuf a) <> (ConcreteBuf b) = ConcreteBuf $ a <> b
+  a <> b = copySlice (Lit 0) (bufLength a) (bufLength b) b a
+*/
 
 pub fn hashcode(cc: &ContractCode) -> Expr {
   match cc {
@@ -2185,7 +2190,10 @@ pub fn hashcode(cc: &ContractCode) -> Expr {
 fn codelen(cc: &ContractCode) -> Expr {
   match cc {
     ContractCode::UnKnownCode(a) => Expr::CodeSize(a.clone()),
-    ContractCode::InitCode(ops, args) => keccak(Expr::ConcreteBuf(*ops.clone())).unwrap(),
+    ContractCode::InitCode(_, _) => match to_buf(cc) {
+      Some(b) => buf_length(b),
+      None => panic!("impossible"),
+    },
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => Expr::Lit(W256(ops.len() as u128, 0)),
     ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => Expr::Lit(W256(ops.len() as u128, 0)),
   }
