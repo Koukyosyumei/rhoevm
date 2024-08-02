@@ -3,8 +3,6 @@ use crate::modules::abi::{make_abi_value, selector, AbiType, AbiValue};
 use crate::modules::expr::{add, buf_length, in_range, read_byte, write_byte, write_word};
 use crate::modules::types::{Expr, Prop, W256};
 
-use super::format::format_prop;
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CalldataFragment {
   St(Vec<Prop>, Expr),

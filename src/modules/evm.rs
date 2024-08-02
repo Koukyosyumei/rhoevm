@@ -456,14 +456,14 @@ impl VM {
         }
         Op::Balance => {
           if let Some(x) = self.state.stack.clone().last() {
-            force_addr(x, "BALANCE", |a| {
-              access_and_burn(&a, || {
-                let mut c = empty_contract();
-                fetch_account(self, &a, |c_| c = c_.clone());
-                next(self, op);
-                self.state.stack = self.state.stack[1..].to_vec();
-                push_sym(self, Box::new(c.balance.clone()));
-              });
+            let mut a: Expr = Expr::Mempty;
+            force_addr(self, x, "BALANCE", |a_| a = a_);
+            access_and_burn(&a, || {
+              let mut c = empty_contract();
+              fetch_account(self, &a, |c_| c = c_.clone());
+              next(self, op);
+              self.state.stack = self.state.stack[1..].to_vec();
+              push_sym(self, Box::new(c.balance.clone()));
             });
           } else {
             underrun();
@@ -606,18 +606,18 @@ impl VM {
         }
         Op::Extcodesize => {
           if let Some(x) = self.state.stack.clone().last().clone() {
-            force_addr(x, "EXTCODESIZE", |a| {
-              access_and_burn(&a, || {
-                let mut c = empty_contract();
-                fetch_account(self, &a, |c_| c = c_.clone());
-                next(self, op);
-                self.state.stack = self.state.stack[1..].to_vec();
-                if let Some(b) = &c.bytecode() {
-                  push_sym(self, Box::new(buf_length(b.clone())));
-                } else {
-                  push_sym(self, Box::new(Expr::CodeSize(Box::new(a.clone()))));
-                }
-              });
+            let mut a: Expr = Expr::Mempty;
+            force_addr(self, x, "EXTCODESIZE", |a_| a = a_);
+            access_and_burn(&a, || {
+              let mut c = empty_contract();
+              fetch_account(self, &a, |c_| c = c_.clone());
+              next(self, op);
+              self.state.stack = self.state.stack[1..].to_vec();
+              if let Some(b) = &c.bytecode() {
+                push_sym(self, Box::new(buf_length(b.clone())));
+              } else {
+                push_sym(self, Box::new(Expr::CodeSize(Box::new(a.clone()))));
+              }
             });
           } else {
             underrun();
@@ -1050,7 +1050,9 @@ impl VM {
             if gt0 == BranchReachability::ONLYTHEN || gt0 == BranchReachability::BOTH {
               not_static(self, || {});
 
-              force_addr(x_to, "unable to determine a call target", |x_to| match Some(x_gas) {
+              let mut x_to_a = Expr::Mempty;
+              force_addr(self, x_to, "unable to determine a call target", |x_to_a_| x_to_a = x_to_a_);
+              match Some(x_gas) {
                 None => vm_error("IllegalOverflow"),
                 _ => {
                   let mut callee: Expr = Expr::Mempty;
@@ -1059,8 +1061,8 @@ impl VM {
                     op,
                     this_contract.clone(),
                     Gas::Concerete(0),
-                    x_to.clone(),
-                    x_to.clone(),
+                    x_to_a.clone(),
+                    x_to_a.clone(),
                     *x_value.clone(),
                     *x_in_offset.clone(),
                     *x_in_size.clone(),
@@ -1082,7 +1084,7 @@ impl VM {
                   touch_account(self, &callee);
                   let _ = transfer(self, from_.unwrap(), callee, *x_value.clone(), max_num_iterations);
                 }
-              });
+              }
             }
             if gt0 == BranchReachability::ONLYELSE || gt0 == BranchReachability::BOTH {
               let else_vm = else_vm_.unwrap();
@@ -1097,7 +1099,7 @@ impl VM {
           if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_value, x_to, _x_gas] =
             &self.state.stack.clone()[..]
           {
-            force_addr(x_to, "unable to determine a call target", |_| {});
+            force_addr(self, x_to, "unable to determine a call target", |_| {});
             // gasTryFrom(x_gas)
             general_call(
               self,
@@ -1304,48 +1306,48 @@ impl VM {
         Op::Selfdestruct => {
           not_static(self, || {});
           if let [.., x_to] = &self.state.stack.clone()[..] {
-            force_addr(x_to, "SELFDESTRUCT", |x_to| {
-              if let Expr::WAddr(_) = x_to {
-                let acc = access_account_for_gas(self, x_to.clone());
-                let cost = if acc { 0 } else { 0 }; // g_cold_account_access
-                let funds = this_contract.balance.clone(); // this.balance
-                let recipient_exists = false; // accountExists(x_to, vm)
-                let mut has_funds = BranchReachability::NONE;
-                let else_vm_ = branch(
-                  self,
-                  Box::new(eq(Box::new(funds), Box::new(Expr::Lit(W256(0, 0))))),
-                  |has_funds_| Ok(has_funds = has_funds_),
-                  max_num_iterations,
-                );
-                let c_new = if !recipient_exists
-                  && (has_funds == BranchReachability::ONLYTHEN || has_funds == BranchReachability::BOTH)
-                {
-                  0 // g_selfdestruct_newaccount
-                } else {
-                  0
-                };
-                burn(self, 0 + c_new + cost, || {});
-                self.tx.substate.selfdestructs.push(self_contract);
-                touch_account(self, &x_to);
-                if has_funds == BranchReachability::ONLYTHEN || has_funds == BranchReachability::BOTH {
-                  // fetchAccount(x_to, |_| {
-                  //     env.contracts[x_to].balance += funds;
-                  //     env.contracts[self].balance = Expr::Lit(W256(0, 0));
-                  //     doStop();
-                  // });
-                } else {
-                  let mut else_vm = else_vm_.unwrap();
-                  finish_frame(&mut else_vm, FrameResult::FrameReturned(Expr::Mempty))
-                }
+            let mut x_to_a = Expr::Mempty;
+            force_addr(self, x_to, "SELFDESTRUCT", |x_to_a_| x_to_a = x_to_a_);
+            if let Expr::WAddr(_) = x_to_a {
+              let acc = access_account_for_gas(self, x_to_a.clone());
+              let cost = if acc { 0 } else { 0 }; // g_cold_account_access
+              let funds = this_contract.balance.clone(); // this.balance
+              let recipient_exists = false; // accountExists(x_to, vm)
+              let mut has_funds = BranchReachability::NONE;
+              let else_vm_ = branch(
+                self,
+                Box::new(eq(Box::new(funds), Box::new(Expr::Lit(W256(0, 0))))),
+                |has_funds_| Ok(has_funds = has_funds_),
+                max_num_iterations,
+              );
+              let c_new = if !recipient_exists
+                && (has_funds == BranchReachability::ONLYTHEN || has_funds == BranchReachability::BOTH)
+              {
+                0 // g_selfdestruct_newaccount
               } else {
-                let pc = 0; // use(state.pc)
-                self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
-                  pc: pc,
-                  msg: "trying to self destruct to a symbolic address".to_string(),
-                  args: vec![],
-                }));
+                0
+              };
+              burn(self, 0 + c_new + cost, || {});
+              self.tx.substate.selfdestructs.push(self_contract);
+              touch_account(self, &x_to);
+              if has_funds == BranchReachability::ONLYTHEN || has_funds == BranchReachability::BOTH {
+                // fetchAccount(x_to, |_| {
+                //     env.contracts[x_to].balance += funds;
+                //     env.contracts[self].balance = Expr::Lit(W256(0, 0));
+                //     doStop();
+                // });
+              } else {
+                let mut else_vm = else_vm_.unwrap();
+                finish_frame(&mut else_vm, FrameResult::FrameReturned(Expr::Mempty))
               }
-            });
+            } else {
+              let pc = 0; // use(state.pc)
+              self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+                pc: pc,
+                msg: "trying to self destruct to a symbolic address".to_string(),
+                args: vec![],
+              }));
+            }
           } else {
             underrun();
           }
@@ -1363,29 +1365,29 @@ impl VM {
         }
         Op::Extcodecopy => {
           if let [xs @ .., code_size, code_offset, mem_offset, ext_account] = &self.state.stack.clone()[..] {
-            force_addr(ext_account, "EXTCODECOPY", |ext_account| {
-              burn_extcodecopy(self, ext_account.clone(), *code_size.clone(), self.block.schedule.clone(), || {});
-              access_memory_range(self, *mem_offset.clone(), *code_size.clone(), || {});
-              let mut account = empty_contract();
-              fetch_account(self, &ext_account, |account_| account = account_.clone());
-              next(self, op);
-              self.state.stack = xs.to_vec();
-              if let Some(bytecode) = &account.bytecode() {
-                copy_bytes_to_memory(
-                  bytecode.clone(),
-                  *code_size.clone(),
-                  *code_offset.clone(),
-                  *mem_offset.clone(),
-                  self,
-                )
-              } else {
-                self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
-                  pc: self.state.pc,
-                  msg: "Cannot copy from unknown code".to_string(),
-                  args: vec![ext_account.clone()],
-                }))
-              }
-            });
+            let mut ext_account_a = Expr::Mempty;
+            force_addr(self, ext_account, "EXTCODECOPY", |ext_account_a_| ext_account_a = ext_account_a_);
+            burn_extcodecopy(self, ext_account_a.clone(), *code_size.clone(), self.block.schedule.clone(), || {});
+            access_memory_range(self, *mem_offset.clone(), *code_size.clone(), || {});
+            let mut account = empty_contract();
+            fetch_account(self, &ext_account, |account_| account = account_.clone());
+            next(self, op);
+            self.state.stack = xs.to_vec();
+            if let Some(bytecode) = &account.bytecode() {
+              copy_bytes_to_memory(
+                bytecode.clone(),
+                *code_size.clone(),
+                *code_offset.clone(),
+                *mem_offset.clone(),
+                self,
+              )
+            } else {
+              self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+                pc: self.state.pc,
+                msg: "Cannot copy from unknown code".to_string(),
+                args: vec![ext_account_a.clone()],
+              }))
+            }
           } else {
             underrun();
           }
@@ -1462,21 +1464,21 @@ impl VM {
         }
         Op::Extcodehash => {
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
-            force_addr(x, "EXTCODEHASH", |addr| {
-              access_and_burn(&addr, || {
-                next(self, op);
-                self.state.stack = xs.to_vec();
-                let mut account = empty_contract();
-                fetch_account(self, &addr, |account_| account = account_.clone());
-                if account_empty(&account) {
-                  push(self, W256(0, 0));
-                } else {
-                  match &account.bytecode() {
-                    Some(bytecode) => push_sym(self, Box::new(keccak(bytecode.clone()).unwrap())),
-                    None => push_sym(self, Box::new(Expr::Var(format!("CodeHash({})", addr)))),
-                  }
+            let mut addr = Expr::Mempty;
+            force_addr(self, x, "EXTCODEHASH", |addr_| addr = addr_);
+            access_and_burn(&addr, || {
+              next(self, op);
+              self.state.stack = xs.to_vec();
+              let mut account = empty_contract();
+              fetch_account(self, &addr, |account_| account = account_.clone());
+              if account_empty(&account) {
+                push(self, W256(0, 0));
+              } else {
+                match &account.bytecode() {
+                  Some(bytecode) => push_sym(self, Box::new(keccak(bytecode.clone()).unwrap())),
+                  None => push_sym(self, Box::new(Expr::Var(format!("CodeHash({})", addr)))),
                 }
-              });
+              }
             });
           } else {
             underrun();
@@ -1655,7 +1657,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
       //vm.finalize();
     }
     // Are there some remaining frames?
-    [next_frame, remaining_frames @ ..] => {
+    [remaining_frames @ .., next_frame] => {
       // Insert a debug trace.
       vm.traces.push(match result.clone() {
         FrameResult::FrameErrored(e) => with_trace_location(vm, TraceData::ErrorTrace(e)),
@@ -1665,7 +1667,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
         }
       });
       // Pop to the previous level of the debug trace stack.
-      vm.traces.pop();
+      // vm.traces.pop();
 
       // Pop the top frame.
       vm.frames = remaining_frames.to_vec();
@@ -2085,9 +2087,18 @@ forceAddr n msg continue = case wordToAddr n of
   Just c -> continue c
 */
 
-fn force_addr<F: FnOnce(Expr)>(n: &Expr, msg: &str, f: F) {
+fn force_addr<F: FnOnce(Expr)>(vm: &mut VM, n: &Expr, msg: &str, f: F) {
   // Implement address forcing logic
-  todo!()
+  match word_to_addr(Box::new(n.clone())) {
+    Some(c) => f(c),
+    None => {
+      vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
+        pc: vm.state.pc,
+        msg: msg.to_string(),
+        args: vec![n.clone()],
+      }))
+    }
+  }
 }
 
 fn force_concrete<F: FnOnce(W256)>(vm: &mut VM, n: &Expr, msg: &str, f: F) -> bool {
