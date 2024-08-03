@@ -329,7 +329,7 @@ pub fn sar(x: Box<Expr>, y: Box<Expr>) -> Expr {
 pub fn in_range(sz: u32, e: Box<Expr>) -> Prop {
   Prop::PAnd(
     Box::new(Prop::PGEq(*e.clone(), Expr::Lit(W256(0, 0)))),
-    Box::new(Prop::PLEq(*e.clone(), Expr::Lit(W256((2_u128.pow(sz) - 1) as u128, 0)))),
+    Box::new(Prop::PLEq(*e.clone(), Expr::Lit(W256(2_u128, 0).pow(sz)))),
   )
 }
 
@@ -1363,8 +1363,51 @@ fn go_prop(prop: &Prop) -> Prop {
   }
 }
 
+// Equivalent to Haskell's pattern-matching
 pub fn read_storage(w: Box<Expr>, st: Box<Expr>) -> Option<Expr> {
-  todo!()
+  fn go(slot: Expr, storage: Expr) -> Option<Expr> {
+    match storage.clone() {
+      Expr::AbstractStore(_, _) => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+      Expr::ConcreteStore(s) => match slot {
+        Expr::Lit(l) => {
+          let v = s.get(&l).cloned();
+          if let Some(v_) = v {
+            Some(Expr::Lit(v_))
+          } else {
+            None
+          }
+        }
+        _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+      },
+      Expr::SStore(prev_slot, val, prev) => match (*prev_slot.clone(), slot.clone()) {
+        // if address and slot match then we return the val in this write
+        (a, b) if a == b => Some(*val.clone()),
+        // if the slots don't match (see previous guard) and are lits, we can skip this write
+        (Expr::Lit(_), Expr::Lit(_)) => go(slot.clone(), *prev.clone()),
+        // Fixed SMALL value will never match Keccak (well, it might, but that's VERY low chance)
+        (Expr::Lit(a), Expr::Keccak(_)) if a < W256(256, 0) => go(slot.clone(), *prev.clone()),
+        (Expr::Keccak(_), Expr::Lit(a)) if a < W256(256, 0) => go(slot.clone(), *prev.clone()),
+        // Finding two Keccaks that are < 256 away from each other should be VERY hard
+        // This simplification allows us to deal with maps of structs
+        (Expr::Add(a2_, k1_), Expr::Add(b2_, k2_)) => match (*a2_.clone(), *k1_.clone(), *b2_.clone(), *k2_.clone()) {
+          (Expr::Lit(a2), Expr::Keccak(_), Expr::Lit(b2), Expr::Keccak(_))
+            if a2 != b2 && (a2.0 as i64 - b2.0 as i64).abs() < 256 =>
+          {
+            go(slot.clone(), *prev.clone())
+          }
+          _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+        },
+        (Expr::Add(a2_, k1_), Expr::Keccak(_)) => match (*a2_.clone(), *k1_.clone()) {
+          (Expr::Lit(a2), Expr::Keccak(_)) if a2 > W256(0, 0) && a2 < W256(256, 0) => go(slot.clone(), *prev.clone()),
+          _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+        },
+        _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+      },
+      // we are unable to determine statically whether or not we can safely move deeper in the write chain, so return an abstract term
+      _ => panic!("unexpected expression: slot={}, storage={}", slot, storage),
+    }
+  }
+  go(simplify(w), *st)
 }
 
 pub fn write_storage(k: Box<Expr>, v: Box<Expr>, store: Box<Expr>) -> Expr {

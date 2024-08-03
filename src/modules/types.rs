@@ -135,9 +135,7 @@ impl W256 {
   pub fn to_decimal(&self) -> String {
     BigInt::from_str_radix(&self.to_hex(), 16).unwrap().to_string()
   }
-}
 
-impl W256 {
   pub fn to_int(&self) -> Option<i32> {
     let max_int: W256 = W256(i32::MAX as u128, 0);
     if self <= &max_int {
@@ -147,16 +145,7 @@ impl W256 {
       None
     }
   }
-}
 
-pub fn to_int(e: &Expr) -> Option<i32> {
-  match e {
-    Expr::Lit(v) => v.to_int(),
-    _ => None,
-  }
-}
-
-impl W256 {
   pub fn from_bytes(bytes: Vec<u8>) -> Self {
     let padded_bytes = pad_left_prime_vec(32, bytes);
 
@@ -164,6 +153,13 @@ impl W256 {
     let low = u128::from_be_bytes(padded_bytes[16..32].try_into().unwrap());
 
     W256(low, high)
+  }
+}
+
+pub fn to_int(e: &Expr) -> Option<i32> {
+  match e {
+    Expr::Lit(v) => v.to_int(),
+    _ => None,
   }
 }
 
@@ -275,6 +271,25 @@ impl Not for W256 {
 }
 
 impl W256 {
+  // Exponentiation by squaring
+  pub fn pow(self, mut exponent: u32) -> W256 {
+    let mut result = W256(0, 1); // Start with W256 equivalent of 1
+    let mut base = self;
+
+    while exponent > 0 {
+      // If the exponent is odd, multiply the result by the base
+      if exponent % 2 == 1 {
+        result = result.mul(base.clone());
+      }
+      // Square the base
+      base = base.clone().mul(base.clone());
+      // Divide the exponent by 2
+      exponent /= 2;
+    }
+
+    result
+  }
+
   pub fn div_rem(self, b: W256) -> (W256, W256) {
     let mut x = self.clone();
     let mut ans = W256(0, 0);
