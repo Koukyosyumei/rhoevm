@@ -1401,6 +1401,10 @@ pub fn read_storage(w: Box<Expr>, st: Box<Expr>) -> Option<Expr> {
           (Expr::Lit(a2), Expr::Keccak(_)) if a2 > W256(0, 0) && a2 < W256(256, 0) => go(slot.clone(), *prev.clone()),
           _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
         },
+        (Expr::Keccak(_), Expr::Add(a2_, k1_)) => match (*a2_.clone(), *k1_.clone()) {
+          (Expr::Lit(a2), Expr::Keccak(_)) if a2 > W256(0, 0) && a2 < W256(256, 0) => go(slot.clone(), *prev.clone()),
+          _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+        },
         _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
       },
       // we are unable to determine statically whether or not we can safely move deeper in the write chain, so return an abstract term
