@@ -301,6 +301,15 @@ impl VM {
       let decoded_op = get_op(op);
       self.decoded_opcodes.push(op_string(&decoded_op).to_string());
 
+      /*
+      let mut sm: String = (&"[").to_string();
+      for s in self.state.stack.clone() {
+        sm = sm.to_owned() + &format!("{},", s);
+      }
+      sm += "]";
+      println!("stack: {}", sm);
+      */
+
       match decoded_op {
         Op::Push0 => {
           // stack output
@@ -378,12 +387,12 @@ impl VM {
               underrun();
             } else {
               let bytes = read_memory(self, *x_offset.clone(), *x_size.clone());
-              let (topics, xs) = xs.split_at(n as usize);
+              let (xs_, topics) = xs.split_at(xs.len() - n as usize);
               let logs = vec![Expr::LogEntry(self.state.contract.clone(), Box::new(bytes), topics.to_vec())];
               burn_log(x_size, op, || {});
               access_memory_range(self, *x_offset.clone(), *x_size.clone(), || {});
               trace_top_log(logs.clone());
-              self.state.stack = xs.to_vec();
+              self.state.stack = xs_.to_vec();
               self.logs = logs;
               next(self, op);
             }
@@ -439,7 +448,9 @@ impl VM {
               _ => Expr::Keccak(Box::new(buffer)),
             };
             next(self, op);
-            self.state.stack = std::iter::once(Box::new(hash)).chain(xs.iter().cloned()).collect();
+            self.state.stack = xs.to_vec();
+            self.state.stack.push(Box::new(hash));
+            // self.state.stack = std::iter::once(Box::new(hash)).chain(xs.iter().cloned()).collect();
             //  });
           } else {
             underrun();
@@ -719,10 +730,20 @@ impl VM {
           true
         }
         Op::Mload => {
+          /*
+          Pop from the stack a word as offset to locate and read a word from the memory at offset position and push into top of stack. Expand memory with uint256(0) to the offset position if necessary.
+
+          Stack input
+          - offset: offset in the memory in bytes.
+          Stack output
+          - value: the 32 bytes in memory starting at that offset. If it goes beyond its current size (see MSIZE), writes 0s.
+          */
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
             let buf = read_memory(self, *x.clone(), Expr::Lit(W256(32, 0)));
             let w = read_word_from_bytes(Box::new(Expr::Lit(W256(0, 0))), Box::new(buf));
-            self.state.stack = std::iter::once(w).chain(xs.iter().cloned()).collect();
+            self.state.stack = xs.to_vec();
+            self.state.stack.push(w);
+            // self.state.stack = std::iter::once(w).chain(xs.iter().cloned()).collect();
             next(self, op);
             access_memory_word(self, *x.clone(), || {});
             burn(self, fees.g_verylow, || {});
@@ -811,6 +832,13 @@ impl VM {
           true
         }
         Op::Sload => {
+          /* Load word from storage
+
+          Stack input
+          - key: 32-byte key in storage.
+          Stack output
+          - value: 32-byte value corresponding to that key. 0 if that key was never written before.
+          */
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
             let acc = access_storage_for_gas(self, *self_contract.clone(), *x.clone());
             let cost = if acc { fees.g_warm_storage_read } else { fees.g_cold_sload };
@@ -822,7 +850,9 @@ impl VM {
             next(self, op);
             burn(self, cost, || {});
             if let Some(y) = stack_item {
-              self.state.stack = std::iter::once(Box::new(y)).chain(xs.iter().cloned()).collect();
+              self.state.stack = xs.to_vec();
+              self.state.stack.push(Box::new(y));
+              // self.state.stack = std::iter::once(Box::new(y)).chain(xs.iter().cloned()).collect();
             }
           } else {
             underrun();
@@ -1620,7 +1650,7 @@ fn fetch_account<F: FnOnce(&Contract)>(vm: &mut VM, addr: &Expr, f: F) {
         }
       },
       Expr::GVar(_) => panic!("unexpected GVar"),
-      _ => panic!("unexpected expr"),
+      _ => panic!("unexpected expr in `fetch_account`: addr={}", addr),
     },
   }
 }
@@ -2620,7 +2650,7 @@ fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
     // Some(0x5b) if contract.code_ops[contract.op_idx_map[x as usize] as usize].1 == Op::Jumpdest => true,
     Some(0x5b) => true,
     _ => {
-      error!("{}, current pc: 0x{:x}, offset: 0x{:x}", EvmError::BadJumpDestination, vm.state.pc, x);
+      error!("{}, current pc: 0x{:x}, target pc: 0x{:x}", EvmError::BadJumpDestination, vm.state.pc, x);
       false
     }
   }

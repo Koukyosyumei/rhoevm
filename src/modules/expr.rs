@@ -1808,6 +1808,7 @@ pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> E
           emax(Box::new(l), Box::new(Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(a))))))
         }
       }
+      Expr::Mempty => Expr::Lit(W256(0, 0)),
       _ => panic!("unsupported expression: {}", buf),
     }
   }

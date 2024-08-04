@@ -620,6 +620,7 @@ impl ExprMappable for Expr {
         let a = a.map_expr_m(f);
         f(&Expr::BufLength(Box::new(a)))
       }
+      Expr::Mempty => Expr::Mempty,
       _ => panic!("unuexpected expr {}", self),
     }
   }
