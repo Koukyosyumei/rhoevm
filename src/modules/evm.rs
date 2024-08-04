@@ -1103,16 +1103,18 @@ impl VM {
                     max_num_iterations,
                   );
                   let from_ = self.config.override_caller.clone();
+                  let scaller =
+                    if let Some(_) = from_ { Box::new(from_.clone().unwrap()) } else { Box::new(Expr::Mempty) };
                   self.state.callvalue = x_value.clone();
-                  self.state.caller = Box::new(from_.clone().unwrap());
+                  self.state.caller = scaller.clone();
                   self.state.contract = Box::new(callee.clone());
                   let reset_caller = self.config.reset_caller;
                   if reset_caller {
                     self.config.override_caller = None;
                   }
-                  touch_account(self, &from_.clone().unwrap());
+                  touch_account(self, &scaller);
                   touch_account(self, &callee);
-                  let _ = transfer(self, from_.unwrap(), callee, *x_value.clone(), max_num_iterations);
+                  let _ = transfer(self, *scaller, callee, *x_value.clone(), max_num_iterations);
                 }
               }
             }
@@ -1650,6 +1652,7 @@ fn fetch_account<F: FnOnce(&Contract)>(vm: &mut VM, addr: &Expr, f: F) {
         }
       },
       Expr::GVar(_) => panic!("unexpected GVar"),
+      Expr::Mempty => {}
       _ => panic!("unexpected expr in `fetch_account`: addr={}", addr),
     },
   }
