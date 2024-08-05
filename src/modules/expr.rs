@@ -3,6 +3,8 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::u32;
 
+use log::info;
+
 use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
@@ -1664,8 +1666,57 @@ fn strip_writes(off: W256, size: W256, buffer: Box<Expr>) -> Expr {
   }
 }
 
-pub fn concrete_prefix(e: Box<Expr>) -> Vec<u8> {
-  todo!()
+/*
+-- returns the largest prefix that is guaranteed to be concrete (if one exists)
+-- partial: will hard error if we encounter an input buf with a concrete size > 500mb
+-- partial: will hard error if the prefix is > 500mb
+*/
+pub fn concrete_prefix(b: Box<Expr>) -> Vec<u8> {
+  fn max_idx() -> i32 {
+    500 * (10_i32.pow(6))
+  }
+  fn input_len(b: Box<Expr>) -> Option<W256> {
+    match buf_length(*b) {
+      Expr::Lit(s) => {
+        if s > W256(max_idx as u128, 0) {
+          panic!("concrete prefix: input buffer size exceeds 500mb")
+        } else {
+          Some(s)
+        }
+      }
+      _ => None,
+    }
+  }
+  fn has_enough_concrete_size(i: i32, b: Box<Expr>) -> bool {
+    if let Some(mr) = input_len(b) {
+      return W256(i as u128, 0) >= mr;
+    }
+    false
+  }
+
+  fn go(b: Box<Expr>, i: i32, v: Vec<u8>) -> (i32, Vec<u8>) {
+    if i >= max_idx() {
+      panic!("concrete prefix: prefix size exceeds 500mb");
+    } else if has_enough_concrete_size(i, b.clone()) {
+      (i, v)
+    } else if i as usize >= v.len() {
+      // grow v double
+      go(b, i, v)
+    } else {
+      match read_byte(Box::new(Expr::Lit(W256(i as u128, 0))), b.clone()) {
+        Expr::LitByte(byte) => {
+          // write v i byte
+          go(b, i + 1, v)
+        }
+        _ => (i, v),
+      }
+    }
+  }
+
+  let v_size = if let Some(w) = input_len(b.clone()) { w.0 } else { 1024 };
+  let v = vec![];
+  let result = go(b.clone(), 0, v);
+  result.1
 }
 
 pub fn get_addr(e: Box<Expr>) -> Option<Expr> {
@@ -1766,7 +1817,7 @@ pub fn word_to_addr(e: Box<Expr>) -> Option<Expr> {
       _ => None,
     }
   }
-
+  info!("simplify(e)={}", simplify(e.clone()));
   go(Box::new(simplify(e)))
 }
 

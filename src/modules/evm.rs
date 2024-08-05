@@ -1,4 +1,4 @@
-use log::{error, warn};
+use log::{error, info, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -1082,6 +1082,7 @@ impl VM {
 
               let mut x_to_a = Expr::Mempty;
               force_addr(self, x_to, "unable to determine a call target", |x_to_a_| x_to_a = x_to_a_);
+              info!("call address = {}", x_to_a);
               match Some(x_gas) {
                 None => vm_error("IllegalOverflow"),
                 _ => {
