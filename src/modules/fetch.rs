@@ -208,11 +208,11 @@ pub async fn fetch_contract_with_session(n: BlockNumber, url: &str, addr: Addr, 
 }
 
 pub async fn fetch_slot_with_session(
-  n: BlockNumber,
-  url: &str,
-  client: &Client,
-  addr: Addr,
-  slot: W256,
+  _n: BlockNumber,
+  _url: &str,
+  _client: &Client,
+  _addr: Addr,
+  _slot: W256,
 ) -> Option<W256> {
   todo!()
   /*
@@ -247,7 +247,7 @@ pub async fn fetch_slot_from(n: BlockNumber, url: &str, addr: Addr, slot: W256) 
   fetch_slot_with_session(n, url, &client, addr, slot).await
 }
 
-pub async fn fetch_chain_id_from(url: &str) -> Option<W256> {
+pub async fn fetch_chain_id_from(_url: &str) -> Option<W256> {
   todo!()
   /*
   let client = Client::new();
@@ -260,6 +260,6 @@ pub async fn fetch_chain_id_from(url: &str) -> Option<W256> {
 
 pub type Fetcher = (App, Query);
 
-pub fn check_branch(branch_condition: &Prop, path_conditions: &Prop) -> BranchCondition {
+pub fn check_branch(_branch_condition: &Prop, _path_conditions: &Prop) -> BranchCondition {
   todo!()
 }

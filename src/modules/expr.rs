@@ -529,12 +529,13 @@ pub fn read_bytes(n: usize, idx: Box<Expr>, buf: Box<Expr>) -> Expr {
   join_bytes(bytes)
 }
 
+/*
 fn pad_byte(b: Box<Expr>) -> Expr {
   match *b {
     Expr::LitByte(b) => Expr::Lit(bytes_to_w256(&[b])),
     _ => join_bytes(vec![*b]),
   }
-}
+}*/
 
 fn bytes_to_w256(bytes: &[u8]) -> W256 {
   /*
@@ -1136,7 +1137,7 @@ fn go_expr(expr: Box<Expr>) -> Expr {
           Expr::Lit(W256(0, 0))
         }
       }
-      (a_, Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
+      (__, Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
       (a, b) => lt(Box::new(a), Box::new(b)),
     },
 
@@ -1255,7 +1256,7 @@ fn simp_inner_expr(prop: Prop) -> Prop {
 }
 
 fn go_prop(prop: &Prop) -> Prop {
-  let v: W256 = W256::from_dec_str("1461501637330902918203684832716283019655932542975").unwrap();
+  let _v: W256 = W256::from_dec_str("1461501637330902918203684832716283019655932542975").unwrap();
   match prop.clone() {
     // LT/LEq comparisons
     Prop::PGT(a, b) => Prop::PLT(b, a),

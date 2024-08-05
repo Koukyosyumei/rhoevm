@@ -417,7 +417,7 @@ impl Mul for W512 {
 impl Div for W512 {
   type Output = W512;
 
-  fn div(self, other: W512) -> W512 {
+  fn div(self, _other: W512) -> W512 {
     // Implement division for W512 (using arbitrary precision arithmetic)
     unimplemented!()
   }
@@ -426,7 +426,7 @@ impl Div for W512 {
 impl Rem for W512 {
   type Output = W512;
 
-  fn rem(self, other: W512) -> W512 {
+  fn rem(self, _other: W512) -> W512 {
     // Implement modulus for W512 (using arbitrary precision arithmetic)
     unimplemented!()
   }
@@ -435,7 +435,7 @@ impl Rem for W512 {
 impl Shr<u32> for W512 {
   type Output = W512;
 
-  fn shr(self, rhs: u32) -> W512 {
+  fn shr(self, _rhs: u32) -> W512 {
     // Implement right shift for W512
     unimplemented!()
   }
@@ -444,7 +444,7 @@ impl Shr<u32> for W512 {
 impl Shl<u32> for W512 {
   type Output = W512;
 
-  fn shl(self, rhs: u32) -> W512 {
+  fn shl(self, _rhs: u32) -> W512 {
     // Implement left shift for W512
     unimplemented!()
   }
@@ -1500,7 +1500,7 @@ pub enum BranchCondition {
 
 // Implement Display for Query
 impl fmt::Display for Query {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+  fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
     todo!()
     /*
     match self {
@@ -1648,7 +1648,7 @@ pub fn from_list(bs: Vec<Box<Expr>>) -> Expr {
     Expr::ConcreteBuf(packed_bytes)
   } else {
     let mut concrete_bytes = Vec::with_capacity(bs.len());
-    for (idx, expr) in bs.iter().enumerate() {
+    for (_idx, expr) in bs.iter().enumerate() {
       match **expr {
         Expr::LitByte(b) => concrete_bytes.push(b),
         _ => concrete_bytes.push(0),
