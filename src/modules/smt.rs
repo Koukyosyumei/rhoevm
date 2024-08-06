@@ -1068,14 +1068,14 @@ fn expr_to_smt(expr: Expr) -> String {
     Expr::GasLimit => "gaslimit".to_string(),
     Expr::ChainId => "chainid".to_string(),
     Expr::BaseFee => "basefee".to_string(),
-    Expr::SymAddr(a) => format_e_addr(expr),
+    Expr::SymAddr(_) => format_e_addr(expr),
     Expr::WAddr(a) => format!("(concat (_ bv0 96) {})", expr_to_smt(*a)),
     Expr::LitByte(b) => format!("(_ bv{} 8)", b),
     Expr::IndexWord(idx, w) => match *idx {
       Expr::Lit(n) => {
         if n >= W256(0, 0) && n < W256(32, 0) {
           let enc = expr_to_smt(*w);
-          format!("(indexWord{})", n)
+          format!("(indexWord{}, {})", n, enc)
         } else {
           expr_to_smt(Expr::LitByte(0))
         }

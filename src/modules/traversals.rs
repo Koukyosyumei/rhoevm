@@ -718,7 +718,7 @@ where
 }
 
 // MapContractM function
-fn map_contract_m<F>(mut f: F, contract: Contract) -> Contract
+pub fn map_contract_m<F>(mut f: F, contract: Contract) -> Contract
 where
   F: FnMut(&Expr) -> Expr,
 {

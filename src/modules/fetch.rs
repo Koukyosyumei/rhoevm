@@ -190,9 +190,9 @@ pub async fn fetch_contract_with_session(n: BlockNumber, url: &str, addr: Addr, 
   };
   let fetch = |q: RpcQuery| fetch_query(n, fetch_fn, q);
 
-  let code = fetch.clone()(RpcQuery::QueryCode(addr.clone())).await?;
-  let nonce = fetch.clone()(RpcQuery::QueryNonce(addr.clone())).await?;
-  let balance = fetch.clone()(RpcQuery::QueryBalance(addr.clone())).await?;
+  let _code = fetch.clone()(RpcQuery::QueryCode(addr.clone())).await?;
+  let _nonce = fetch.clone()(RpcQuery::QueryNonce(addr.clone())).await?;
+  let _balance = fetch.clone()(RpcQuery::QueryBalance(addr.clone())).await?;
 
   Some(Contract {
     nonce: todo!(),
