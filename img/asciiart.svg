@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="256" width="256" viewBox="0 0 256 256" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+<path d="M 4,120 L 12,104" fill="none" stroke="black"/>
+<path d="M 4,120 L 12,136" fill="none" stroke="black"/>
+<path d="M 12,104 L 20,88" fill="none" stroke="black"/>
+<path d="M 12,136 L 20,152" fill="none" stroke="black"/>
+<path d="M 20,88 L 28,72" fill="none" stroke="black"/>
+<path d="M 20,152 L 28,168" fill="none" stroke="black"/>
+<path d="M 28,168 L 36,152" fill="none" stroke="black"/>
+<path d="M 28,168 L 36,184" fill="none" stroke="black"/>
+<path d="M 36,88 L 44,72" fill="none" stroke="black"/>
+<path d="M 36,88 L 44,104" fill="none" stroke="black"/>
+<path d="M 36,152 L 44,136" fill="none" stroke="black"/>
+<path d="M 36,184 L 44,200" fill="none" stroke="black"/>
+<path d="M 44,88 L 52,72" fill="none" stroke="black"/>
+<path d="M 44,88 L 52,104" fill="none" stroke="black"/>
+<path d="M 44,104 L 52,120" fill="none" stroke="black"/>
+<path d="M 44,136 L 52,120" fill="none" stroke="black"/>
+<path d="M 44,168 L 52,152" fill="none" stroke="black"/>
+<path d="M 44,168 L 52,184" fill="none" stroke="black"/>
+<path d="M 44,200 L 52,216" fill="none" stroke="black"/>
+<path d="M 52,88 L 60,72" fill="none" stroke="black"/>
+<path d="M 52,88 L 60,104" fill="none" stroke="black"/>
+<path d="M 52,104 L 60,120" fill="none" stroke="black"/>
+<path d="M 52,152 L 60,136" fill="none" stroke="black"/>
+<path d="M 52,168 L 60,152" fill="none" stroke="black"/>
+<path d="M 52,168 L 60,184" fill="none" stroke="black"/>
+<path d="M 52,184 L 60,200" fill="none" stroke="black"/>
+<path d="M 52,216 L 60,232" fill="none" stroke="black"/>
+<path d="M 60,72 L 68,88" fill="none" stroke="black"/>
+<path d="M 60,88 L 68,104" fill="none" stroke="black"/>
+<path d="M 60,104 L 68,120" fill="none" stroke="black"/>
+<path d="M 60,136 L 68,120" fill="none" stroke="black"/>
+<path d="M 60,152 L 68,136" fill="none" stroke="black"/>
+<path d="M 60,168 L 68,152" fill="none" stroke="black"/>
+<path d="M 60,168 L 68,184" fill="none" stroke="black"/>
+<path d="M 60,184 L 68,200" fill="none" stroke="black"/>
+<path d="M 60,200 L 68,216" fill="none" stroke="black"/>
+<path d="M 60,232 L 68,248" fill="none" stroke="black"/>
+<path d="M 68,88 L 76,72" fill="none" stroke="black"/>
+<path d="M 68,88 L 76,104" fill="none" stroke="black"/>
+<path d="M 68,104 L 76,120" fill="none" stroke="black"/>
+<path d="M 68,136 L 76,120" fill="none" stroke="black"/>
+<path d="M 68,152 L 76,136" fill="none" stroke="black"/>
+<path d="M 68,168 L 76,152" fill="none" stroke="black"/>
+<path d="M 68,168 L 76,184" fill="none" stroke="black"/>
+<path d="M 68,184 L 76,200" fill="none" stroke="black"/>
+<path d="M 76,72 L 84,88" fill="none" stroke="black"/>
+<path d="M 76,88 L 84,104" fill="none" stroke="black"/>
+<path d="M 76,104 L 84,120" fill="none" stroke="black"/>
+<path d="M 76,136 L 84,120" fill="none" stroke="black"/>
+<path d="M 76,152 L 84,136" fill="none" stroke="black"/>
+<path d="M 76,168 L 84,152" fill="none" stroke="black"/>
+<path d="M 76,168 L 84,184" fill="none" stroke="black"/>
+<path d="M 76,200 L 84,184" fill="none" stroke="black"/>
+<path d="M 84,88 L 92,72" fill="none" stroke="black"/>
+<path d="M 84,104 L 92,120" fill="none" stroke="black"/>
+<path d="M 84,136 L 92,120" fill="none" stroke="black"/>
+<path d="M 84,152 L 92,136" fill="none" stroke="black"/>
+<path d="M 84,152 L 92,168" fill="none" stroke="black"/>
+<path d="M 84,184 L 92,168" fill="none" stroke="black"/>
+<path d="M 92,72 L 100,88" fill="none" stroke="black"/>
+<path d="M 92,168 L 100,152" fill="none" stroke="black"/>
+<path d="M 100,88 L 108,104" fill="none" stroke="black"/>
+<path d="M 100,152 L 108,136" fill="none" stroke="black"/>
+<path d="M 108,104 L 116,120" fill="none" stroke="black"/>
+<path d="M 108,136 L 116,120" fill="none" stroke="black"/>
+<g class="text">
+<text x="96" y="20">╭───────────────╮</text>
+<text x="32" y="36">│</text>
+<text x="72" y="36">R H O</text>
+<text x="112" y="36">│</text>
+<text x="32" y="52">│</text>
+<text x="72" y="52">E V M</text>
+<text x="112" y="52">│</text>
+<text x="96" y="68">╰───────────────╯</text>
+<text x="32" y="84">🦀</text>
+<text x="32" y="100">🦀</text>
+<text x="40" y="116">🦀</text>
+<text x="172" y="116">symbolic EVM</text>
+<text x="56" y="132">🦀</text>
+<text x="188" y="132">execution engine</text>
+<text x="48" y="148">🦀</text>
+<text x="184" y="148">written in Rust</text>
+<text x="40" y="164">🦀</text>
+<text x="40" y="180">🦀</text>
+<text x="48" y="196">🦀</text>
+<text x="56" y="212">🦀</text>
+<text x="64" y="228">🦀</text>
+</g>
+</svg>
