@@ -1024,6 +1024,7 @@ impl VM {
             //let available_gas = 0; // Example available gas
             let (cost, gas) = (0, Gas::Symbolic); //cost_of_create(0, available_gas, x_size, false); // Example fees
             let new_addr = create_address(self, *self_contract.clone(), this_contract.nonce); // Example self and nonce
+            info!("Create New Address: {}", new_addr);
             let _ = access_account_for_gas(self, new_addr.clone());
             let init_code = read_memory(self, *x_offset.clone(), *x_size.clone());
             burn(self, cost, || {});
