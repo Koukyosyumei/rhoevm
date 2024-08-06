@@ -3,6 +3,8 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::u32;
 
+use log::info;
+
 use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
@@ -329,7 +331,7 @@ pub fn sar(x: Box<Expr>, y: Box<Expr>) -> Expr {
 pub fn in_range(sz: u32, e: Box<Expr>) -> Prop {
   Prop::PAnd(
     Box::new(Prop::PGEq(*e.clone(), Expr::Lit(W256(0, 0)))),
-    Box::new(Prop::PLEq(*e.clone(), Expr::Lit(W256((2_u128.pow(sz) - 1) as u128, 0)))),
+    Box::new(Prop::PLEq(*e.clone(), Expr::Lit(W256(2_u128, 0).pow(sz)))),
   )
 }
 
@@ -527,12 +529,13 @@ pub fn read_bytes(n: usize, idx: Box<Expr>, buf: Box<Expr>) -> Expr {
   join_bytes(bytes)
 }
 
+/*
 fn pad_byte(b: Box<Expr>) -> Expr {
   match *b {
     Expr::LitByte(b) => Expr::Lit(bytes_to_w256(&[b])),
     _ => join_bytes(vec![*b]),
   }
-}
+}*/
 
 fn bytes_to_w256(bytes: &[u8]) -> W256 {
   /*
@@ -612,7 +615,7 @@ fn join_bytes(bs: Vec<Expr>) -> Expr {
   }
 }
 
-fn eq_byte(x: Box<Expr>, y: Box<Expr>) -> Expr {
+pub fn eq_byte(x: Box<Expr>, y: Box<Expr>) -> Expr {
   match (*x, *y) {
     (Expr::LitByte(x), Expr::LitByte(y)) => Expr::Lit(if x == y { W256(1, 0) } else { W256(0, 0) }),
     (x, y) => Expr::EqByte(Box::new(x), Box::new(y)),
@@ -1134,7 +1137,7 @@ fn go_expr(expr: Box<Expr>) -> Expr {
           Expr::Lit(W256(0, 0))
         }
       }
-      (a_, Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
+      (__, Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
       (a, b) => lt(Box::new(a), Box::new(b)),
     },
 
@@ -1253,7 +1256,7 @@ fn simp_inner_expr(prop: Prop) -> Prop {
 }
 
 fn go_prop(prop: &Prop) -> Prop {
-  let v: W256 = W256::from_dec_str("1461501637330902918203684832716283019655932542975").unwrap();
+  let _v: W256 = W256::from_dec_str("1461501637330902918203684832716283019655932542975").unwrap();
   match prop.clone() {
     // LT/LEq comparisons
     Prop::PGT(a, b) => Prop::PLT(b, a),
@@ -1363,8 +1366,55 @@ fn go_prop(prop: &Prop) -> Prop {
   }
 }
 
+// Equivalent to Haskell's pattern-matching
 pub fn read_storage(w: Box<Expr>, st: Box<Expr>) -> Option<Expr> {
-  todo!()
+  fn go(slot: Expr, storage: Expr) -> Option<Expr> {
+    match storage.clone() {
+      Expr::AbstractStore(_, _) => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+      Expr::ConcreteStore(s) => match slot {
+        Expr::Lit(l) => {
+          let v = s.get(&l).cloned();
+          if let Some(v_) = v {
+            Some(Expr::Lit(v_))
+          } else {
+            None
+          }
+        }
+        _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+      },
+      Expr::SStore(prev_slot, val, prev) => match (*prev_slot.clone(), slot.clone()) {
+        // if address and slot match then we return the val in this write
+        (a, b) if a == b => Some(*val.clone()),
+        // if the slots don't match (see previous guard) and are lits, we can skip this write
+        (Expr::Lit(_), Expr::Lit(_)) => go(slot.clone(), *prev.clone()),
+        // Fixed SMALL value will never match Keccak (well, it might, but that's VERY low chance)
+        (Expr::Lit(a), Expr::Keccak(_)) if a < W256(256, 0) => go(slot.clone(), *prev.clone()),
+        (Expr::Keccak(_), Expr::Lit(a)) if a < W256(256, 0) => go(slot.clone(), *prev.clone()),
+        // Finding two Keccaks that are < 256 away from each other should be VERY hard
+        // This simplification allows us to deal with maps of structs
+        (Expr::Add(a2_, k1_), Expr::Add(b2_, k2_)) => match (*a2_.clone(), *k1_.clone(), *b2_.clone(), *k2_.clone()) {
+          (Expr::Lit(a2), Expr::Keccak(_), Expr::Lit(b2), Expr::Keccak(_))
+            if a2 != b2 && (a2.0 as i64 - b2.0 as i64).abs() < 256 =>
+          {
+            go(slot.clone(), *prev.clone())
+          }
+          _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+        },
+        (Expr::Add(a2_, k1_), Expr::Keccak(_)) => match (*a2_.clone(), *k1_.clone()) {
+          (Expr::Lit(a2), Expr::Keccak(_)) if a2 > W256(0, 0) && a2 < W256(256, 0) => go(slot.clone(), *prev.clone()),
+          _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+        },
+        (Expr::Keccak(_), Expr::Add(a2_, k1_)) => match (*a2_.clone(), *k1_.clone()) {
+          (Expr::Lit(a2), Expr::Keccak(_)) if a2 > W256(0, 0) && a2 < W256(256, 0) => go(slot.clone(), *prev.clone()),
+          _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+        },
+        _ => Some(Expr::SLoad(Box::new(slot.clone()), Box::new(storage.clone()))),
+      },
+      // we are unable to determine statically whether or not we can safely move deeper in the write chain, so return an abstract term
+      _ => panic!("unexpected expression: slot={}, storage={}", slot, storage),
+    }
+  }
+  go(simplify(w), *st)
 }
 
 pub fn write_storage(k: Box<Expr>, v: Box<Expr>, store: Box<Expr>) -> Expr {
@@ -1617,8 +1667,57 @@ fn strip_writes(off: W256, size: W256, buffer: Box<Expr>) -> Expr {
   }
 }
 
-pub fn concrete_prefix(e: Box<Expr>) -> Vec<u8> {
-  todo!()
+/*
+-- returns the largest prefix that is guaranteed to be concrete (if one exists)
+-- partial: will hard error if we encounter an input buf with a concrete size > 500mb
+-- partial: will hard error if the prefix is > 500mb
+*/
+pub fn concrete_prefix(b: Box<Expr>) -> Vec<u8> {
+  fn max_idx() -> i32 {
+    500 * (10_i32.pow(6))
+  }
+  fn input_len(b: Box<Expr>) -> Option<W256> {
+    match buf_length(*b) {
+      Expr::Lit(s) => {
+        if s > W256(max_idx as u128, 0) {
+          panic!("concrete prefix: input buffer size exceeds 500mb")
+        } else {
+          Some(s)
+        }
+      }
+      _ => None,
+    }
+  }
+  fn has_enough_concrete_size(i: i32, b: Box<Expr>) -> bool {
+    if let Some(mr) = input_len(b) {
+      return W256(i as u128, 0) >= mr;
+    }
+    false
+  }
+
+  fn go(b: Box<Expr>, i: i32, v: Vec<u8>) -> (i32, Vec<u8>) {
+    if i >= max_idx() {
+      panic!("concrete prefix: prefix size exceeds 500mb");
+    } else if has_enough_concrete_size(i, b.clone()) {
+      (i, v)
+    } else if i as usize >= v.len() {
+      // grow v double
+      go(b, i, v)
+    } else {
+      match read_byte(Box::new(Expr::Lit(W256(i as u128, 0))), b.clone()) {
+        Expr::LitByte(byte) => {
+          // write v i byte
+          go(b, i + 1, v)
+        }
+        _ => (i, v),
+      }
+    }
+  }
+
+  let v_size = if let Some(w) = input_len(b.clone()) { w.0 } else { 1024 };
+  let v = vec![];
+  let result = go(b.clone(), 0, v);
+  result.1
 }
 
 pub fn get_addr(e: Box<Expr>) -> Option<Expr> {
@@ -1719,7 +1818,7 @@ pub fn word_to_addr(e: Box<Expr>) -> Option<Expr> {
       _ => None,
     }
   }
-
+  info!("simplify(e)={}", simplify(e.clone()));
   go(Box::new(simplify(e)))
 }
 
@@ -1761,6 +1860,7 @@ pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> E
           emax(Box::new(l), Box::new(Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(a))))))
         }
       }
+      Expr::Mempty => Expr::Lit(W256(0, 0)),
       _ => panic!("unsupported expression: {}", buf),
     }
   }

@@ -1,7 +1,7 @@
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
 use std::{fmt, vec};
+// use std::str::FromStr;
 
 use crate::modules::cse::{eliminate_props, BufEnv, StoreEnv};
 use crate::modules::effects::Config;
@@ -162,8 +162,8 @@ impl std::ops::AddAssign for SMT2 {
 }
 
 pub fn format_smt2(smt2: &SMT2) -> String {
-  let mut result = format!(";{}", smt2.3.iter().map(|p| format_prop(p)).collect::<Vec<String>>().join("\n"));
-  result = result.replace("\n", "\n;");
+  let mut result =
+    format!(";{}", smt2.3.iter().map(|p| format_prop(p)).collect::<Vec<String>>().join("\n")).replace("\n", "\n;");
   result += "\n\n";
   for s in smt2.0.clone() {
     result += &(s.to_string() + &("\n".to_string()));
@@ -487,7 +487,7 @@ fn abstract_away_props(conf: &Config, ps: Vec<Prop>) -> (Vec<Prop>, AbstState) {
   (abstracted, state)
 }
 
-pub fn abstract_away(conf: &Config, prop: &Prop, state: &mut AbstState) -> Prop {
+pub fn abstract_away(_conf: &Config, _prop: &Prop, _state: &mut AbstState) -> Prop {
   todo!()
 }
 
@@ -523,12 +523,12 @@ fn decompose_storage_prop(prop: Prop) -> Option<Prop> {
   Some(prop)
 }
 
-fn safe_to_decompose(prop: &Prop) -> Option<()> {
+fn safe_to_decompose(_prop: &Prop) -> Option<()> {
   // Implementation for checking if a Prop is safe to decompose
   Some(())
 }
 
-fn safe_to_decompose_prop(prop: &Prop) -> bool {
+fn safe_to_decompose_prop(_prop: &Prop) -> bool {
   // Implementation for checking if a Prop is safe to decompose at the property level
   true
 }
@@ -1068,14 +1068,14 @@ fn expr_to_smt(expr: Expr) -> String {
     Expr::GasLimit => "gaslimit".to_string(),
     Expr::ChainId => "chainid".to_string(),
     Expr::BaseFee => "basefee".to_string(),
-    Expr::SymAddr(a) => format_e_addr(expr),
+    Expr::SymAddr(_) => format_e_addr(expr),
     Expr::WAddr(a) => format!("(concat (_ bv0 96) {})", expr_to_smt(*a)),
     Expr::LitByte(b) => format!("(_ bv{} 8)", b),
     Expr::IndexWord(idx, w) => match *idx {
       Expr::Lit(n) => {
         if n >= W256(0, 0) && n < W256(32, 0) {
           let enc = expr_to_smt(*w);
-          format!("(indexWord{})", n)
+          format!("(indexWord{}, {})", n, enc)
         } else {
           expr_to_smt(Expr::LitByte(0))
         }
@@ -1269,6 +1269,7 @@ fn format_e_addr(addr: Expr) -> Builder {
 
 // ** Cex parsing ** --------------------------------------------------------------------------------
 
+/*
 enum SpecConstant {
   Hexadecimal(u8),
   Binary(u8),
@@ -1377,6 +1378,7 @@ fn get_vars(
   map
   */
 }
+*/
 
 fn prelude() -> SMT2 {
   SMT2(

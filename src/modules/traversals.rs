@@ -133,8 +133,7 @@ where
         + d.values().fold(B::default(), |acc, v| acc + fold_econtract(f, B::default(), v))
     }
     Expr::Failure(a, _, EvmError::Revert(c)) => {
-      f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
-      //+ go_expr(f, acc, EvmError::Revert(c))
+      f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone())) + go_expr(f, acc, *c)
     }
     Expr::Failure(a, _, _) => {
       f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
@@ -157,7 +156,9 @@ where
     | Expr::Min(a, b)
     | Expr::Max(a, b) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc, *b),
 
-    Expr::AddMod(a, b, c) | Expr::MulMod(a, b, c) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc, *b),
+    Expr::AddMod(a, b, c) | Expr::MulMod(a, b, c) => {
+      f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b) + go_expr(f, acc, *c)
+    }
 
     // booleans
     Expr::LT(a, b)
@@ -244,7 +245,7 @@ impl ExprMappable for Expr {
       Expr::GVar(s) => f(&Expr::GVar(s.clone())),
 
       // Addresses
-      Expr::C { code, storage, balance, nonce } => map_econtract_m(f, self.clone()),
+      Expr::C { code: _, storage: _, balance: _, nonce: _ } => map_econtract_m(f, self.clone()),
 
       Expr::LitAddr(a) => f(&Expr::LitAddr(a.clone())),
       Expr::SymAddr(a) => f(&Expr::SymAddr(a.clone())),
@@ -620,6 +621,7 @@ impl ExprMappable for Expr {
         let a = a.map_expr_m(f);
         f(&Expr::BufLength(Box::new(a)))
       }
+      Expr::Mempty => Expr::Mempty,
       _ => panic!("unuexpected expr {}", self),
     }
   }
@@ -716,7 +718,7 @@ where
 }
 
 // MapContractM function
-fn map_contract_m<F>(mut f: F, contract: Contract) -> Contract
+pub fn map_contract_m<F>(mut f: F, contract: Contract) -> Contract
 where
   F: FnMut(&Expr) -> Expr,
 {
@@ -760,7 +762,7 @@ pub trait TraversableTerm {
 }
 
 impl TraversableTerm for Expr {
-  fn map_term<F>(&self, f: F) -> Self
+  fn map_term<F>(&self, _f: F) -> Self
   where
     F: FnMut(&Expr) -> Expr,
   {
@@ -777,7 +779,7 @@ impl TraversableTerm for Expr {
 }
 
 impl TraversableTerm for Prop {
-  fn map_term<F>(&self, f: F) -> Self
+  fn map_term<F>(&self, _f: F) -> Self
   where
     F: FnMut(&Expr) -> Expr,
   {

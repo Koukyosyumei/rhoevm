@@ -166,20 +166,17 @@ fn main() {
   let num_initial_constraints = vm.constraints.len();
 
   let mut vms = vec![];
-  let mut prev_pc = 0;
-  let mut do_size = 0;
   let mut end = false;
   let mut found_calldataload = false;
-  let mut prev_op = "".to_string();
   let mut prev_valid_op = "".to_string();
 
   info!("Starting EVM symbolic execution...");
   while !end {
     loop {
-      prev_pc = vm.state.pc;
-      do_size = vm.decoded_opcodes.len();
+      let prev_pc = vm.state.pc;
+      let do_size = vm.decoded_opcodes.len();
       let continue_flag = vm.exec1(&mut vms, if found_calldataload { 10 } else { 1 });
-      prev_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
+      let prev_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
 
       if !found_calldataload && prev_valid_op == "RETURN" && prev_op != "UNKNOWN" {
         vm.state.base_pc = prev_pc;

@@ -3,8 +3,6 @@ use crate::modules::abi::{make_abi_value, selector, AbiType, AbiValue};
 use crate::modules::expr::{add, buf_length, in_range, read_byte, write_byte, write_word};
 use crate::modules::types::{Expr, Prop, W256};
 
-use super::format::format_prop;
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CalldataFragment {
   St(Vec<Prop>, Expr),
@@ -12,8 +10,11 @@ pub enum CalldataFragment {
   Comp(Vec<CalldataFragment>),
 }
 
-pub fn to_bool(e: Expr) -> Prop {
-  Prop::POr(Box::new(Prop::PEq(e.clone(), Expr::Lit(W256(1, 0)))), Box::new(Prop::PEq(e, Expr::Lit(W256(0, 0)))))
+pub fn to_bool(e: &Expr) -> Prop {
+  Prop::POr(
+    Box::new(Prop::PEq(e.clone(), Expr::Lit(W256(1, 0)))),
+    Box::new(Prop::PEq(e.clone(), Expr::Lit(W256(0, 0)))),
+  )
 }
 
 pub fn sym_abi_arg(name: &str, abi_type: AbiType) -> CalldataFragment {
@@ -36,7 +37,7 @@ pub fn sym_abi_arg(name: &str, abi_type: AbiType) -> CalldataFragment {
     }
     AbiType::AbiBoolType => {
       let v = Expr::Var(name.into());
-      CalldataFragment::St(vec![to_bool(v.clone())], v)
+      CalldataFragment::St(vec![to_bool(&v)], v)
     }
     AbiType::AbiAddressType => CalldataFragment::St(vec![], Expr::SymAddr(name.into())),
     AbiType::AbiBytesType(n) => {
@@ -62,7 +63,7 @@ fn is_st(cf: &CalldataFragment) -> bool {
 }
 
 // Function to combine calldata fragments
-fn combine_fragments(fragments: &[CalldataFragment], base: Expr) -> (Expr, Vec<Prop>) {
+fn combine_fragments(fragments: &[CalldataFragment], base: &Expr) -> (Expr, Vec<Prop>) {
   fn go(idx: Expr, fragments: &[CalldataFragment], acc: (Expr, Vec<Prop>)) -> (Expr, Vec<Prop>) {
     if fragments.is_empty() {
       return acc;
@@ -92,12 +93,12 @@ fn combine_fragments(fragments: &[CalldataFragment], base: Expr) -> (Expr, Vec<P
   }
 
   // Initial call to go with starting index and fragments
-  go(Expr::Lit(W256(4, 0)), fragments, (base, vec![]))
+  go(Expr::Lit(W256(4, 0)), fragments, (base.clone(), vec![]))
 }
 
-fn write_selector(buf: Expr, sig: &str) -> Expr {
+fn write_selector(buf: &Expr, sig: &str) -> Expr {
   let selector = selector(&(sig.to_string()));
-  (0..4).fold(buf, |buf, idx| {
+  (0..4).fold(buf.clone(), |buf, idx| {
     write_byte(
       Box::new(Expr::Lit(W256(idx, 0))),
       Box::new(read_byte(Box::new(Expr::Lit(W256(idx, 0))), Box::new(Expr::ConcreteBuf(selector.clone())))),
@@ -112,7 +113,7 @@ fn write_selector(buf: Expr, sig: &str) -> Expr {
 -- Any argument given as "<symbolic>" or omitted at the tail of the list are
 -- kept symbolic.
 */
-pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[String], base: Expr) -> (Expr, Vec<Prop>) {
+pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[String], base: &Expr) -> (Expr, Vec<Prop>) {
   let binding = "<symbolic>".to_string();
   let args = concrete_args.iter().chain(std::iter::repeat(&binding)).take(type_signature.len()).collect::<Vec<_>>();
   let mk_arg = |typ: &AbiType, arg: &String, n: usize| -> CalldataFragment {
@@ -129,8 +130,8 @@ pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[Stri
   };
   let calldatas: Vec<CalldataFragment> =
     type_signature.iter().zip(args.iter()).enumerate().map(|(i, (typ, arg))| mk_arg(typ, arg, i + 1)).collect();
-  let (cd_buf, props) = combine_fragments(&calldatas, base);
-  let with_selector = write_selector(cd_buf, sig);
+  let (cd_buf, props) = combine_fragments(&calldatas, &base);
+  let with_selector = write_selector(&cd_buf, sig);
   let size_constraints = Prop::PAnd(
     Box::new(Prop::PGEq(Expr::BufLength(Box::new(with_selector.clone())), cd_len(&calldatas))),
     Box::new(Prop::PLT(Expr::BufLength(Box::new(with_selector.clone())), Expr::Lit(W256(2_u128.pow(64), 0)))),
@@ -163,7 +164,7 @@ fn cd_len(cfs: &Vec<CalldataFragment>) -> Expr {
 pub fn mk_calldata(sig: Option<Sig>, concrete_args: &[String]) -> (Expr, Vec<Prop>) {
   match sig {
     Some(Sig { method_signature: name, inputs: types }) => {
-      sym_calldata(&name, &types, concrete_args, Expr::AbstractBuf("txdata".to_string()))
+      sym_calldata(&name, &types, concrete_args, &Expr::AbstractBuf("txdata".to_string()))
     }
     None => (
       Expr::AbstractBuf("txdata".to_string()),

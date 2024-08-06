@@ -135,9 +135,7 @@ impl W256 {
   pub fn to_decimal(&self) -> String {
     BigInt::from_str_radix(&self.to_hex(), 16).unwrap().to_string()
   }
-}
 
-impl W256 {
   pub fn to_int(&self) -> Option<i32> {
     let max_int: W256 = W256(i32::MAX as u128, 0);
     if self <= &max_int {
@@ -147,16 +145,7 @@ impl W256 {
       None
     }
   }
-}
 
-pub fn to_int(e: &Expr) -> Option<i32> {
-  match e {
-    Expr::Lit(v) => v.to_int(),
-    _ => None,
-  }
-}
-
-impl W256 {
   pub fn from_bytes(bytes: Vec<u8>) -> Self {
     let padded_bytes = pad_left_prime_vec(32, bytes);
 
@@ -164,6 +153,13 @@ impl W256 {
     let low = u128::from_be_bytes(padded_bytes[16..32].try_into().unwrap());
 
     W256(low, high)
+  }
+}
+
+pub fn to_int(e: &Expr) -> Option<i32> {
+  match e {
+    Expr::Lit(v) => v.to_int(),
+    _ => None,
   }
 }
 
@@ -275,6 +271,25 @@ impl Not for W256 {
 }
 
 impl W256 {
+  // Exponentiation by squaring
+  pub fn pow(self, mut exponent: u32) -> W256 {
+    let mut result = W256(0, 1); // Start with W256 equivalent of 1
+    let mut base = self;
+
+    while exponent > 0 {
+      // If the exponent is odd, multiply the result by the base
+      if exponent % 2 == 1 {
+        result = result.mul(base.clone());
+      }
+      // Square the base
+      base = base.clone().mul(base.clone());
+      // Divide the exponent by 2
+      exponent /= 2;
+    }
+
+    result
+  }
+
   pub fn div_rem(self, b: W256) -> (W256, W256) {
     let mut x = self.clone();
     let mut ans = W256(0, 0);
@@ -402,7 +417,7 @@ impl Mul for W512 {
 impl Div for W512 {
   type Output = W512;
 
-  fn div(self, other: W512) -> W512 {
+  fn div(self, _other: W512) -> W512 {
     // Implement division for W512 (using arbitrary precision arithmetic)
     unimplemented!()
   }
@@ -411,7 +426,7 @@ impl Div for W512 {
 impl Rem for W512 {
   type Output = W512;
 
-  fn rem(self, other: W512) -> W512 {
+  fn rem(self, _other: W512) -> W512 {
     // Implement modulus for W512 (using arbitrary precision arithmetic)
     unimplemented!()
   }
@@ -420,7 +435,7 @@ impl Rem for W512 {
 impl Shr<u32> for W512 {
   type Output = W512;
 
-  fn shr(self, rhs: u32) -> W512 {
+  fn shr(self, _rhs: u32) -> W512 {
     // Implement right shift for W512
     unimplemented!()
   }
@@ -429,7 +444,7 @@ impl Shr<u32> for W512 {
 impl Shl<u32> for W512 {
   type Output = W512;
 
-  fn shl(self, rhs: u32) -> W512 {
+  fn shl(self, _rhs: u32) -> W512 {
     // Implement left shift for W512
     unimplemented!()
   }
@@ -1485,7 +1500,7 @@ pub enum BranchCondition {
 
 // Implement Display for Query
 impl fmt::Display for Query {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+  fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
     todo!()
     /*
     match self {
@@ -1570,8 +1585,8 @@ pub struct TxState {
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct SubState {
-  pub selfdestructs: Vec<Expr>,
-  pub touched_accounts: Vec<Expr>,
+  pub selfdestructs: Vec<Box<Expr>>,
+  pub touched_accounts: Vec<Box<Expr>>,
   pub accessed_addresses: ExprSet,
   pub accessed_storage_keys: ExprW256Set,
   pub refunds: Vec<(Expr, Word64)>,
@@ -1633,7 +1648,7 @@ pub fn from_list(bs: Vec<Box<Expr>>) -> Expr {
     Expr::ConcreteBuf(packed_bytes)
   } else {
     let mut concrete_bytes = Vec::with_capacity(bs.len());
-    for (idx, expr) in bs.iter().enumerate() {
+    for (_idx, expr) in bs.iter().enumerate() {
       match **expr {
         Expr::LitByte(b) => concrete_bytes.push(b),
         _ => concrete_bytes.push(0),

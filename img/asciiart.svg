@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="192" width="128" viewBox="0 0 128 192" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+<path d="M 4,56 L 12,40" fill="none" stroke="black"/>
+<path d="M 4,56 L 12,72" fill="none" stroke="black"/>
+<path d="M 12,40 L 20,24" fill="none" stroke="black"/>
+<path d="M 12,72 L 20,88" fill="none" stroke="black"/>
+<path d="M 20,24 L 28,8" fill="none" stroke="black"/>
+<path d="M 20,88 L 28,104" fill="none" stroke="black"/>
+<path d="M 28,104 L 36,88" fill="none" stroke="black"/>
+<path d="M 28,104 L 36,120" fill="none" stroke="black"/>
+<path d="M 36,24 L 44,8" fill="none" stroke="black"/>
+<path d="M 36,24 L 44,40" fill="none" stroke="black"/>
+<path d="M 36,88 L 44,72" fill="none" stroke="black"/>
+<path d="M 36,120 L 44,136" fill="none" stroke="black"/>
+<path d="M 44,24 L 52,8" fill="none" stroke="black"/>
+<path d="M 44,24 L 52,40" fill="none" stroke="black"/>
+<path d="M 44,40 L 52,56" fill="none" stroke="black"/>
+<path d="M 44,72 L 52,56" fill="none" stroke="black"/>
+<path d="M 44,104 L 52,88" fill="none" stroke="black"/>
+<path d="M 44,104 L 52,120" fill="none" stroke="black"/>
+<path d="M 44,136 L 52,152" fill="none" stroke="black"/>
+<path d="M 52,24 L 60,8" fill="none" stroke="black"/>
+<path d="M 52,24 L 60,40" fill="none" stroke="black"/>
+<path d="M 52,40 L 60,56" fill="none" stroke="black"/>
+<path d="M 52,88 L 60,72" fill="none" stroke="black"/>
+<path d="M 52,104 L 60,88" fill="none" stroke="black"/>
+<path d="M 52,104 L 60,120" fill="none" stroke="black"/>
+<path d="M 52,120 L 60,136" fill="none" stroke="black"/>
+<path d="M 52,152 L 60,168" fill="none" stroke="black"/>
+<path d="M 60,8 L 68,24" fill="none" stroke="black"/>
+<path d="M 60,24 L 68,40" fill="none" stroke="black"/>
+<path d="M 60,40 L 68,56" fill="none" stroke="black"/>
+<path d="M 60,72 L 68,56" fill="none" stroke="black"/>
+<path d="M 60,88 L 68,72" fill="none" stroke="black"/>
+<path d="M 60,104 L 68,88" fill="none" stroke="black"/>
+<path d="M 60,104 L 68,120" fill="none" stroke="black"/>
+<path d="M 60,120 L 68,136" fill="none" stroke="black"/>
+<path d="M 60,136 L 68,152" fill="none" stroke="black"/>
+<path d="M 60,168 L 68,184" fill="none" stroke="black"/>
+<path d="M 68,24 L 76,8" fill="none" stroke="black"/>
+<path d="M 68,24 L 76,40" fill="none" stroke="black"/>
+<path d="M 68,40 L 76,56" fill="none" stroke="black"/>
+<path d="M 68,72 L 76,56" fill="none" stroke="black"/>
+<path d="M 68,88 L 76,72" fill="none" stroke="black"/>
+<path d="M 68,104 L 76,88" fill="none" stroke="black"/>
+<path d="M 68,104 L 76,120" fill="none" stroke="black"/>
+<path d="M 68,120 L 76,136" fill="none" stroke="black"/>
+<path d="M 76,8 L 84,24" fill="none" stroke="black"/>
+<path d="M 76,24 L 84,40" fill="none" stroke="black"/>
+<path d="M 76,40 L 84,56" fill="none" stroke="black"/>
+<path d="M 76,72 L 84,56" fill="none" stroke="black"/>
+<path d="M 76,88 L 84,72" fill="none" stroke="black"/>
+<path d="M 76,104 L 84,88" fill="none" stroke="black"/>
+<path d="M 76,104 L 84,120" fill="none" stroke="black"/>
+<path d="M 76,136 L 84,120" fill="none" stroke="black"/>
+<path d="M 84,24 L 92,8" fill="none" stroke="black"/>
+<path d="M 84,40 L 92,56" fill="none" stroke="black"/>
+<path d="M 84,72 L 92,56" fill="none" stroke="black"/>
+<path d="M 84,88 L 92,72" fill="none" stroke="black"/>
+<path d="M 84,88 L 92,104" fill="none" stroke="black"/>
+<path d="M 84,120 L 92,104" fill="none" stroke="black"/>
+<path d="M 92,8 L 100,24" fill="none" stroke="black"/>
+<path d="M 92,104 L 100,88" fill="none" stroke="black"/>
+<path d="M 100,24 L 108,40" fill="none" stroke="black"/>
+<path d="M 100,88 L 108,72" fill="none" stroke="black"/>
+<path d="M 108,40 L 116,56" fill="none" stroke="black"/>
+<path d="M 108,72 L 116,56" fill="none" stroke="black"/>
+<g class="text">
+<text x="32" y="20">🦀</text>
+<text x="32" y="36">🦀</text>
+<text x="40" y="52">🦀</text>
+<text x="56" y="68">🦀</text>
+<text x="48" y="84">🦀</text>
+<text x="40" y="100">🦀</text>
+<text x="40" y="116">🦀</text>
+<text x="48" y="132">🦀</text>
+<text x="56" y="148">🦀</text>
+<text x="64" y="164">🦀</text>
+</g>
+</svg>
