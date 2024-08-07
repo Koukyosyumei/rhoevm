@@ -1,0 +1,188 @@
+[2024-08-07T13:45:13Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x0, Opcode: PUSH1 Lit(0x80)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x2, Opcode: PUSH1 Lit(0x40)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x4, Opcode: MSTORE
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x5, Opcode: CALLVALUE
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x6, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x7, Opcode: ISZERO
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x8, Opcode: PUSH2 Lit(0xf)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xb, Opcode: JUMPI
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xf, Opcode: JUMPDEST
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x10, Opcode: POP
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x11, Opcode: PUSH2 Lit(0x231)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x14, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x15, Opcode: PUSH2 Lit(0x1d)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x18, Opcode: PUSH0
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x19, Opcode: CODECOPY
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x1a, Opcode: PUSH0
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x1b, Opcode: RETURN
+[2024-08-07T13:45:13Z DEBUG rhoevm] ---------------
+[2024-08-07T13:45:13Z DEBUG rhoevm] Base PC set to 0xc
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xc, Opcode: PUSH0
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xd, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xe, Opcode: REVERT
+[2024-08-07T13:45:13Z DEBUG rhoevm] ---------------
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xf, Opcode: JUMPDEST
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x10, Opcode: POP
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x11, Opcode: PUSH2 Lit(0x231)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x14, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x15, Opcode: PUSH2 Lit(0x1d)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x18, Opcode: PUSH0
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x19, Opcode: CODECOPY
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x1a, Opcode: PUSH0
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x1b, Opcode: RETURN
+[2024-08-07T13:45:13Z DEBUG rhoevm] ---------------
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x1c, Opcode: UNKNOWN
+[2024-08-07T13:45:13Z DEBUG rhoevm] Base PC set to 0x1d
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x1d, Opcode: PUSH1 Lit(0x80)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x1f, Opcode: PUSH1 Lit(0x40)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x21, Opcode: MSTORE
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x22, Opcode: CALLVALUE
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x23, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x24, Opcode: ISZERO
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x25, Opcode: PUSH2 Lit(0xf)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x28, Opcode: JUMPI
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x2c, Opcode: JUMPDEST
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x2d, Opcode: POP
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x2e, Opcode: PUSH1 Lit(0x4)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x30, Opcode: CALLDATASIZE
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x31, Opcode: LT
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x32, Opcode: PUSH2 Lit(0x34)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x35, Opcode: JUMPI
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x51, Opcode: JUMPDEST
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x52, Opcode: PUSH0
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x53, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x54, Opcode: REVERT
+[2024-08-07T13:45:13Z DEBUG rhoevm] ---------------
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x36, Opcode: PUSH0
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x37, Opcode: CALLDATALOAD
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x38, Opcode: PUSH1 Lit(0xe0)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x3a, Opcode: SHR
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x3b, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x3c, Opcode: PUSH4 Lit(0xa9254e4)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x41, Opcode: EQ
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x42, Opcode: PUSH2 Lit(0x38)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x45, Opcode: JUMPI
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x55, Opcode: JUMPDEST
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x56, Opcode: PUSH2 Lit(0x40)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x59, Opcode: PUSH2 Lit(0x4c)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x5c, Opcode: JUMP
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x69, Opcode: JUMPDEST
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x6a, Opcode: PUSH1 Lit(0x40)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x6c, Opcode: MLOAD
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x6d, Opcode: PUSH2 Lit(0x58)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x70, Opcode: SWAP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x71, Opcode: PUSH2 Lit(0x12d)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x74, Opcode: JUMP
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x14a, Opcode: JUMPDEST
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x14b, Opcode: PUSH1 Lit(0xc2)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x14d, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x14e, Opcode: PUSH2 Lit(0x13a)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x151, Opcode: DUP4
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x152, Opcode: CODECOPY
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x153, Opcode: ADD
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x154, Opcode: SWAP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x155, Opcode: JUMP
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x75, Opcode: JUMPDEST
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x76, Opcode: PUSH1 Lit(0x40)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x78, Opcode: MLOAD
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x79, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x7a, Opcode: SWAP2
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x7b, Opcode: SUB
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x7c, Opcode: SWAP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x7d, Opcode: PUSH0
+[2024-08-07T13:45:13Z INFO  rhoevm::modules::evm] Create New Address: SymAddr(freshSymAddr 1)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x7e, Opcode: CREATE
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x7f, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x80, Opcode: ISZERO
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x81, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x82, Opcode: ISZERO
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x83, Opcode: PUSH2 Lit(0x71)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x86, Opcode: JUMPI
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x8e, Opcode: JUMPDEST
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x8f, Opcode: POP
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x90, Opcode: PUSH0
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x91, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x92, Opcode: PUSH2 Lit(0x100)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x95, Opcode: EXP
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x96, Opcode: DUP2
+[2024-08-07T13:45:13Z INFO  rhoevm::modules::evm] access_storage slot=Lit(0x0), slot_conc=Lit(0x0)
+[2024-08-07T13:45:13Z INFO  rhoevm::modules::evm] access_storage @ addr=SymAddr(entrypoint)
+[2024-08-07T13:45:13Z INFO  rhoevm::modules::evm] sload push y=Lit(0x0)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x97, Opcode: SLOAD
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x98, Opcode: DUP2
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x99, Opcode: PUSH20 Lit(0xffffffffffffffffffffffffffffffffffffffff)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xae, Opcode: MUL
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xaf, Opcode: NOT
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xb0, Opcode: AND
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xb1, Opcode: SWAP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xb2, Opcode: DUP4
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xb3, Opcode: PUSH20 Lit(0xffffffffffffffffffffffffffffffffffffffff)
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xc8, Opcode: AND
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xc9, Opcode: MUL
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xca, Opcode: OR
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xcb, Opcode: SWAP1
+[2024-08-07T13:45:13Z INFO  rhoevm::modules::evm] access_storage slot=Lit(0x0), slot_conc=Lit(0x0)
+[2024-08-07T13:45:13Z INFO  rhoevm::modules::evm] access_storage @ addr=SymAddr(entrypoint)
+[2024-08-07T13:45:13Z INFO  rhoevm::modules::evm] sstore addr=SymAddr(entrypoint), k=Lit(0x0), v=Or(Mul(And(Lit(0xffffffffffffffffffffffffffffffffffffffff), Lit(0x0)), Exp(Lit(0x100), Lit(0x0))), And(Not(Mul(Lit(0xffffffffffffffffffffffffffffffffffffffff), Exp(Lit(0x100), Lit(0x0)))), Lit(0x0)))
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xcc, Opcode: SSTORE
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xcd, Opcode: POP
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0xce, Opcode: JUMP
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x5d, Opcode: JUMPDEST
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x5e, Opcode: STOP
+[2024-08-07T13:45:13Z DEBUG rhoevm] ---------------
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x87, Opcode: RETURNDATASIZE
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x88, Opcode: PUSH0
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x89, Opcode: DUP1
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x8a, Opcode: RETURNDATACOPY
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x8b, Opcode: RETURNDATASIZE
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x8c, Opcode: PUSH0
+[2024-08-07T13:45:13Z DEBUG rhoevm] PC: 0x8d, Opcode: REVERT
+[2024-08-07T13:45:14Z DEBUG rhoevm] ---------------
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x46, Opcode: DUP1
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x47, Opcode: PUSH4 Lit(0x919840ad)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x4c, Opcode: EQ
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x4d, Opcode: PUSH2 Lit(0x42)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x50, Opcode: JUMPI
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x5f, Opcode: JUMPDEST
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x60, Opcode: PUSH2 Lit(0x4a)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x63, Opcode: PUSH2 Lit(0xb2)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x66, Opcode: JUMP
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xcf, Opcode: JUMPDEST
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xd0, Opcode: PUSH0
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xd1, Opcode: DUP1
+[2024-08-07T13:45:14Z INFO  rhoevm::modules::evm] access_storage slot=Lit(0x0), slot_conc=Lit(0x0)
+[2024-08-07T13:45:14Z INFO  rhoevm::modules::evm] access_storage @ addr=SymAddr(entrypoint)
+[2024-08-07T13:45:14Z INFO  rhoevm::modules::evm] sload push y=Lit(0x0)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xd2, Opcode: SLOAD
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xd3, Opcode: SWAP1
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xd4, Opcode: PUSH2 Lit(0x100)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xd7, Opcode: EXP
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xd8, Opcode: SWAP1
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xd9, Opcode: DIV
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xda, Opcode: PUSH20 Lit(0xffffffffffffffffffffffffffffffffffffffff)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xef, Opcode: AND
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0xf0, Opcode: PUSH20 Lit(0xffffffffffffffffffffffffffffffffffffffff)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x105, Opcode: AND
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x106, Opcode: PUSH4 Lit(0x919840ad)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x10b, Opcode: PUSH1 Lit(0x40)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x10d, Opcode: MLOAD
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x10e, Opcode: DUP2
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x10f, Opcode: PUSH4 Lit(0xffffffff)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x114, Opcode: AND
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x115, Opcode: PUSH1 Lit(0xe0)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x117, Opcode: SHL
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x118, Opcode: DUP2
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x119, Opcode: MSTORE
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x11a, Opcode: PUSH1 Lit(0x4)
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x11c, Opcode: ADD
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x11d, Opcode: PUSH0
+[2024-08-07T13:45:14Z DEBUG rhoevm] PC: 0x11e, Opcode: PUSH1 Lit(0x40)
+[2024-08-07T13:45:14Z INFO  rhoevm::modules::types] shr(8000000000000000000000000000000000, 0)
+
+
+0x919840ad
+0x40
+word
+And(0x40, 0xffffffff))
+0xe0

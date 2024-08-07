@@ -418,7 +418,8 @@ pub fn index_word(i: Box<Expr>, w: Box<Expr>) -> Expr {
     }
     (Expr::Lit(idx), Expr::Lit(w)) => {
       if idx <= W256(31, 0) {
-        Expr::LitByte((w >> (unsafe_into_usize(idx) * 8) as u32).0 as u8)
+        info!("w={}, idx={}", w, idx);
+        Expr::LitByte((w >> (idx.0 * 8) as u32).0 as u8)
       } else {
         Expr::LitByte(0)
       }
@@ -669,7 +670,7 @@ pub fn read_word_from_bytes(idx: Box<Expr>, buf: Box<Expr>) -> Box<Expr> {
     return Box::new(Expr::Lit(W256::from_bytes(padded.try_into().unwrap())));
   }
   let bytes: Vec<Expr> =
-    (0..32).map(|i| read_byte(Box::new(add(idx.clone(), Box::new(Expr::Lit(W256(i, 0))))), buf.clone())).collect();
+    (0..3).map(|i| read_byte(Box::new(add(idx.clone(), Box::new(Expr::Lit(W256(i, 0))))), buf.clone())).collect();
   if bytes.iter().all(|b| matches!(b, Expr::Lit(_))) {
     let result = bytes.into_iter().map(|b| if let Expr::Lit(byte) = b { byte.0 as u8 } else { 0 }).collect::<Vec<u8>>();
     Box::new(Expr::Lit(W256::from_bytes(result)))

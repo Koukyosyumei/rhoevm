@@ -64,7 +64,7 @@ fn test_vm_exec_1() {
   assert_eq!(vm.decoded_opcodes.len(), 3);
   assert_eq!(vm.decoded_opcodes, vec!["PUSH1 Lit(0x80)", "PUSH1 Lit(0x40)", "MSTORE"]);
   let mut mem = vec![0; 96];
-  mem[0x40 + 15] = 0x80;
+  mem[0x40 + 31] = 0x80;
   assert_eq!(vm.state.memory, Memory::ConcreteMemory(mem));
 }
 

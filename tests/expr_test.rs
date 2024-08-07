@@ -8,7 +8,7 @@ use rhoevm::modules::types::{word256_bytes, Expr, W256};
 fn test_word256_bytes() {
   let w = W256(0x80, 0);
   let mut v: Vec<u8> = vec![0; 32];
-  v[15] = 0x80;
+  v[31] = 0x80;
   assert_eq!(word256_bytes(w), v);
 }
 
