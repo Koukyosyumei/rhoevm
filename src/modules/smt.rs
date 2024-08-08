@@ -323,7 +323,7 @@ fn declare_intermediates(bufs: &BufEnv, stores: &StoreEnv) -> SMT2 {
 fn declare_addrs(names: Vec<Builder>) -> SMT2 {
   let mut result = vec!["; symbolic addresseses".to_string()];
   for n in &names {
-    result.push(format!("declare-fun {} () Addr", n).to_string());
+    result.push(format!("(declare-fun {} () Addr)", n).to_string());
   }
 
   SMT2(result, RefinementEqs(vec![], vec![]), CexVars { addrs: names, ..CexVars::new() }, vec![])

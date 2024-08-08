@@ -1149,8 +1149,15 @@ fn go_expr(expr: Box<Expr>) -> Expr {
     Expr::SLT(a, b) => slt(a, b),
     Expr::SGT(a, b) => sgt(a, b),
 
-    Expr::IsZero(a) => iszero(a),
-
+    // TODO: check its correctness
+    Expr::IsZero(a) => match *a.clone() {
+      Expr::WAddr(b) => match *b.clone() {
+        Expr::SymAddr(_) => Expr::Lit(W256(0, 0)),
+        _ => iszero(a),
+      },
+      _ => iszero(a),
+    },
+    // Expr::IsZero(a) => iszero(a),
     Expr::Xor(a_, b_) => match (*a_.clone(), *b_.clone()) {
       (Expr::Lit(a), Expr::Lit(b)) => Expr::Lit(a ^ b),
       _ => xor(a_.clone(), b_.clone()),

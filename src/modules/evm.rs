@@ -2949,7 +2949,7 @@ fn create2_address(vm: &mut VM, e: Expr, s: W256, b: &ByteString) -> Expr {
 fn fresh_sym_addr(vm: &mut VM) -> Expr {
   vm.env.fresh_address += 1;
   let n = vm.env.fresh_address;
-  Expr::SymAddr(format!("freshSymAddr {}", n))
+  Expr::SymAddr(format!("freshSymAddr{}", n))
 }
 
 fn cheat_code() -> Expr {
