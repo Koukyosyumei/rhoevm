@@ -569,12 +569,6 @@ impl VM {
           */
           if let [xs @ .., n, code_offset, mem_offset] = &self.state.stack.clone()[..] {
             next(self, op);
-            warn!(
-              "base_pc {}, code_offset {}, mem_offset {}",
-              self.state.base_pc,
-              code_offset.clone(),
-              mem_offset.clone()
-            );
             self.state.stack = xs.to_vec();
             burn_codecopy(self, unbox(n.clone()), self.block.schedule.clone(), || {});
             access_memory_range(self, *mem_offset.clone(), *n.clone(), || {});
@@ -737,7 +731,6 @@ impl VM {
           */
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
             let buf = read_memory(self, *x.clone(), Expr::Lit(W256(32, 0)));
-            info!("buf={}", buf);
             let w = read_word_from_bytes(Box::new(Expr::Lit(W256(0, 0))), Box::new(buf));
             self.state.stack = xs.to_vec();
             self.state.stack.push(w);
@@ -1052,9 +1045,7 @@ impl VM {
             //let available_gas = 0; // Example available gas
             let (cost, gas) = (0, Gas::Symbolic); //cost_of_create(0, available_gas, x_size, false); // Example fees
             let new_addr = create_address(self, *self_contract.clone(), this_contract.nonce); // Example self and nonce
-            info!("Create New Address: {}", new_addr);
             let _ = access_account_for_gas(self, new_addr.clone());
-            warn!("offset={}, size={}", x_offset.clone(), x_size.clone());
             let init_code = read_memory(self, *x_offset.clone(), *x_size.clone());
             burn(self, cost, || {});
             create(
@@ -1110,10 +1101,8 @@ impl VM {
             if gt0 == BranchReachability::ONLYTHEN || gt0 == BranchReachability::BOTH {
               not_static(self, || {});
 
-              info!("force_addr = {}", x_to);
               let mut x_to_a = Expr::Mempty;
               force_addr(self, x_to, "unable to determine a call target", |x_to_a_| x_to_a = x_to_a_);
-              info!("call address = {}", x_to_a);
               match Some(x_gas) {
                 None => vm_error("IllegalOverflow"),
                 _ => {
@@ -1211,18 +1200,13 @@ impl VM {
                 FrameContext::CallContext { .. } => false,
               }
             };
-            warn!("check the addr caller of return {}", self.state.contract);
             if creation {
               if codesize > maxsize {
-                info!("{}", 1);
                 finish_frame(self, FrameResult::FrameErrored(EvmError::MaxCodeSizeExceeded(codesize, maxsize)))
               } else {
                 match read_byte(Box::new(Expr::Lit(W256(0, 0))), Box::new(output.clone())) {
                   Expr::LitByte(0xef) => finish_frame(self, FrameResult::FrameErrored(EvmError::InvalidFormat)),
-                  Expr::LitByte(_) => {
-                    info!("{}", 7);
-                    finish_frame(self, FrameResult::FrameReturned(output.clone()))
-                  }
+                  Expr::LitByte(_) => finish_frame(self, FrameResult::FrameReturned(output.clone())),
                   y => {
                     let mut c = BranchReachability::NONE;
                     let _else_vm_ = branch(
@@ -1232,17 +1216,14 @@ impl VM {
                       max_num_iterations,
                     );
                     if c == BranchReachability::ONLYELSE {
-                      info!("{}", 2);
                       finish_frame(self, FrameResult::FrameReturned(output.clone()))
                     } else {
-                      info!("{}", 3);
                       finish_frame(self, FrameResult::FrameErrored(EvmError::InvalidFormat))
                     }
                   }
                 }
               }
             } else {
-              info!("{}", 4);
               finish_frame(self, FrameResult::FrameReturned(output))
             }
           } else {
@@ -1334,7 +1315,6 @@ impl VM {
             match word_to_addr(x_to.clone()) {
               // wordToAddr(x_to)
               None => {
-                info!("unable to determine a call {}", x_to);
                 let loc = codeloc(self);
                 let msg = "Unable to determine a call target";
                 self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
@@ -1349,7 +1329,6 @@ impl VM {
                   None => vm_error("IllegalOverflow"),
                   _ => {
                     let mut callee = Expr::Mempty;
-                    info!("enter general call");
                     general_call(
                       self,
                       op,
@@ -1644,12 +1623,6 @@ fn copy_bytes_to_memory(bs: Box<Expr>, size: Box<Expr>, src_offset: Box<Expr>, m
             src_tmp
           };
           if let Some(concrete_mem) = vm.state.memory.as_mut_concrete_memory() {
-            warn!("write memory! size of src={}", src.len());
-            let mut vs = "".to_string();
-            for v in src.clone() {
-              vs += &format!("{:x} ", v);
-            }
-            warn!("{}", vs);
             write_memory(concrete_mem, mem_offset_val.0 as usize, &src);
           }
         }
@@ -1806,7 +1779,6 @@ fn finish_frame(vm: &mut VM, result: FrameResult) -> bool {
         FrameContext::CreationContext { address: _, codehash: _, createversion, substate } => {
           let creator = vm.state.contract.clone();
           let createe = old_state.contract.clone(); // oldvm.state.contract
-          warn!("creator: {}, createe {}", creator, createe);
           let mut reversion_prime = createversion.clone(); //createversion.clone();
 
           for (k, v) in reversion_prime.clone().iter() {
@@ -2427,7 +2399,6 @@ fn general_call(
     todo!()
     // cheat(vm, x_in_offset, x_in_size, x_out_offset, x_out_size);
   } else {
-    info!("do call");
     let mut x_gas = Gas::Concerete(0);
     call_checks(
       vm,
@@ -2461,7 +2432,6 @@ fn general_call(
         }));
       }
       _ => {
-        info!("target known code");
         //burn(vm, 0, || {});
         let calldata = read_memory(vm, x_in_offset.clone(), x_in_size);
         let abi = maybe_lit_word(read_bytes(
@@ -2585,10 +2555,8 @@ fn create(
       {
         let mut else_vm = else_vm_.unwrap();
         burn(&mut else_vm, 0, || {});
-        warn!("init_code: {}", init_code);
         match parse_init_code(init_code.clone()) {
           None => {
-            warn!("oops, error!");
             next(&mut else_vm, op);
             else_vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
               pc: else_vm.state.pc,
@@ -2628,7 +2596,6 @@ fn create(
               stack: else_vm.state.stack,
               ..state
             };
-            warn!("else_vm.state.contract {}", else_vm.state.contract);
           }
         }
         vm_queue.push(else_vm);

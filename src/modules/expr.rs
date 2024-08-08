@@ -3,9 +3,6 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::u32;
 
-use log::{info, warn};
-use tokio::sync::mpsc::WeakSender;
-
 use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
@@ -419,7 +416,6 @@ pub fn index_word(i: Box<Expr>, w: Box<Expr>) -> Expr {
     }
     (Expr::Lit(idx), Expr::Lit(w)) => {
       if idx <= W256(31, 0) {
-        info!("w={}, idx={}", w, idx);
         Expr::LitByte((w >> (idx.0 * 8) as u32).0 as u8)
       } else {
         Expr::LitByte(0)
@@ -1724,7 +1720,6 @@ pub fn concrete_prefix(b: Box<Expr>) -> Vec<u8> {
   }
 
   let v_size = if let Some(w) = input_len(b.clone()) { w.0 } else { 1024 };
-  warn!("v_size {}", v_size);
   let mut v = vec![0; v_size as usize];
   let result = go(b.clone(), 0, v);
   result.1
@@ -1846,7 +1841,6 @@ pub fn buf_length(buf: Expr) -> Expr {
 
 pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> Expr {
   fn go(l: Expr, buf: Expr, env: &HashMap<usize, Expr>, use_env: bool) -> Expr {
-    //warn!("buf {}", buf);
     match buf {
       Expr::ConcreteBuf(b) => emax(Box::new(l), Box::new(Expr::Lit(W256(b.len() as u128, 0)))),
       Expr::AbstractBuf(b) => emax(Box::new(l), Box::new(Expr::BufLength(Box::new(Expr::AbstractBuf(b))))),
@@ -1857,11 +1851,6 @@ pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> E
         go(emax(Box::new(l), Box::new(add(idx, Box::new(Expr::Lit(W256(1, 0)))))), *b, env, use_env)
       }
       Expr::CopySlice(_, dst_offset, size, _, dst) => {
-        warn!("emax1: {}", emax(Box::new(l.clone()), Box::new(add(dst_offset.clone(), size.clone()))));
-        warn!(
-          "emax2: {}",
-          go(emax(Box::new(l.clone()), Box::new(add(dst_offset.clone(), size.clone()))), *dst.clone(), env, use_env)
-        );
         go(emax(Box::new(l), Box::new(add(dst_offset, size))), *dst, env, use_env)
       }
       Expr::GVar(GVar::BufVar(a)) => {
