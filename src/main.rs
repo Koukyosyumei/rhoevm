@@ -9,10 +9,11 @@ use tiny_keccak::{Hasher, Keccak};
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
 use rhoevm::modules::evm::{abstract_contract, opslen, solve_constraints};
-use rhoevm::modules::format::{hex_byte_string, strip_0x};
+use rhoevm::modules::format::{format_prop, hex_byte_string, strip_0x};
 use rhoevm::modules::smt::parse_z3_output;
 
 use rhoevm::modules::abi::{parse_abi_file, Sig};
+use rhoevm::modules::expr::is_function_sig_check_prop;
 use rhoevm::modules::transactions::init_tx;
 use rhoevm::modules::types::{ContractCode, Expr, Prop, RuntimeCodeStruct, VM, W256};
 
@@ -187,10 +188,36 @@ fn main() {
         prev_valid_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
       }
 
-      debug!("PC: 0x{:x}, Opcode: {}", prev_pc, prev_op);
+      debug!("Addr: {}, PC: 0x{:x}, Opcode: {}", vm.state.contract, prev_pc, prev_op);
 
       if !found_calldataload {
         found_calldataload = prev_valid_op == "CALLDATALOAD";
+      }
+
+      if prev_op == "JUMPI" && is_function_sig_check_prop(vm.constraints.last().unwrap()) {
+        let (reachability, _) = solve_constraints(&vm, &vm.constraints);
+        if !reachability {
+          info!("Skip non-target function");
+          break;
+        }
+      }
+
+      let mut msg = "** Constraints (Raw Format):=\n true".to_string();
+      for e in &vm.constraints_raw_expr {
+        msg = msg + &format!(" && {}\n", *e);
+      }
+      //debug!("{}", msg);
+
+      if found_calldataload && (prev_op == "STOP" || prev_op == "RETURN") {
+        warn!("stop?");
+        let (reachability, _) = solve_constraints(&vm, &vm.constraints);
+        warn!("rechability: {}", reachability);
+        /*
+        if reachability {
+          info!("Halt Execution");
+          end = true;
+          break;
+        }*/
       }
 
       if found_calldataload && prev_op == "REVERT" {
@@ -230,6 +257,9 @@ fn main() {
           vm.state.pc = vm.state.pc + 1;
         }
       } else if (vm.state.pc >= opslen(&vm.state.code)) && vms.len() == 0 {
+        end = true;
+        break;
+      } else if vms.len() == 0 && found_calldataload {
         end = true;
         break;
       } else if vms.len() == 0 {

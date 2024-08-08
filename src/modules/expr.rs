@@ -3,7 +3,8 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::u32;
 
-use log::info;
+use log::{info, warn};
+use tokio::sync::mpsc::WeakSender;
 
 use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
@@ -1696,18 +1697,18 @@ pub fn concrete_prefix(b: Box<Expr>) -> Vec<u8> {
     false
   }
 
-  fn go(b: Box<Expr>, i: i32, v: Vec<u8>) -> (i32, Vec<u8>) {
+  fn go(b: Box<Expr>, i: i32, mut v: Vec<u8>) -> (i32, Vec<u8>) {
     if i >= max_idx() {
       panic!("concrete prefix: prefix size exceeds 500mb");
     } else if has_enough_concrete_size(i, b.clone()) {
       (i, v)
     } else if i as usize >= v.len() {
-      // grow v double
+      v.resize(v.len() * 2, 0);
       go(b, i, v)
     } else {
       match read_byte(Box::new(Expr::Lit(W256(i as u128, 0))), b.clone()) {
         Expr::LitByte(byte) => {
-          // write v i byte
+          v[i as usize] = byte;
           go(b, i + 1, v)
         }
         _ => (i, v),
@@ -1716,7 +1717,8 @@ pub fn concrete_prefix(b: Box<Expr>) -> Vec<u8> {
   }
 
   let v_size = if let Some(w) = input_len(b.clone()) { w.0 } else { 1024 };
-  let v = vec![];
+  warn!("v_size {}", v_size);
+  let mut v = vec![0; v_size as usize];
   let result = go(b.clone(), 0, v);
   result.1
 }
@@ -1819,7 +1821,6 @@ pub fn word_to_addr(e: Box<Expr>) -> Option<Expr> {
       _ => None,
     }
   }
-  info!("simplify(e)={}", simplify(e.clone()));
   go(Box::new(simplify(e)))
 }
 
@@ -1838,6 +1839,7 @@ pub fn buf_length(buf: Expr) -> Expr {
 
 pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> Expr {
   fn go(l: Expr, buf: Expr, env: &HashMap<usize, Expr>, use_env: bool) -> Expr {
+    //warn!("buf {}", buf);
     match buf {
       Expr::ConcreteBuf(b) => emax(Box::new(l), Box::new(Expr::Lit(W256(b.len() as u128, 0)))),
       Expr::AbstractBuf(b) => emax(Box::new(l), Box::new(Expr::BufLength(Box::new(Expr::AbstractBuf(b))))),
@@ -1848,6 +1850,11 @@ pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> E
         go(emax(Box::new(l), Box::new(add(idx, Box::new(Expr::Lit(W256(1, 0)))))), *b, env, use_env)
       }
       Expr::CopySlice(_, dst_offset, size, _, dst) => {
+        warn!("emax1: {}", emax(Box::new(l.clone()), Box::new(add(dst_offset.clone(), size.clone()))));
+        warn!(
+          "emax2: {}",
+          go(emax(Box::new(l.clone()), Box::new(add(dst_offset.clone(), size.clone()))), *dst.clone(), env, use_env)
+        );
         go(emax(Box::new(l), Box::new(add(dst_offset, size))), *dst, env, use_env)
       }
       Expr::GVar(GVar::BufVar(a)) => {
@@ -1867,4 +1874,20 @@ pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> E
   }
 
   go(Expr::Lit(W256(0, 0)), buf, &env, use_env)
+}
+
+pub fn is_function_sig_check_prop(prop: &Prop) -> bool {
+  match prop {
+    Prop::PNeg(p1) => match *p1.clone() {
+      Prop::PEq(Expr::Eq(e1, e2), Expr::Lit(W256(0, 0))) => match (*e1.clone(), *e2.clone()) {
+        (Expr::Lit(w), Expr::SHR(e3, _)) => match *e3.clone() {
+          Expr::Lit(W256(0xe0, 0)) => w.to_hex().len() <= 8,
+          _ => false,
+        },
+        _ => false,
+      },
+      _ => false,
+    },
+    _ => false,
+  }
 }
