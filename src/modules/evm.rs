@@ -2227,7 +2227,12 @@ fn underrun() {
 }
 
 fn push_addr(vm: &mut VM, addr: Expr) {
-  vm.state.stack.push(Box::new(addr.clone()));
+  match addr {
+    Expr::LitAddr(x) => vm.state.stack.push(Box::new(Expr::Lit(x))),
+    Expr::SymAddr(_) => vm.state.stack.push(Box::new(Expr::WAddr(Box::new(addr)))),
+    Expr::GVar(_) => panic!("Unexpected GVar"),
+    _ => panic!("Unexpected Expr={}", addr),
+  }
 }
 
 fn internal_error(msg: &str) {

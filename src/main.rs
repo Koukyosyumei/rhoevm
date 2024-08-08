@@ -207,7 +207,7 @@ fn main() {
       for e in &vm.constraints_raw_expr {
         msg = msg + &format!(" && {}\n", *e);
       }
-      //debug!("{}", msg);
+      debug!("{}", msg);
 
       if found_calldataload && (prev_op == "STOP" || prev_op == "RETURN") {
         warn!("stop?");
