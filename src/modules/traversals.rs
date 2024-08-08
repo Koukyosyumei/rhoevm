@@ -197,6 +197,17 @@ where
     // frame context
     Expr::Gas(_) | Expr::Balance { .. } => f(&expr),
 
+    // code
+    Expr::CodeSize(a) | Expr::CodeHash(a) => f(&expr) + go_expr(f, acc, *a),
+
+    // logs
+    // todo: f e <> (go a) <> (go b) <> (foldl (<>) mempty (fmap f c))
+    Expr::LogEntry(a, b, c) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b),
+
+    Expr::LitAddr(_) => f(&expr),
+    Expr::WAddr(a) => f(&expr) + go_expr(f, acc, *a),
+    Expr::SymAddr(_) => f(&expr),
+
     Expr::ConcreteStore(_) | Expr::AbstractStore(_, _) => f(&expr),
     Expr::SLoad(a, b) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b),
     Expr::SStore(a, b, c) => {
@@ -209,8 +220,14 @@ where
       f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b) + go_expr(f, acc.clone(), *c)
     }
 
-    // code
-    Expr::CodeSize(a) | Expr::CodeHash(a) => f(&expr) + go_expr(f, acc, *a),
+    Expr::CopySlice(a, b, c, d, g) => {
+      f(&expr)
+        + go_expr(f, acc.clone(), *a)
+        + go_expr(f, acc.clone(), *b)
+        + go_expr(f, acc.clone(), *c)
+        + go_expr(f, acc.clone(), *d)
+        + go_expr(f, acc.clone(), *g)
+    }
 
     // BufLength
     Expr::BufLength(a) => f(&expr) + go_expr(f, acc, *a),

@@ -1215,7 +1215,7 @@ impl VM {
             if creation {
               if codesize > maxsize {
                 info!("{}", 1);
-                finish_frame(self, FrameResult::FrameErrored(EvmError::MaxCodeSizeExceeded(codesize, maxsize)));
+                finish_frame(self, FrameResult::FrameErrored(EvmError::MaxCodeSizeExceeded(codesize, maxsize)))
               } else {
                 match read_byte(Box::new(Expr::Lit(W256(0, 0))), Box::new(output.clone())) {
                   Expr::LitByte(0xef) => finish_frame(self, FrameResult::FrameErrored(EvmError::InvalidFormat)),
@@ -1243,12 +1243,12 @@ impl VM {
               }
             } else {
               info!("{}", 4);
-              finish_frame(self, FrameResult::FrameReturned(output));
+              finish_frame(self, FrameResult::FrameReturned(output))
             }
           } else {
             underrun();
+            false
           }
-          false
         }
         Op::Delegatecall => {
           if let [_xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_to, _x_gass] =
@@ -1431,7 +1431,7 @@ impl VM {
                 // });
               } else {
                 let mut else_vm = else_vm_.unwrap();
-                finish_frame(&mut else_vm, FrameResult::FrameReturned(Expr::Mempty))
+                finish_frame(&mut else_vm, FrameResult::FrameReturned(Expr::Mempty));
               }
             } else {
               let pc = 0; // use(state.pc)
@@ -1727,7 +1727,7 @@ enum FrameResult {
 // This function defines how to pop the current stack frame in either of the ways specified by 'FrameResult'.
 // It also handles the case when the current stack frame is the only one;
 // in this case, we set the final '_result' of the VM execution.
-fn finish_frame(vm: &mut VM, result: FrameResult) {
+fn finish_frame(vm: &mut VM, result: FrameResult) -> bool {
   match vm.frames.clone().as_slice() {
     // Is the current frame the only one?
     [] => {
@@ -1736,6 +1736,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
         FrameResult::FrameReverted(buffer) => vm.result = Some(VMResult::VMFailure(EvmError::Revert(Box::new(buffer)))),
         FrameResult::FrameErrored(e) => vm.result = Some(VMResult::VMFailure(e)),
       }
+      false
       //vm.finalize();
     }
     // Are there some remaining frames?
@@ -1822,6 +1823,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
               let mut on_contract_code = |contract_code| {
                 replace_code(vm, createe.clone(), contract_code);
                 vm.state.returndata = Box::new(Expr::Mempty);
+                // reclaimRemainingGasAllowance oldVm
                 push_addr(vm, *createe.clone());
               };
               match output {
@@ -1859,6 +1861,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) {
           }
         }
       }
+      true
     }
   }
 }

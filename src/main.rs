@@ -175,6 +175,7 @@ fn main() {
   while !end {
     loop {
       let prev_pc = vm.state.pc;
+      let prev_addr = vm.state.contract.clone();
       let do_size = vm.decoded_opcodes.len();
       let continue_flag = vm.exec1(&mut vms, if found_calldataload { 10 } else { 1 });
       let prev_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
@@ -188,7 +189,7 @@ fn main() {
         prev_valid_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
       }
 
-      debug!("Addr: {}, PC: 0x{:x}, Opcode: {}", vm.state.contract, prev_pc, prev_op);
+      debug!("Addr: {}, PC: 0x{:x}, Opcode: {}", prev_addr, prev_pc, prev_op);
 
       if !found_calldataload {
         found_calldataload = prev_valid_op == "CALLDATALOAD";
