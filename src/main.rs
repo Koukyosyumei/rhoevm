@@ -1,10 +1,12 @@
 use env_logger;
+use getopts::Options;
 use log::{debug, error, info, warn};
 use std::cmp::min;
-use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
+use std::{env, process};
 use tiny_keccak::{Hasher, Keccak};
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
@@ -16,6 +18,63 @@ use rhoevm::modules::abi::{parse_abi_file, Sig};
 use rhoevm::modules::expr::is_function_sig_check_prop;
 use rhoevm::modules::transactions::init_tx;
 use rhoevm::modules::types::{ContractCode, Env, Expr, Prop, RuntimeCodeStruct, VM, W256};
+
+#[derive(Debug)]
+struct Args {
+  contract_name: String,
+  function_names: String,
+  target_dir: Option<String>,
+  verbose_level: Option<String>,
+  help: bool,
+}
+
+fn print_usage(program: &str, opts: &Options) {
+  let brief = format!("Usage: {} CONTRACT_NAME FUNCTION_NAMES [options]", program);
+  print!("{}", opts.usage(&brief));
+  process::exit(0);
+}
+
+fn parse_args() -> Args {
+  let args: Vec<String> = env::args().collect();
+  let program = args[0].clone();
+
+  let mut opts = Options::new();
+  opts.optopt("d", "dir", "target directory", "DIR");
+  opts.optopt("v", "verbose", "level of verbose", "LEVEL");
+  opts.optflag("h", "help", "print this help menu");
+
+  let matches = match opts.parse(&args[1..]) {
+    Ok(m) => m,
+    Err(f) => {
+      eprintln!("Error: {}", f);
+      print_usage(&program, &opts);
+      process::exit(1);
+    }
+  };
+
+  if matches.opt_present("h") {
+    print_usage(&program, &opts);
+  }
+
+  let contract_name = if !matches.free.is_empty() {
+    matches.free[0].clone()
+  } else {
+    print_usage(&program, &opts);
+    panic!("Error: CONTRACT_NAME is required.")
+  };
+
+  let function_names = if matches.free.len() > 1 {
+    matches.free[1].clone()
+  } else {
+    print_usage(&program, &opts);
+    panic!("Error: At least one FUNCTION_NAME is required.");
+  };
+
+  let target_dir = matches.opt_str("d");
+  let verbose_level = matches.opt_str("v");
+
+  Args { contract_name, function_names, target_dir, verbose_level, help: matches.opt_present("h") }
+}
 
 fn print_ascii_art() {
   println!("   ╭───────────────╮");
@@ -68,17 +127,30 @@ fn main() {
   env_logger::init();
 
   // Collect command-line arguments.
-  let args: Vec<String> = env::args().collect();
-  if args.len() < 3 {
-    error!("Usage: <program> <filename> <function_signature>");
-    return;
-  }
+  let args = parse_args();
 
   print_ascii_art();
   warn!("Currently, this project is a work in progress.");
 
-  let base_filename = &args[1];
-  let function_names = &args[2];
+  let base_filename = if let Some(dir_name) = args.target_dir {
+    Path::new(&dir_name)
+      .join(&args.contract_name)
+      .to_str()
+      .unwrap_or_else(|| {
+        eprintln!("Warning: Path is not valid UTF-8. Using default path.");
+        "./"
+      })
+      .to_string()
+  } else {
+    Path::new("./")
+      .join(&args.contract_name)
+      .to_str()
+      .unwrap_or_else(|| {
+        eprintln!("Warning: Path is not valid UTF-8. Using default path.");
+        "./"
+      })
+      .to_string()
+  };
 
   // ------------- Load the binary file -------------
   let bin_filename = base_filename.to_string() + &".bin".to_string();
@@ -117,7 +189,7 @@ fn main() {
 
   // ------------- Calculate the function signature -------------
 
-  let function_names_vec: Vec<String> = function_names.split(',').map(|s| s.to_string()).collect();
+  let function_names_vec: Vec<String> = args.function_names.split(',').map(|s| s.to_string()).collect();
   let mut cnt_function_names = 0;
   let mut reachable_envs: Vec<Env> = vec![];
 
