@@ -9,12 +9,12 @@
 
 ## 1. Install
 
-### Prerequisites
+#### Prerequisites
 
 Rust: Ensure you have Rust installed. You can download it from [rust-lang.org](https://www.rust-lang.org/).
 Cargo: Rust's package manager should be installed with Rust.
 
-### Building from Source
+#### Building from Source
 
 Clone the repository and build the project using Cargo:
 
@@ -25,7 +25,7 @@ cargo build --release
 # sudo cp ./target/release/rhoevm /usr/local/bin/rhoevm
 ```
 
-### Running Tests
+#### Running Tests
 
 Run tests to verify the installation:
 
@@ -33,9 +33,9 @@ Run tests to verify the installation:
 cargo test
 ```
 
-## 2. usage
+## 2. Usage
 
-### Command-Line Interface
+#### Command-Line Interface
 
 `rhoevm` is operated via the command line. The general syntax is as follows:
 
@@ -53,7 +53,7 @@ rhoevm CONTRACT_NAME FUNCTION_NAMES [options]
 
 Ensure that your environment is configured to locate the `.bin` and `.abi` files for the contracts. The filenames should match the contract name provided.
 
-### Example
+#### Example
 
 Below is an example of how to use rhoevm with a simple Solidity smart contract.
 
