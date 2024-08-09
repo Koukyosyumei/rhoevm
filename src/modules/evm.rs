@@ -7,19 +7,19 @@ use std::process::{Command, Stdio};
 use std::vec;
 
 use crate::modules::effects::Config;
+use crate::modules::expr::copy_slice;
 use crate::modules::expr::{
   add, buf_length, conc_keccak_simp_expr, concrete_prefix, create2_address_, create_address_, drop, emin, eq, eq_byte,
   gt, index_word, or, read_byte, read_bytes, read_storage, read_word, read_word_from_bytes, simplify, sub, to_list,
   word_to_addr, write_byte, write_storage, write_word, MAX_BYTES,
 };
-use crate::modules::expr::{copy_slice, geq};
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
   from_list, keccak, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right,
-  unbox, word256_bytes, word32, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract, ContractCode, Env,
-  EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory, PartialExec, Prop,
+  unbox, word256_bytes, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract, ContractCode, Env, EvmError,
+  Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory, PartialExec, Prop,
   RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
 };
 
@@ -606,9 +606,19 @@ impl VM {
           true
         }
         Op::Extcodesize => {
+          /*
+          Get size of an account’s code
+
+          Stack input
+          - address: 20-byte address of the contract to query.
+          Stack output
+          - size: byte size of the code.
+          */
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
+            warn!("extcodesize addr x={}", x);
             let mut a: Expr = Expr::Mempty;
             force_addr(self, x, "EXTCODESIZE", |a_| a = a_);
+            warn!("extcodesize addr a={}", a);
             access_and_burn(&a, || {
               let mut c = empty_contract();
               fetch_account(self, &a, |c_| c = c_.clone());
@@ -2639,6 +2649,7 @@ fn codeloc(vm: &VM) -> CodeLocation {
 }
 
 fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError> {
+  warn!("offset=0x{:x}", x);
   match &vm.state.code {
     ContractCode::InitCode(ops, buf_) => match *buf_.clone() {
       Expr::ConcreteBuf(b) if b.len() == 0 => {

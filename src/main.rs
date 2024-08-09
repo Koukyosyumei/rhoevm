@@ -113,7 +113,7 @@ fn main() {
     return;
   }
   let abi_map = parse_abi_file(&abi_json);
-  debug!("File '{}' read successfully.", abi_filename);
+  debug!("File '{}' read successfully.\n", abi_filename);
 
   // ------------- Calculate the function signature -------------
 
@@ -162,7 +162,7 @@ fn main() {
         return;
       }
     };
-    info!("Calldata constructed successfully for function '{}'\n", function_signature);
+    info!("Calldata constructed successfully for function '{}'", function_signature);
 
     // ------------- Initialize VM -------------
     let vm = match dummy_symvm_from_command(&cmd, callcode.clone()) {
@@ -173,9 +173,11 @@ fn main() {
       }
     };
     if cnt_function_names == 0 {
+      debug!("Generate the blank environment");
       reachable_envs.push(vm.env.clone());
     }
 
+    info!("Number of initial environments: {}", reachable_envs.len());
     for env in &reachable_envs {
       let mut vm = match dummy_symvm_from_command(&cmd, callcode.clone()) {
         Ok(vm) => vm,
@@ -232,13 +234,16 @@ fn main() {
           }
           //debug!("{}", msg);
 
-          if found_calldataload && (prev_op == "STOP" || prev_op == "RETURN") {
+          if found_calldataload
+            && (*prev_addr.clone() == Expr::SymAddr("entrypoint".to_string()))
+            && (prev_op == "STOP" || prev_op == "RETURN")
+          {
             let (reachability, _) = solve_constraints(&vm, &vm.constraints);
             if reachability {
-              debug!("RECHABLE {} @ {}", prev_op, prev_pc);
+              debug!("RECHABLE {} @ PC={:x}", prev_op, prev_pc);
               next_reachable_envs.push(vm.env.clone());
             } else {
-              debug!("UNRECHABLE {} @ {}", prev_op, prev_pc);
+              debug!("UNRECHABLE {} @ PC={:x}", prev_op, prev_pc);
             }
           }
 
@@ -297,7 +302,7 @@ fn main() {
         vm.constraints_raw_expr.clear();
         vm.state.pc += 1;
       }
-      info!("EVM execution completed.");
+      info!("EVM execution completed.\n");
     }
     reachable_envs = next_reachable_envs;
     cnt_function_names += 1;

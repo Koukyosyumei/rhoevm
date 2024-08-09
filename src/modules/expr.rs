@@ -3,6 +3,8 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::u32;
 
+use log::warn;
+
 use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
@@ -1174,6 +1176,7 @@ fn go_expr(expr: Box<Expr>) -> Expr {
     Expr::And(a_, b_) => match (*a_.clone(), *b_.clone()) {
       (Expr::Lit(a), Expr::Lit(b)) => Expr::Lit(a & b),
       (Expr::Lit(W256(0, 0)), _) => Expr::Lit(W256(0, 0)),
+      (Expr::Lit(W256(0xffffffffffffffffffffffffffffffff, 0xffffffff)), Expr::WAddr(_)) => *b_.clone(),
       _ => and(a_, b_),
     },
 
@@ -1188,7 +1191,20 @@ fn go_expr(expr: Box<Expr>) -> Expr {
       _ => not(a_),
     },
 
-    Expr::Div(a, b) => div(a, b),
+    /*
+        go (Div (Lit 0) _) = Lit 0 -- divide 0 by anything (including 0) is zero in EVM
+    go (Div _ (Lit 0)) = Lit 0 -- divide anything by 0 is zero in EVM
+    go (Div a (Lit 1)) = a
+     */
+    Expr::Div(a_, b_) => match (*a_.clone(), *b_.clone()) {
+      (Expr::Lit(W256(0, 0)), _) => Expr::Lit(W256(0, 0)),
+      (_, Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
+      (a, Expr::Lit(W256(1, 0))) => a,
+      (Expr::Mul(c, d), e) if *c.clone() == e => *d.clone(),
+      (Expr::Mul(c, d), e) if *d.clone() == e => *c.clone(),
+      (_, _) => div(a_, b_),
+    },
+
     Expr::SDiv(a, b) => sdiv(a, b),
     Expr::Mod(a_, b_) => match (*a_.clone(), *b_.clone()) {
       (Expr::Lit(_), Expr::Lit(_)) => r#mod(a_, b_),
@@ -1823,6 +1839,8 @@ pub fn word_to_addr(e: Box<Expr>) -> Option<Expr> {
       _ => None,
     }
   }
+  warn!("original e={}", e);
+  warn!("simplified e={}", simplify(e.clone()));
   go(Box::new(simplify(e)))
 }
 

@@ -1,5 +1,4 @@
 use byteorder::{BigEndian, ReadBytesExt};
-use log::info;
 use num_bigint::BigInt;
 use num_traits::cast::ToPrimitive;
 use num_traits::Num;
@@ -374,7 +373,6 @@ impl Shr<u32> for W256 {
     if rhs == 0 {
       return self;
     }
-    info!("shr({}, {})", self.to_hex(), rhs);
     let lower_mask = (1u128 << rhs) - 1;
     let overflow_bits = self.0 & lower_mask; // Extract lower `rhs` bits of self.0
     let (high_shifted, low_shifted) = if rhs >= 128 {
