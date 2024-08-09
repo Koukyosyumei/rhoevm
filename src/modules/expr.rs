@@ -1,9 +1,7 @@
 use core::panic;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
-use std::{iter, u32};
-
-use log::info;
+use std::u32;
 
 use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
@@ -1756,7 +1754,7 @@ pub fn concrete_prefix(b: Box<Expr>) -> Vec<u8> {
   }
 
   let v_size = if let Some(w) = input_len(b.clone()) { w.0 } else { 1024 };
-  let mut v = vec![0; v_size as usize];
+  let v = vec![0; v_size as usize];
   let result = go(b.clone(), 0, v);
   result.1
 }

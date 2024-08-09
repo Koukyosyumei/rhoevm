@@ -1,4 +1,4 @@
-use log::{error, info, warn};
+use log::{error, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
