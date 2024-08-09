@@ -9,13 +9,13 @@ use tiny_keccak::{Hasher, Keccak};
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
 use rhoevm::modules::evm::{abstract_contract, opslen, solve_constraints};
-use rhoevm::modules::format::{format_prop, hex_byte_string, strip_0x};
+use rhoevm::modules::format::{hex_byte_string, strip_0x};
 use rhoevm::modules::smt::parse_z3_output;
 
 use rhoevm::modules::abi::{parse_abi_file, Sig};
 use rhoevm::modules::expr::is_function_sig_check_prop;
 use rhoevm::modules::transactions::init_tx;
-use rhoevm::modules::types::{ContractCode, Expr, Prop, RuntimeCodeStruct, VM, W256};
+use rhoevm::modules::types::{ContractCode, Env, Expr, Prop, RuntimeCodeStruct, VM, W256};
 
 fn print_ascii_art() {
   println!("   ╭───────────────╮");
@@ -78,12 +78,10 @@ fn main() {
   warn!("Currently, this project is a work in progress.");
 
   let base_filename = &args[1];
-  let function_name = &args[2];
+  let function_names = &args[2];
 
+  // ------------- Load the binary file -------------
   let bin_filename = base_filename.to_string() + &".bin".to_string();
-  let abi_filename = base_filename.to_string() + &".abi".to_string();
-
-  // Load the binary file.
   info!("Loading binary from file: {}", bin_filename);
   let mut f = match File::open(bin_filename.clone()) {
     Ok(file) => file,
@@ -99,7 +97,8 @@ fn main() {
   }
   debug!("File '{}' read successfully.", bin_filename);
 
-  // Load the abi file.
+  // ------------- Load the abi file -------------
+  let abi_filename = base_filename.to_string() + &".abi".to_string();
   info!("Loading abi from file: {}", abi_filename);
   let mut j = match File::open(abi_filename.clone()) {
     Ok(file) => file,
@@ -115,163 +114,192 @@ fn main() {
   }
   let abi_map = parse_abi_file(&abi_json);
   debug!("File '{}' read successfully.", abi_filename);
-  if !abi_map.contains_key(function_name) {
-    error!("Cannot find the specified function `{}`", function_name);
-    return;
-  }
 
-  let mut function_signature = function_name.clone() + "(";
-  for t in abi_map[function_name].clone() {
-    function_signature += &format!("{},", t);
-  }
-  if abi_map[function_name].len() != 0 {
-    function_signature.pop();
-    function_signature.push(')');
-  } else {
-    function_signature += ")";
-  }
-  info!("Using function signature: {}", function_signature);
+  // ------------- Calculate the function signature -------------
 
-  // Calculate the function signature.
-  let mut hasher = Keccak::v256();
-  hasher.update(function_signature.as_bytes());
-  let mut output = [0u8; 32];
-  hasher.finalize(&mut output);
-  let function_selector = &output[..4];
-  let function_selector_hex: String = function_selector.iter().map(|byte| format!("{:02x}", byte)).collect();
-  info!("Calculated function selector: 0x{}", function_selector_hex);
+  let function_names_vec: Vec<String> = function_names.split(',').map(|s| s.to_string()).collect();
+  let mut cnt_function_names = 0;
+  let mut reachable_envs: Vec<Env> = vec![];
 
-  // Build command and calldata.
-  let mut cmd = <SymbolicCommand as std::default::Default>::default();
-  cmd.sig = Some(Sig::new(&function_signature, &abi_map[function_name]));
-  cmd.value = Some(W256(0, 0));
-  //cmd.calldata = Some(function_selector_hex.clone().as_bytes().to_vec());
-  cmd.code = Some(binary.into());
-  let callcode = match build_calldata(&cmd) {
-    Ok(calldata) => calldata,
-    Err(e) => {
-      error!("Failed to build calldata: {}", e);
+  for function_name in &function_names_vec {
+    let mut next_reachable_envs: Vec<Env> = vec![];
+
+    if !abi_map.contains_key(function_name) {
+      error!("Cannot find the specified function `{}`", function_name);
       return;
     }
-  };
-  info!("Calldata constructed successfully for function '{}'\n", function_signature);
 
-  // Initialize VM and start execution.
-  let mut vm = match dummy_symvm_from_command(&cmd, callcode) {
-    Ok(vm) => vm,
-    Err(e) => {
-      error!("Failed to initialize symbolic VM: {}", e);
-      return;
+    let mut function_signature = function_name.clone() + "(";
+    for t in abi_map[function_name].clone() {
+      function_signature += &format!("{},", t);
     }
-  };
-  let num_initial_constraints = vm.constraints.len();
+    if abi_map[function_name].len() != 0 {
+      function_signature.pop();
+      function_signature.push(')');
+    } else {
+      function_signature += ")";
+    }
+    info!("Using function signature: {}", function_signature);
 
-  let mut vms = vec![];
-  let mut end = false;
-  let mut found_calldataload = false;
-  let mut prev_valid_op = "".to_string();
+    let mut hasher = Keccak::v256();
+    hasher.update(function_signature.as_bytes());
+    let mut output = [0u8; 32];
+    hasher.finalize(&mut output);
+    let function_selector = &output[..4];
+    let function_selector_hex: String = function_selector.iter().map(|byte| format!("{:02x}", byte)).collect();
+    info!("Calculated function selector: 0x{}", function_selector_hex);
 
-  info!("Starting EVM symbolic execution...");
-  while !end {
-    loop {
-      let prev_pc = vm.state.pc;
-      let prev_addr = vm.state.contract.clone();
-      let do_size = vm.decoded_opcodes.len();
-      let continue_flag = vm.exec1(&mut vms, if found_calldataload { 10 } else { 1 });
-      let prev_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
-
-      if !found_calldataload && prev_valid_op == "RETURN" && prev_op != "UNKNOWN" {
-        vm.state.base_pc = prev_pc;
-        debug!("Base PC set to 0x{:x}", prev_pc);
+    // ------------- Build command and calldata -------------
+    let mut cmd = <SymbolicCommand as std::default::Default>::default();
+    cmd.sig = Some(Sig::new(&function_signature, &abi_map[function_name]));
+    cmd.value = Some(W256(0, 0));
+    //cmd.calldata = Some(function_selector_hex.clone().as_bytes().to_vec());
+    cmd.code = Some(binary.clone().into());
+    let callcode = match build_calldata(&cmd) {
+      Ok(calldata) => calldata,
+      Err(e) => {
+        error!("Failed to build calldata: {}", e);
+        return;
       }
+    };
+    info!("Calldata constructed successfully for function '{}'\n", function_signature);
 
-      if prev_op != "UNKNOWN" {
-        prev_valid_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
+    // ------------- Initialize VM -------------
+    let vm = match dummy_symvm_from_command(&cmd, callcode.clone()) {
+      Ok(vm) => vm,
+      Err(e) => {
+        error!("Failed to initialize symbolic VM: {}", e);
+        return;
       }
+    };
+    if cnt_function_names == 0 {
+      reachable_envs.push(vm.env.clone());
+    }
 
-      debug!("Addr: {}, PC: 0x{:x}, Opcode: {}", prev_addr, prev_pc, prev_op);
-
-      if !found_calldataload {
-        found_calldataload = prev_valid_op == "CALLDATALOAD";
-      }
-
-      if prev_op == "JUMPI" && is_function_sig_check_prop(vm.constraints.last().unwrap()) {
-        let (reachability, _) = solve_constraints(&vm, &vm.constraints);
-        if !reachability {
-          debug!("Skip non-target function");
-          break;
+    for env in &reachable_envs {
+      let mut vm = match dummy_symvm_from_command(&cmd, callcode.clone()) {
+        Ok(vm) => vm,
+        Err(e) => {
+          error!("Failed to initialize symbolic VM: {}", e);
+          return;
         }
-      }
+      };
+      vm.env = env.clone();
 
-      let mut msg = "** Constraints (Raw Format):=\n true".to_string();
-      for e in &vm.constraints_raw_expr {
-        msg = msg + &format!(" && {}\n", *e);
-      }
-      //debug!("{}", msg);
+      let num_initial_constraints = vm.constraints.len();
 
-      if found_calldataload && (prev_op == "STOP" || prev_op == "RETURN") {
-        let (reachability, _) = solve_constraints(&vm, &vm.constraints);
-        if reachability {
-          debug!("RECHABLE {} @ {}", prev_op, prev_pc);
-        } else {
-          debug!("UNRECHABLE {} @ {}", prev_op, prev_pc);
-        }
-      }
+      let mut vms = vec![];
+      let mut end = false;
+      let mut found_calldataload = false;
+      let mut prev_valid_op = "".to_string();
 
-      if found_calldataload && prev_op == "REVERT" {
-        let (reachability, model) = solve_constraints(&vm, &vm.constraints);
-        end = true;
+      // ------------- Start symbolic execution -------------
+      info!("Starting EVM symbolic execution...");
+      while !end {
+        loop {
+          let prev_pc = vm.state.pc;
+          let prev_addr = vm.state.contract.clone();
+          let do_size = vm.decoded_opcodes.len();
+          let continue_flag = vm.exec1(&mut vms, if found_calldataload { 10 } else { 1 });
+          let prev_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
 
-        if reachability {
-          error!("REACHABLE REVERT DETECTED @ PC=0x{:x}", prev_pc);
-          if let Some(ref model_str) = model {
-            let mut msg_model = function_name.to_string() + "(";
-            let model = parse_z3_output(&model_str);
-            let mut is_zero_args = true;
-            for (k, v) in model.iter() {
-              if k[..3] == *"arg" {
-                msg_model += &format!("{}={},", k, v.1);
-                is_zero_args = false;
-              }
+          if !found_calldataload && prev_valid_op == "RETURN" && prev_op != "UNKNOWN" {
+            vm.state.base_pc = prev_pc;
+            debug!("Base PC set to 0x{:x}", prev_pc);
+          }
+
+          if prev_op != "UNKNOWN" {
+            prev_valid_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
+          }
+
+          debug!("Addr: {}, PC: 0x{:x}, Opcode: {}", prev_addr, prev_pc, prev_op);
+
+          if !found_calldataload {
+            found_calldataload = prev_valid_op == "CALLDATALOAD";
+          }
+
+          if prev_op == "JUMPI" && is_function_sig_check_prop(vm.constraints.last().unwrap()) {
+            let (reachability, _) = solve_constraints(&vm, &vm.constraints);
+            if !reachability {
+              debug!("Skip non-target function");
+              break;
             }
-            if !is_zero_args {
-              msg_model.pop();
-            }
-            msg_model.push(')');
-            error!("model: {}", msg_model);
           }
 
           let mut msg = "** Constraints (Raw Format):=\n true".to_string();
           for e in &vm.constraints_raw_expr {
             msg = msg + &format!(" && {}\n", *e);
           }
-          debug!("{}", msg);
-          break;
-        }
-      }
+          //debug!("{}", msg);
 
-      if continue_flag {
-        if prev_pc == vm.state.pc {
-          vm.state.pc = vm.state.pc + 1;
+          if found_calldataload && (prev_op == "STOP" || prev_op == "RETURN") {
+            let (reachability, _) = solve_constraints(&vm, &vm.constraints);
+            if reachability {
+              debug!("RECHABLE {} @ {}", prev_op, prev_pc);
+              next_reachable_envs.push(vm.env.clone());
+            } else {
+              debug!("UNRECHABLE {} @ {}", prev_op, prev_pc);
+            }
+          }
+
+          if found_calldataload && prev_op == "REVERT" {
+            let (reachability, model) = solve_constraints(&vm, &vm.constraints);
+            end = true;
+
+            if reachability {
+              error!("REACHABLE REVERT DETECTED @ PC=0x{:x}", prev_pc);
+              if let Some(ref model_str) = model {
+                let mut msg_model = function_name.to_string() + "(";
+                let model = parse_z3_output(&model_str);
+                let mut is_zero_args = true;
+                for (k, v) in model.iter() {
+                  if k[..3] == *"arg" {
+                    msg_model += &format!("{}={},", k, v.1);
+                    is_zero_args = false;
+                  }
+                }
+                if !is_zero_args {
+                  msg_model.pop();
+                }
+                msg_model.push(')');
+                error!("model: {}", msg_model);
+              }
+
+              let mut msg = "** Constraints (Raw Format):=\n true".to_string();
+              for e in &vm.constraints_raw_expr {
+                msg = msg + &format!(" && {}\n", *e);
+              }
+              debug!("{}", msg);
+              break;
+            }
+          }
+
+          if continue_flag {
+            if prev_pc == vm.state.pc {
+              vm.state.pc = vm.state.pc + 1;
+            }
+          } else if (vm.state.pc >= opslen(&vm.state.code)) && vms.len() == 0 {
+            end = true;
+            break;
+          } else if vms.len() == 0 && found_calldataload {
+            end = true;
+            break;
+          } else if vms.len() == 0 {
+            break;
+          } else {
+            vm = vms.pop().unwrap();
+            debug!("---------------");
+          }
         }
-      } else if (vm.state.pc >= opslen(&vm.state.code)) && vms.len() == 0 {
-        end = true;
-        break;
-      } else if vms.len() == 0 && found_calldataload {
-        end = true;
-        break;
-      } else if vms.len() == 0 {
-        break;
-      } else {
-        vm = vms.pop().unwrap();
         debug!("---------------");
+        vm.constraints = vm.constraints[..num_initial_constraints].to_vec();
+        //vm.constraints_raw_expr = vm.constraints_raw_expr[..num_initial_constraints].to_vec();
+        vm.constraints_raw_expr.clear();
+        vm.state.pc += 1;
       }
+      info!("EVM execution completed.");
     }
-    debug!("---------------");
-    vm.constraints = vm.constraints[..num_initial_constraints].to_vec();
-    //vm.constraints_raw_expr = vm.constraints_raw_expr[..num_initial_constraints].to_vec();
-    vm.constraints_raw_expr.clear();
-    vm.state.pc += 1;
+    reachable_envs = next_reachable_envs;
+    cnt_function_names += 1;
   }
-  info!("EVM execution completed.");
 }
