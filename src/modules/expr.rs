@@ -293,10 +293,8 @@ pub fn shl(x: Box<Expr>, y: Box<Expr>) -> Expr {
     Expr::SHL,
     |x, y| {
       if x > W256(256, 0) {
-        info!("SHL OVERFLOW -----------------");
         W256(0, 0)
       } else {
-        info!("SHL EXECUTING -----------------");
         y << (x.0 as u32)
       }
     },

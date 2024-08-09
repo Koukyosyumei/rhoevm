@@ -568,7 +568,6 @@ impl VM {
           */
           if let [xs @ .., n, code_offset, mem_offset] = &self.state.stack.clone()[..] {
             next(self, op);
-            error!("base pc : {:x}", self.state.base_pc);
             self.state.stack = xs.to_vec();
             burn_codecopy(self, unbox(n.clone()), self.block.schedule.clone(), || {});
             access_memory_range(self, *mem_offset.clone(), *n.clone(), || {});
@@ -764,7 +763,6 @@ impl VM {
             match &self.state.memory {
               Memory::ConcreteMemory(mem) => match simplify(y.clone()) {
                 Expr::Lit(w) => {
-                  error!("write to memory: y={}, w=0x{}, memoffset={}", y, w.to_hex(), x.clone());
                   copy_bytes_to_memory(
                     Box::new(Expr::ConcreteBuf(word256_bytes(w.into()))),
                     Box::new(Expr::Lit(W256(32, 0))),
@@ -847,11 +845,8 @@ impl VM {
             burn(self, cost, || {});
             if let Some(y) = stack_item {
               self.state.stack = xs.to_vec();
-              info!("sload: push key={}, val={} to stack", x, y);
               self.state.stack.push(Box::new(y));
               // self.state.stack = std::iter::once(Box::new(y)).chain(xs.iter().cloned()).collect();
-            } else {
-              info!("y is None");
             }
           } else {
             underrun();
@@ -906,7 +901,6 @@ impl VM {
             burn(self, storage_cost + cold_storage_cost, || {});
             next(self, op);
             self.state.stack = xs.to_vec();
-            info!("sstore contract-addr={}, k={}, v={}", *self_contract, *x, *new);
             self.env.contracts.get_mut(&self_contract.clone()).unwrap().storage = write_storage(
               x.clone(),
               new.clone(),
@@ -1321,10 +1315,6 @@ impl VM {
         }
         Op::Staticcall => {
           if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_to, x_gas] = &self.state.stack[..] {
-            error!(
-              "x_to: {}, x_in_offset: {}, x_in_size: {}, x_out_offset: {}, x_out_size: {}, pc: {:x}",
-              x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, self.state.base_pc
-            );
             match word_to_addr(x_to.clone()) {
               // wordToAddr(x_to)
               None => {
@@ -2278,8 +2268,6 @@ where
   F: FnOnce(Expr),
 {
   let slot_conc = conc_keccak_simp_expr(Box::new(slot.clone()));
-  info!("access_storage slot={}, slot_conc={}", slot, slot_conc);
-  info!("access_storage @ addr={}", addr);
   match vm.env.contracts.get(&addr) {
     Some(c) => match read_storage(Box::new(slot.clone()), Box::new(c.storage.clone())) {
       Some(x) => match read_storage(Box::new(slot_conc.clone()), Box::new(c.storage.clone())) {
@@ -2289,7 +2277,6 @@ where
       None => rpc_call(vm, addr, slot.clone(), c.clone(), slot_conc, continue_fn),
     },
     None => {
-      info!("access_storage @ new addr={}", addr);
       fetch_account(vm, &addr.clone(), |_| {});
       access_storage(vm, addr, slot, continue_fn)
     }
@@ -2440,21 +2427,12 @@ fn general_call(
       }
       _ => {
         //burn(vm, 0, || {});
-        warn!("x_in_offset {}, x_in_size {}", x_in_offset.clone(), x_in_size.clone());
         let calldata = read_memory(vm, x_in_offset.clone(), x_in_size);
-        warn!("calldata: {}", calldata);
-        warn!("buf: {}", read_memory(vm, x_in_offset.clone(), Expr::Lit(W256(4, 0))));
         let abi = maybe_lit_word(read_bytes(
           4,
           Box::new(Expr::Lit(W256(0, 0))),
           Box::new(read_memory(vm, x_in_offset, Expr::Lit(W256(4, 0)))),
         ));
-
-        if let Some(ref a) = abi {
-          warn!("abi: {}", a.to_hex());
-        } else {
-          warn!("non abi");
-        }
 
         // warn!("abi: {}", abi.clone().unwrap().to_hex());
         let new_context = FrameContext::CallContext {
