@@ -25,7 +25,6 @@ struct Args {
   function_names: String,
   target_dir: Option<String>,
   verbose_level: Option<String>,
-  help: bool,
 }
 
 fn print_usage(program: &str, opts: &Options) {
@@ -73,7 +72,7 @@ fn parse_args() -> Args {
   let target_dir = matches.opt_str("d");
   let verbose_level = matches.opt_str("v");
 
-  Args { contract_name, function_names, target_dir, verbose_level, help: matches.opt_present("h") }
+  Args { contract_name, function_names, target_dir, verbose_level }
 }
 
 fn print_ascii_art() {
@@ -152,6 +151,15 @@ fn main() {
       .to_string()
   };
 
+  // Set the verbose level
+  match args.verbose_level.as_deref() {
+    Some("0") | Some("error") => env::set_var("RUST_LOG", "error"),
+    Some("1") | Some("warn") => env::set_var("RUST_LOG", "warn"),
+    Some("2") | Some("info") => env::set_var("RUST_LOG", "info"),
+    Some("3") | Some("debug") => env::set_var("RUST_LOG", "debug"),
+    Some("4") | Some("trace") => env::set_var("RUST_LOG", "trace"),
+    _ => env::set_var("RUST_LOG", "info"),
+  }
   // ------------- Load the binary file -------------
   let bin_filename = base_filename.to_string() + &".bin".to_string();
   info!("Loading binary from file: {}", bin_filename);

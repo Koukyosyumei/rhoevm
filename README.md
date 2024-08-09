@@ -1,5 +1,5 @@
 
-# rhoevm
+# rhoevm: : Symbolic Execution Engine for Ethereum Virtual Machine
 
 `rhoevm` is a symbolic EVM execution engine written in Rust. It is inspired by [`hevm`](https://github.com/ethereum/hevm), which is implemented in Haskell. This project aims to provide a robust tool for analyzing Ethereum smart contracts by symbolically executing the EVM bytecode.
 
@@ -9,14 +9,49 @@
 
 ## install
 
-Ensure you have Rust installed on your machine. Then, build and install rhoevm using the following commands:
+### Prerequisites
+
+Rust: Ensure you have Rust installed. You can download it from [rust-lang.org](https://www.rust-lang.org/).
+Cargo: Rust's package manager should be installed with Rust.
+
+### Building from Source
+
+Clone the repository and build the project using Cargo:
 
 ```bash
+git clone https://github.com/Koukyosyumei/rhoevm.git
+cd rhoevm
 cargo build --release
 # sudo cp ./target/release/rhoevm /usr/local/bin/rhoevm
 ```
 
+### Running Tests
+
+Run tests to verify the installation:
+
+```bash
+cargo test
+```
+
 ## usage
+
+### Command-Line Interface
+
+`rhoevm` is operated via the command line. The general syntax is as follows:
+
+```bash
+rhoevm CONTRACT_NAME FUNCTION_NAMES [options]
+```
+
+- Options
+
+```
+-d, --dir DIR: Specify the target directory where contract files are located.
+-v, --verbose LEVEL: Set the verbosity level (0: error, 1: warn, 2: info, 3: debug, 4: trace).
+-h, --help: Display help information.
+```
+
+### Example
 
 Below is an example of how to use rhoevm with a simple Solidity smart contract.
 
