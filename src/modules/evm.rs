@@ -1864,19 +1864,22 @@ fn limit_stack<F: FnOnce()>(n: usize, stack_len: usize, f: F) {
   }
 }
 
-fn burn<F: FnOnce()>(vm: &mut VM, gas: u64, f: F) {
+fn burn<F: FnOnce()>(vm: &mut VM, _gas: u64, f: F) {
   match vm.state.gas {
     Gas::Symbolic => f(),
-    Gas::Concerete(available_gas_val) => match vm.burned {
+    Gas::Concerete(_available_gas_val) => match vm.burned {
       Gas::Symbolic => f(),
-      Gas::Concerete(burned_gas_val) => {
+      Gas::Concerete(_burned_gas_val) => {
+        f()
+        /*
+        info!("burned_gas_val: {}, available_gas_val {}", burned_gas_val, available_gas_val);
         if gas <= available_gas_val {
           vm.state.gas = Gas::Concerete(available_gas_val - gas);
           vm.burned = Gas::Concerete(burned_gas_val + gas);
           f()
         } else {
           panic!("out of gas")
-        }
+        }*/
       }
     },
   };
@@ -2474,7 +2477,7 @@ fn general_call(
         vm.state = FrameState {
           gas: x_gas.clone(),
           pc: 0,
-          base_pc: vm.state.base_pc,
+          base_pc: 0,
           code: cleared_init_code,
           code_contract: Box::new(x_to.clone()),
           stack: vec![],
