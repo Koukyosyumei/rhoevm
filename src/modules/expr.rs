@@ -537,7 +537,7 @@ pub fn read_byte(idx: Box<Expr>, buf: Box<Expr>) -> Expr {
 pub fn read_bytes(n: usize, idx: Box<Expr>, buf: Box<Expr>) -> Expr {
   let n = min(32, n);
   let bytes: Vec<Expr> = (0..n)
-    .map(|i| read_byte(Box::new(add(idx.clone(), Box::new(Expr::Lit(W256(0, i as u128))))), buf.clone()))
+    .map(|i| read_byte(Box::new(add(idx.clone(), Box::new(Expr::Lit(W256(i as u128, 0))))), buf.clone()))
     .collect();
   join_bytes(bytes)
 }
