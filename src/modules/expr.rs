@@ -1,7 +1,9 @@
 use core::panic;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
-use std::u32;
+use std::{iter, u32};
+
+use log::info;
 
 use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
@@ -287,7 +289,20 @@ pub fn not(x: Box<Expr>) -> Expr {
 }
 
 pub fn shl(x: Box<Expr>, y: Box<Expr>) -> Expr {
-  op2(Expr::SHL, |x, y| if x > W256(256, 0) { W256(0, 0) } else { y << x.0 as u32 }, x, y)
+  op2(
+    Expr::SHL,
+    |x, y| {
+      if x > W256(256, 0) {
+        info!("SHL OVERFLOW -----------------");
+        W256(0, 0)
+      } else {
+        info!("SHL EXECUTING -----------------");
+        y << (x.0 as u32)
+      }
+    },
+    x,
+    y,
+  )
 }
 
 pub fn shr(x: Box<Expr>, y: Box<Expr>) -> Expr {
@@ -297,7 +312,7 @@ pub fn shr(x: Box<Expr>, y: Box<Expr>) -> Expr {
       if x > W256(256, 0) {
         W256(0, 0)
       } else {
-        y >> x.0 as u32
+        y >> (x.0 as u32)
       }
     },
     x,
@@ -541,12 +556,21 @@ fn bytes_to_w256(bytes: &[u8]) -> W256 {
     return None; // Ensure the byte slice is exactly 32 bytes
   }*/
 
-  // Convert the first 16 bytes to the low u128
-  let low = u128::from_be_bytes(bytes[0..16].try_into().unwrap());
-  // Convert the last 16 bytes to the high u128
-  let high = u128::from_be_bytes(bytes[16..32].try_into().unwrap());
+  if bytes.len() < 16 {
+    let mut low_padded_bytes = [0u8; 16];
+    low_padded_bytes[16 - bytes.len()..].copy_from_slice(bytes);
+    let low = u128::from_be_bytes(low_padded_bytes);
+    W256(low, 0)
+  } else if bytes.len() < 32 {
+    todo!()
+  } else {
+    // Convert the first 16 bytes to the low u128
+    let low = u128::from_be_bytes(bytes[0..16].try_into().unwrap());
+    // Convert the last 16 bytes to the high u128
+    let high = u128::from_be_bytes(bytes[16..32].try_into().unwrap());
 
-  W256(low, high)
+    W256(low, high)
+  }
 }
 
 fn pad_bytes_left(n: usize, mut bs: Vec<Expr>) -> Vec<Expr> {

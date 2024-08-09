@@ -387,10 +387,18 @@ impl Shr<u32> for W256 {
 impl Shl<u32> for W256 {
   type Output = W256;
 
-  fn shl(self, rhs: u32) -> W256 {
-    let (high_shifted, low_shifted) =
-      if rhs >= 128 { (self.1 << (rhs - 128), 0) } else { (self.0 << rhs | self.1 >> (128 - rhs), self.1 << rhs) };
-    W256(high_shifted, low_shifted)
+  fn shl(self, shift: u32) -> W256 {
+    if shift == 0 {
+      self
+    } else if shift < 128 {
+      let low = self.0 << shift;
+      let high = (self.1 << shift) | (self.0 >> (128 - shift));
+      W256(low, high)
+    } else {
+      let low = 0;
+      let high = self.0 << (shift - 128);
+      W256(low, high)
+    }
   }
 }
 

@@ -568,6 +568,7 @@ impl VM {
           */
           if let [xs @ .., n, code_offset, mem_offset] = &self.state.stack.clone()[..] {
             next(self, op);
+            error!("base pc : {:x}", self.state.base_pc);
             self.state.stack = xs.to_vec();
             burn_codecopy(self, unbox(n.clone()), self.block.schedule.clone(), || {});
             access_memory_range(self, *mem_offset.clone(), *n.clone(), || {});
@@ -615,10 +616,8 @@ impl VM {
           - size: byte size of the code.
           */
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
-            warn!("extcodesize addr x={}", x);
             let mut a: Expr = Expr::Mempty;
             force_addr(self, x, "EXTCODESIZE", |a_| a = a_);
-            warn!("extcodesize addr a={}", a);
             access_and_burn(&a, || {
               let mut c = empty_contract();
               fetch_account(self, &a, |c_| c = c_.clone());
@@ -763,8 +762,9 @@ impl VM {
           if let [xs @ .., y, x] = &self.state.stack.clone()[..] {
             next(self, op);
             match &self.state.memory {
-              Memory::ConcreteMemory(mem) => match *y.clone() {
+              Memory::ConcreteMemory(mem) => match simplify(y.clone()) {
                 Expr::Lit(w) => {
+                  error!("write to memory: y={}, w=0x{}, memoffset={}", y, w.to_hex(), x.clone());
                   copy_bytes_to_memory(
                     Box::new(Expr::ConcreteBuf(word256_bytes(w.into()))),
                     Box::new(Expr::Lit(W256(32, 0))),
@@ -1321,6 +1321,10 @@ impl VM {
         }
         Op::Staticcall => {
           if let [xs @ .., x_out_size, x_out_offset, x_in_size, x_in_offset, x_to, x_gas] = &self.state.stack[..] {
+            error!(
+              "x_to: {}, x_in_offset: {}, x_in_size: {}, x_out_offset: {}, x_out_size: {}, pc: {:x}",
+              x_to, x_in_offset, x_in_size, x_out_offset, x_out_size, self.state.base_pc
+            );
             match word_to_addr(x_to.clone()) {
               // wordToAddr(x_to)
               None => {
@@ -1365,14 +1369,6 @@ impl VM {
                     if self.config.reset_caller {
                       self.config.override_caller = None;
                     }
-                    // zoom(state, || {
-                    //     assign(callvalue, Expr::Lit(W256(0, 0)));
-                    //     assign(caller, fromMaybe(self, vm.config.overrideCaller));
-                    //     assign(contract, callee);
-                    //     assign(static, true);
-                    // });
-                    // let reset_caller = use(config.resetCaller);
-                    // if reset_caller { assign(config.overrideCaller, None); }
                     touch_account(self, &self_contract);
                     touch_account(self, &callee);
                   }
@@ -2021,7 +2017,7 @@ fn copy_call_bytes_to_memory(vm: &mut VM, bs: Box<Expr>, size: Box<Expr>, y_offs
 
 fn read_memory(vm: &mut VM, offset_: Expr, size_: Expr) -> Expr {
   match &vm.state.memory {
-    Memory::ConcreteMemory(mem) => match (offset_.clone(), simplify(Box::new(size_.clone()))) {
+    Memory::ConcreteMemory(mem) => match (simplify(Box::new(offset_.clone())), simplify(Box::new(size_.clone()))) {
       (Expr::Lit(offset_val), Expr::Lit(size_val)) => {
         if size_val.clone() > MAX_BYTES
           || offset_val.clone() + size_val.clone() > MAX_BYTES
@@ -2436,7 +2432,6 @@ fn general_call(
     });
     match target_code {
       ContractCode::UnKnownCode(_) => {
-        error!("unknowncode");
         vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
           pc: vm.state.pc,
           msg: "call target has unknown code".to_string(),
@@ -2445,12 +2440,23 @@ fn general_call(
       }
       _ => {
         //burn(vm, 0, || {});
+        warn!("x_in_offset {}, x_in_size {}", x_in_offset.clone(), x_in_size.clone());
         let calldata = read_memory(vm, x_in_offset.clone(), x_in_size);
+        warn!("calldata: {}", calldata);
+        warn!("buf: {}", read_memory(vm, x_in_offset.clone(), Expr::Lit(W256(4, 0))));
         let abi = maybe_lit_word(read_bytes(
           4,
           Box::new(Expr::Lit(W256(0, 0))),
           Box::new(read_memory(vm, x_in_offset, Expr::Lit(W256(4, 0)))),
         ));
+
+        if let Some(ref a) = abi {
+          warn!("abi: {}", a.to_hex());
+        } else {
+          warn!("non abi");
+        }
+
+        // warn!("abi: {}", abi.clone().unwrap().to_hex());
         let new_context = FrameContext::CallContext {
           target: x_to.clone(),
           context: x_context.clone(),

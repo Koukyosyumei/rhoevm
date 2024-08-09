@@ -14,7 +14,7 @@ contract SimpleCalleeTest {
         callee = new SimpleCallee();
     }
 
-    function check() public view {
+    function callcheck() public view {
         callee.check();
     }
 }
