@@ -1,4 +1,4 @@
-use log::{error, warn};
+use log::{error, info, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -299,13 +299,6 @@ impl VM {
 
       let decoded_op = get_op(op);
       self.decoded_opcodes.push(op_string(&decoded_op).to_string());
-
-      let mut sm: String = (&"[").to_string();
-      for s in self.state.stack.clone() {
-        sm = sm.to_owned() + &format!("{},", s);
-      }
-      sm += "]";
-      //info!("stack: {}", sm);
 
       match decoded_op {
         Op::Push0 => {
@@ -1048,6 +1041,7 @@ impl VM {
             //let available_gas = 0; // Example available gas
             let (cost, gas) = (0, Gas::Symbolic); //cost_of_create(0, available_gas, x_size, false); // Example fees
             let new_addr = create_address(self, *self_contract.clone(), this_contract.nonce); // Example self and nonce
+            info!("Create New Address: {}", new_addr);
             let _ = access_account_for_gas(self, new_addr.clone());
             let init_code = read_memory(self, *x_offset.clone(), *x_size.clone());
             burn(self, cost, || {});
@@ -2461,7 +2455,7 @@ fn general_call(
         vm.state = FrameState {
           gas: x_gas.clone(),
           pc: 0,
-          base_pc: 0,
+          base_pc: vm.state.base_pc,
           code: cleared_init_code,
           code_contract: Box::new(x_to.clone()),
           stack: vec![],
