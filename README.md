@@ -7,7 +7,7 @@
 > [!CAUTION]
 > Currently, this project is a work in progress.
 
-## install
+## 1. Install
 
 ### Prerequisites
 
@@ -33,7 +33,7 @@ Run tests to verify the installation:
 cargo test
 ```
 
-## usage
+## 2. usage
 
 ### Command-Line Interface
 
@@ -50,6 +50,8 @@ rhoevm CONTRACT_NAME FUNCTION_NAMES [options]
 -v, --verbose LEVEL: Set the verbosity level (0: error, 1: warn, 2: info, 3: debug, 4: trace).
 -h, --help: Display help information.
 ```
+
+Ensure that your environment is configured to locate the `.bin` and `.abi` files for the contracts. The filenames should match the contract name provided.
 
 ### Example
 
@@ -76,7 +78,7 @@ contract AssertInput {
 # Compile the Solidity contract using solc or any preferred compiler.
 # Assuming the compiled binary and ABI are located in ./example/build
 
-$ RUST_LOG=info rhoevm ./example/build/AssertInput "check"
+$ rhoevm ./example/build/AssertInput "check"
 ```
 
 - Output
