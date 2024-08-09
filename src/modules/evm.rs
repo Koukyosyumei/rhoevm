@@ -2652,7 +2652,6 @@ fn codeloc(vm: &VM) -> CodeLocation {
 }
 
 fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError> {
-  warn!("offset=0x{:x}", x);
   match &vm.state.code {
     ContractCode::InitCode(ops, buf_) => match *buf_.clone() {
       Expr::ConcreteBuf(b) if b.len() == 0 => {

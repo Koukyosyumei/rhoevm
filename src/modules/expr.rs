@@ -3,8 +3,6 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::u32;
 
-use log::warn;
-
 use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
@@ -1839,8 +1837,6 @@ pub fn word_to_addr(e: Box<Expr>) -> Option<Expr> {
       _ => None,
     }
   }
-  warn!("original e={}", e);
-  warn!("simplified e={}", simplify(e.clone()));
   go(Box::new(simplify(e)))
 }
 
