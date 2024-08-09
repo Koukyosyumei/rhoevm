@@ -324,7 +324,6 @@ impl VM {
             ContractCode::InitCode(conc, _) => {
               let bytes =
                 pad_right(n as usize, (&conc[(1 + self.state.pc)..(1 + self.state.pc + n as usize)]).to_vec());
-              info!("n={} len of bytes={}", n, bytes.len());
               Expr::Lit(W256::from_bytes(bytes.to_vec()))
             }
             ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => {

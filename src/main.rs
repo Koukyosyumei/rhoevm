@@ -198,7 +198,7 @@ fn main() {
       if prev_op == "JUMPI" && is_function_sig_check_prop(vm.constraints.last().unwrap()) {
         let (reachability, _) = solve_constraints(&vm, &vm.constraints);
         if !reachability {
-          info!("Skip non-target function");
+          debug!("Skip non-target function");
           break;
         }
       }
@@ -210,15 +210,12 @@ fn main() {
       //debug!("{}", msg);
 
       if found_calldataload && (prev_op == "STOP" || prev_op == "RETURN") {
-        warn!("stop?");
         let (reachability, _) = solve_constraints(&vm, &vm.constraints);
-        warn!("rechability: {}", reachability);
-        /*
         if reachability {
-          info!("Halt Execution");
-          end = true;
-          break;
-        }*/
+          debug!("RECHABLE {} @ {}", prev_op, prev_pc);
+        } else {
+          debug!("UNRECHABLE {} @ {}", prev_op, prev_pc);
+        }
       }
 
       if found_calldataload && prev_op == "REVERT" {
