@@ -122,14 +122,10 @@ fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) 
 }
 
 fn main() {
-  // Initialize the logger with the default settings.
-  env_logger::init();
-
   // Collect command-line arguments.
   let args = parse_args();
 
   print_ascii_art();
-  warn!("Currently, this project is a work in progress.");
 
   let base_filename = if let Some(dir_name) = args.target_dir {
     Path::new(&dir_name)
@@ -160,6 +156,11 @@ fn main() {
     Some("4") | Some("trace") => env::set_var("RUST_LOG", "trace"),
     _ => env::set_var("RUST_LOG", "info"),
   }
+
+  // Initialize the logger with the default settings.
+  env_logger::init();
+  warn!("Currently, this project is a work in progress.");
+
   // ------------- Load the binary file -------------
   let bin_filename = base_filename.to_string() + &".bin".to_string();
   info!("Loading binary from file: {}", bin_filename);
