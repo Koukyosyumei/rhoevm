@@ -180,7 +180,7 @@ fn main() {
 
   // ------------- Load the abi file -------------
   let abi_filename = base_filename.to_string() + &".abi".to_string();
-  info!("Loading abi from file: {}", abi_filename);
+  info!("Loading abi from file: {}\n", abi_filename);
   let mut j = match File::open(abi_filename.clone()) {
     Ok(file) => file,
     Err(e) => {
@@ -200,10 +200,10 @@ fn main() {
 
   let function_names_vec: Vec<String> = args.function_names.split(',').map(|s| s.to_string()).collect();
   let mut cnt_function_names = 0;
-  let mut reachable_envs: Vec<Env> = vec![];
+  let mut reachable_envs: Vec<(String, Env)> = vec![];
 
   for function_name in &function_names_vec {
-    let mut next_reachable_envs: Vec<Env> = vec![];
+    let mut next_reachable_envs: Vec<(String, Env)> = vec![];
 
     if !abi_map.contains_key(function_name) {
       error!("Cannot find the specified function `{}`", function_name);
@@ -255,7 +255,7 @@ fn main() {
     };
     if cnt_function_names == 0 {
       debug!("Generate the blank environment");
-      reachable_envs.push(vm.env.clone());
+      reachable_envs.push(("".to_string(), vm.env.clone()));
     }
 
     info!("Number of initial environments: {}", reachable_envs.len());
@@ -267,7 +267,7 @@ fn main() {
           return;
         }
       };
-      vm.env = env.clone();
+      vm.env = env.1.clone();
 
       let num_initial_constraints = vm.constraints.len();
 
@@ -319,10 +319,25 @@ fn main() {
             && (*prev_addr.clone() == Expr::SymAddr("entrypoint".to_string()))
             && (prev_op == "STOP" || prev_op == "RETURN")
           {
-            let (reachability, _) = solve_constraints(&vm, &vm.constraints);
+            let (reachability, model) = solve_constraints(&vm, &vm.constraints);
             if reachability {
-              debug!("RECHABLE {} @ PC={:x}", prev_op, prev_pc);
-              next_reachable_envs.push(vm.env.clone());
+              if let Some(ref model_str) = model {
+                debug!("RECHABLE {} @ PC={:x}", prev_op, prev_pc);
+                let mut msg_model = function_name.to_string() + "(";
+                let model = parse_z3_output(&model_str);
+                let mut is_zero_args = true;
+                for (k, v) in model.iter() {
+                  if k[..3] == *"arg" {
+                    msg_model += &format!("{}={},", k, v.1);
+                    is_zero_args = false;
+                  }
+                }
+                if !is_zero_args {
+                  msg_model.pop();
+                }
+                msg_model.push(')');
+                next_reachable_envs.push((msg_model, vm.env.clone()));
+              }
             } else {
               debug!("UNRECHABLE {} @ PC={:x}", prev_op, prev_pc);
             }
@@ -383,7 +398,7 @@ fn main() {
         vm.constraints_raw_expr.clear();
         vm.state.pc += 1;
       }
-      info!("EVM execution completed.\n");
+      info!("Execution of `{}` completed.\n", function_name);
     }
     reachable_envs = next_reachable_envs;
     cnt_function_names += 1;
