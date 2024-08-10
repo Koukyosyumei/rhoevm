@@ -1,6 +1,8 @@
 # Examples
 
-- SimpleAssert
+### SimpleAssert
+
+- source
 
 ```javascript
 // SPDX-License-Identifier: MIT
@@ -12,6 +14,8 @@ contract SimpleAssert {
     }
 }
 ```
+
+- output
 
 ```bash
 ./target/debug/rhoevm ./example/build/SimpleAssert "check"
@@ -44,7 +48,9 @@ contract SimpleAssert {
 [2024-08-10T16:16:53Z INFO  rhoevm] Execution of `check` completed.
 ```
 
-- AssertInput
+### AssertInput
+
+- source
 
 ```javascript
 // SPDX-License-Identifier: MIT
@@ -58,6 +64,8 @@ contract AssertInput {
     }
 }
 ```
+
+- output
 
 ```bash
 ./target/debug/rhoevm ./example/build/AssertInput "check"
@@ -90,8 +98,9 @@ contract AssertInput {
 [2024-08-10T16:18:06Z INFO  rhoevm] Execution of `check` completed.
 ```
 
+### SimpleCallTest
 
-- SimpleCallTest
+- source
 
 ```javascript
 // SPDX-License-Identifier: MIT
@@ -115,6 +124,8 @@ contract SimpleCalleeTest {
     }
 }
 ```
+
+- output
 
 ```bash
 ./target/debug/rhoevm ./example/build/SimpleCalleeTest "setUp,callcheck"
@@ -154,7 +165,9 @@ contract SimpleCalleeTest {
 [2024-08-10T16:21:53Z INFO  rhoevm] Execution of `callcheck` completed.
 ```
 
-- CallerWithInput
+### CallerWithInput
+
+- source
 
 ```javascript
 // SPDX-License-Identifier: MIT
@@ -178,6 +191,8 @@ contract CallerWithInput {
     }
 }
 ```
+
+- output
 
 ```bash
 ./target/debug/rhoevm ./example/build/CallerWithInput "setUp,callcheck"
@@ -217,7 +232,9 @@ contract CallerWithInput {
 [2024-08-10T16:13:46Z INFO  rhoevm] Execution of `callcheck` completed.
 ```
 
-- WhileContract
+### WhileContract
+
+- source
 
 ```javascript
 // SPDX-License-Identifier: MIT
@@ -240,6 +257,8 @@ contract WhileContract {
     }
 }
 ```
+
+- output
 
 ```bash
 ./target/debug/rhoevm ./example/build/WhileContract "check"
