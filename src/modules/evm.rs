@@ -2910,6 +2910,19 @@ fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError>
   }
 }
 
+/// Checks if the given position in the contract code is a valid jump destination.
+///
+/// This function verifies whether the operation at the specified position in the contract code
+/// is a `JUMPDEST` operation, which is necessary for safe execution of a jump in the EVM.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+/// * `x` - The index in the code to be checked for being a valid jump destination.
+///
+/// # Returns
+///
+/// * `bool` - Returns `true` if the position is a valid `JUMPDEST`, otherwise returns `false`.
 fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
   let code = &vm.state.code;
   //let self_addr = vm.state.code_contract.clone();
@@ -2934,7 +2947,23 @@ fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
   }
 }
 
-// Handles transfers of value between accounts
+/// Handles the transfer of value (e.g., Ether) between two accounts.
+///
+/// This function ensures that the transfer of value between the source and destination
+/// accounts is executed correctly, including checking balances and handling cases where
+/// the accounts may not be fully initialized.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+/// * `src` - The source account from which the value is being transferred.
+/// * `dst` - The destination account to which the value is being transferred.
+/// * `val` - The value to be transferred.
+/// * `max_num_iterations` - The maximum number of iterations allowed for the transfer.
+///
+/// # Returns
+///
+/// * `Result<(), EvmError>` - Returns `Ok(())` if the transfer is successful, otherwise returns an `EvmError`.
 fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr, max_num_iterations: u32) -> Result<(), EvmError> {
   if let Expr::Lit(W256(0, 0)) = val {
     return Ok(());
@@ -3008,12 +3037,38 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr, max_num_iterations: u3
   }
 }
 
+/// Constructs a trace object that includes the current location in the contract.
+///
+/// This function creates a trace object, which contains information about the current
+/// execution location within the contract, such as the program counter (PC) and the contract itself.
+///
+/// # Arguments
+///
+/// * `vm` - A reference to the current state of the virtual machine (VM).
+/// * `trace_data` - The trace data to be included in the trace object.
+///
+/// # Returns
+///
+/// * `Trace` - A trace object containing the provided trace data and the current contract information.
 fn with_trace_location(vm: &VM, trace_data: TraceData) -> Trace {
   let current_contract = vm.env.contracts.get(&vm.state.code_contract).unwrap();
   let op_ix = current_contract.op_idx_map.get(vm.state.pc).cloned().unwrap_or(0);
   Trace { tracedata: trace_data, contract: current_contract.clone(), op_ix: op_ix }
 }
 
+/// Checks if an Ethereum account is empty.
+///
+/// This function determines whether an account is considered empty by checking the length
+/// of its code, nonce, and balance. An account is deemed empty if its code is either empty
+/// or symbolic, its nonce is zero, and its balance is minimal (set to 1 wei).
+///
+/// # Arguments
+///
+/// * `c` - A reference to the contract representing the Ethereum account.
+///
+/// # Returns
+///
+/// * `bool` - Returns `true` if the account is empty, otherwise returns `false`.
 fn account_empty(c: &Contract) -> bool {
   let cc = match &c.code {
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(rc)) => rc.len() == 0,
@@ -3023,6 +3078,21 @@ fn account_empty(c: &Contract) -> bool {
   cc && c.nonce == Some(0) && c.balance == Expr::Lit(W256(1, 0))
 }
 
+/// Solves the constraints in the current execution path using an SMT solver.
+///
+/// This function generates SMT-LIB 2.0 compliant queries based on the constraints in the
+/// execution path, writes them to a file, and invokes the Z3 SMT solver to determine the satisfiability
+/// of the constraints.
+///
+/// # Arguments
+///
+/// * `vm` - A reference to the current state of the virtual machine (VM).
+/// * `pathconds` - A vector of constraints (propositions) representing the current path conditions.
+///
+/// # Returns
+///
+/// * `(bool, Option<String>)` - A tuple where the first element indicates whether the constraints are satisfiable,
+///   and the second element is an optional string containing the model from the SMT solver if the constraints are satisfiable.
 pub fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> (bool, Option<String>) {
   let config = Config::default();
   let smt2 = assert_props(&config, pathconds.to_vec());
@@ -3066,6 +3136,22 @@ enum BranchReachability {
   NONE,
 }
 
+/// Branches the execution based on a given condition, creating a new VM state for the alternative path.
+///
+/// This function creates a branch in the execution, evaluating the provided condition. If the condition
+/// holds true, the `then` branch is executed; otherwise, the `else` branch is executed. A new VM state is created
+/// for the alternative branch to explore both paths.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+/// * `cond` - The condition to evaluate, which determines the branch taken.
+/// * `continue_fn` - A function to be executed based on the branch taken.
+/// * `max_num_iterations` - The maximum number of iterations allowed for the branch.
+///
+/// # Returns
+///
+/// * `Option<VM>` - A new VM state representing the alternative branch, or `None` if branching is not possible.
 fn branch<F>(vm: &mut VM, cond: Box<Expr>, continue_fn: F, max_num_iterations: u32) -> Option<VM>
 where
   F: FnOnce(BranchReachability) -> Result<(), EvmError>,
@@ -3109,6 +3195,18 @@ where
   Some(new_vm)
 }
 
+/// Checks for the existence of a collision in the provided contract.
+///
+/// This function checks whether a contract has a non-zero nonce or non-empty code,
+/// which would indicate a potential collision in the address space.
+///
+/// # Arguments
+///
+/// * `c_` - An optional contract to be checked for a collision.
+///
+/// # Returns
+///
+/// * `bool` - Returns `true` if a collision is detected, otherwise returns `false`.
 fn collision(c_: Option<Contract>) -> bool {
   match c_ {
     Some(c) => {
@@ -3124,6 +3222,20 @@ fn collision(c_: Option<Contract>) -> bool {
   }
 }
 
+/// Creates a new Ethereum address based on the provided expression and optional nonce.
+///
+/// This function generates a new Ethereum address, either by creating it from a literal
+/// address and nonce or by generating a fresh symbolic address.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+/// * `e` - The expression representing the base address.
+/// * `n_` - An optional nonce used to create the address.
+///
+/// # Returns
+///
+/// * `Expr` - The newly created address as an expression.
 fn create_address(vm: &mut VM, e: Expr, n_: Option<W64>) -> Expr {
   match (e, n_) {
     (Expr::LitAddr(a), Some(n)) => create_address_(a, n),
@@ -3132,6 +3244,21 @@ fn create_address(vm: &mut VM, e: Expr, n_: Option<W64>) -> Expr {
   }
 }
 
+/// Creates a new Ethereum address using the CREATE2 opcode.
+///
+/// This function generates a new Ethereum address based on the provided base address,
+/// salt, and bytecode, following the CREATE2 specification.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+/// * `e` - The expression representing the base address.
+/// * `s` - The salt used in the CREATE2 operation.
+/// * `b` - The bytecode used to create the new address.
+///
+/// # Returns
+///
+/// * `Expr` - The newly created address as an expression.
 fn create2_address(vm: &mut VM, e: Expr, s: W256, b: &ByteString) -> Expr {
   match (e, s, b) {
     (Expr::LitAddr(a), s, b) => create2_address_(a, s, b.to_vec()),
@@ -3141,6 +3268,17 @@ fn create2_address(vm: &mut VM, e: Expr, s: W256, b: &ByteString) -> Expr {
   }
 }
 
+/// Generates a fresh symbolic address for use in the virtual machine.
+///
+/// This function creates a new symbolic address, ensuring that it is unique within the current VM instance.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+///
+/// # Returns
+///
+/// * `Expr` - The newly generated symbolic address as an expression.
 fn fresh_sym_addr(vm: &mut VM) -> Expr {
   vm.env.fresh_address += 1;
   let n = vm.env.fresh_address;
@@ -3151,6 +3289,18 @@ fn cheat_code() -> Expr {
   Expr::LitAddr(keccak_prime(&"hevm cheat code".as_bytes().to_vec()))
 }
 
+/// Parses the initialization code of a contract and returns it as a `ContractCode` object.
+///
+/// This function processes the provided buffer to extract the initialization code, converting it
+/// into a `ContractCode` object that represents the contract's initial state.
+///
+/// # Arguments
+///
+/// * `buf` - The buffer containing the initialization code to be parsed.
+///
+/// # Returns
+///
+/// * `Option<ContractCode>` - The parsed initialization code, or `None` if parsing fails.
 fn parse_init_code(buf: Expr) -> Option<ContractCode> {
   match buf {
     Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(Box::new(b.to_vec()), Box::new(Expr::Mempty))),
