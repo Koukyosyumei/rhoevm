@@ -376,7 +376,7 @@ fn main() {
                   msg_model.pop();
                 }
                 msg_model.push(')');
-                error!("model: \u{001b}[31m{}\u{001b}[0m", format!("{} -> {}", env.0, msg_model));
+                error!("\u{001b}[31mmodel: {}\u{001b}[0m", format!("{} -> {}", env.0, msg_model));
               }
 
               let mut msg = "** Constraints (Raw Format):=\n true".to_string();
