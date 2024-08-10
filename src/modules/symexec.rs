@@ -251,7 +251,7 @@ fn cd_len(cfs: &Vec<CalldataFragment>) -> Expr {
 /// # Panics
 ///
 /// Panics if any argument type is unsupported or concrete arguments cannot be parsed.
-pub fn mk_calldata(sig: Option<Sig>, concrete_args: &[String]) -> (Expr, Vec<Prop>) {
+pub fn mk_calldata(sig: &Option<Sig>, concrete_args: &[String]) -> (Expr, Vec<Prop>) {
   match sig {
     Some(Sig { method_signature: name, inputs: types }) => {
       sym_calldata(&name, &types, concrete_args, &Expr::AbstractBuf("txdata".to_string()))
