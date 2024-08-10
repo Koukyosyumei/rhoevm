@@ -963,6 +963,12 @@ impl VM {
               let mut x_int = None;
               force_concrete(self, x, "JUMPI: symbolic jumpdest", |x_| x_int = x_.to_int());
 
+              let mut se = "".to_string();
+              for e in &self.constraints_raw_expr {
+                se += &format!("{}\n", simplify(e.clone()));
+              }
+              error!("exprs: {se}");
+
               let mut condition = BranchReachability::NONE;
               let else_vm_ = branch(self, y.clone(), |condition_| Ok(condition = condition_), max_num_iterations);
 
@@ -2035,19 +2041,19 @@ fn read_memory(vm: &mut VM, offset_: Expr, size_: Expr) -> Expr {
       _ => {
         let buf = freeze_memory(mem);
         copy_slice(
-          Box::new(offset_),
+          Box::new(simplify(Box::new(offset_.clone()))),
           Box::new(Expr::Lit(W256(0, 0))),
-          Box::new(size_),
+          Box::new(simplify(Box::new(size_))),
           Box::new(buf),
           Box::new(Expr::Mempty),
         )
       }
     },
     Memory::SymbolicMemory(mem) => copy_slice(
-      Box::new(offset_),
+      Box::new(simplify(Box::new(offset_.clone()))),
       Box::new(Expr::Lit(W256(0, 0))),
-      Box::new(size_),
-      Box::new(mem.clone()),
+      Box::new(simplify(Box::new(size_))),
+      Box::new(simplify(Box::new(mem.clone()))),
       Box::new(Expr::Mempty),
     ),
   }

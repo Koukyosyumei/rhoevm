@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 contract CalleeWithInput {
     function check(uint x) public pure {
-        assert(x + 10 == 100);
+        assert(x + 10 != 100);
     }
 }
 
