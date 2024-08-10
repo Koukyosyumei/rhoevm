@@ -11,8 +11,9 @@
 
 ### 1.1 Prerequisites
 
-Rust: Ensure you have Rust installed. You can download it from [rust-lang.org](https://www.rust-lang.org/).
-Cargo: Rust's package manager should be installed with Rust.
+- Rust: Ensure you have Rust installed. You can download it from [rust-lang.org](https://www.rust-lang.org/).
+- Cargo: Rust's package manager should be installed with Rust.
+- Z3 Solver: rhoevm requires the Z3 solver for constraint solving.
 
 ### 1.2 Building from Source
 
