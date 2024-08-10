@@ -361,7 +361,7 @@ fn main() {
             end = true;
 
             if reachability {
-              error!("REACHABLE REVERT DETECTED @ PC=0x{:x}", prev_pc);
+              error!("\u{001b}[31mREACHABLE REVERT DETECTED @ PC=0x{:x}\u{001b}[0m", prev_pc);
               if let Some(ref model_str) = model {
                 let mut msg_model = function_name.to_string() + "(";
                 let model = parse_z3_output(&model_str);
@@ -376,7 +376,7 @@ fn main() {
                   msg_model.pop();
                 }
                 msg_model.push(')');
-                error!("model: {}", format!("{} -> {}", env.0, msg_model));
+                error!("model: \u{001b}[31m{}\u{001b}[0m", format!("{} -> {}", env.0, msg_model));
               }
 
               let mut msg = "** Constraints (Raw Format):=\n true".to_string();
