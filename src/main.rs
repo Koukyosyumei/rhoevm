@@ -348,7 +348,8 @@ fn main() {
                   msg_model.pop();
                 }
                 msg_model.push(')');
-                next_reachable_envs.push((msg_model, vm.env.clone()));
+                next_reachable_envs
+                  .push((if env.0 == "" { msg_model } else { format!("{} -> {}", env.0, msg_model) }, vm.env.clone()));
               }
             } else {
               debug!("UNRECHABLE {} @ PC={:x}", prev_op, prev_pc);
@@ -375,7 +376,7 @@ fn main() {
                   msg_model.pop();
                 }
                 msg_model.push(')');
-                error!("model: {}", msg_model);
+                error!("model: {}", format!("{} -> {}", env.0, msg_model));
               }
 
               let mut msg = "** Constraints (Raw Format):=\n true".to_string();
