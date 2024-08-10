@@ -27,47 +27,13 @@ pub type W64 = u64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct W256(pub u128, pub u128);
-pub type Word256 = W256;
-#[derive(Debug, Clone)]
-pub struct W512(pub W256, pub W256);
 
+pub type Word256 = W256;
 pub type Addr = W256;
 pub type Nibble = i32;
 
 pub type ByteString = Vec<u8>;
 pub type FunctionSelector = u32;
-
-/*
--- Function Selectors ------------------------------------------------------------------------------
-
-
--- | https://docs.soliditylang.org/en/v0.8.19/abi-spec.html#function-selector
-newtype FunctionSelector = FunctionSelector { unFunctionSelector :: Word32 }
-  deriving (Bits, Num, Eq, Ord, Real, Enum, Integral)
-instance Show FunctionSelector where show s = "0x" <> showHex s ""
-*/
-
-impl W256 {
-  // Method to convert a decimal string to W256
-  pub fn from_dec_str(s: &str) -> Result<Self, &'static str> {
-    // Parse the decimal string into a BigInt
-    let big_int = BigInt::from_str(s).map_err(|_| "Invalid decimal string")?;
-
-    // Split the BigInt into two u128 values
-    let (lower, upper) = Self::split_bigint(big_int);
-
-    // Create and return a W256 instance
-    Ok(W256(lower, upper))
-  }
-
-  // Helper method to split BigInt into two u128 values
-  fn split_bigint(value: BigInt) -> (u128, u128) {
-    let mask: BigInt = BigInt::from(u128::MAX);
-    let lower = (&value & &mask).to_u128().unwrap_or(0);
-    let upper = ((&value >> 128 as u64) & mask).to_u128().unwrap_or(0);
-    (lower, upper)
-  }
-}
 
 // Implement Display for W256
 impl fmt::Display for W256 {
@@ -154,6 +120,26 @@ impl W256 {
 
     W256(low, high)
   }
+
+  // Method to convert a decimal string to W256
+  pub fn from_dec_str(s: &str) -> Result<Self, &'static str> {
+    // Parse the decimal string into a BigInt
+    let big_int = BigInt::from_str(s).map_err(|_| "Invalid decimal string")?;
+
+    // Split the BigInt into two u128 values
+    let (lower, upper) = Self::split_bigint(big_int);
+
+    // Create and return a W256 instance
+    Ok(W256(lower, upper))
+  }
+
+  // Helper method to split BigInt into two u128 values
+  fn split_bigint(value: BigInt) -> (u128, u128) {
+    let mask: BigInt = BigInt::from(u128::MAX);
+    let lower = (&value & &mask).to_u128().unwrap_or(0);
+    let upper = ((&value >> 128 as u64) & mask).to_u128().unwrap_or(0);
+    (lower, upper)
+  }
 }
 
 pub fn to_int(e: &Expr) -> Option<i32> {
@@ -171,30 +157,6 @@ pub fn pad_left_prime_vec(size: usize, bytes: Vec<u8>) -> Vec<u8> {
 }
 
 impl Eq for W256 {}
-
-// Implement Display for W512
-impl fmt::Display for W512 {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    // Format as concatenated hexadecimal strings of W256 parts
-    write!(f, "{}{}", self.0, self.1)
-  }
-}
-
-// Implement Hash for W512
-impl Hash for W512 {
-  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-    self.0.hash(state);
-    self.1.hash(state);
-  }
-}
-
-impl PartialEq for W512 {
-  fn eq(&self, other: &Self) -> bool {
-    self.0 == other.0 && self.1 == other.1
-  }
-}
-
-impl Eq for W512 {}
 
 // Implement basic operations for W256
 impl Add for W256 {
@@ -371,70 +333,6 @@ impl Shr<u32> for W256 {
       let low = self.1 >> (shift - 128);
       W256(low, high)
     }
-  }
-}
-
-// Implement basic operations for W512
-impl Add for W512 {
-  type Output = W512;
-
-  fn add(self, other: W512) -> W512 {
-    let W512(left1, right1) = self;
-    let W512(left2, right2) = other;
-    W512(left1 + left2, right1 + right2)
-  }
-}
-
-impl Mul for W512 {
-  type Output = W512;
-
-  fn mul(self, other: W512) -> W512 {
-    // Implement multiplication for W512
-    let W512(left1, right1) = self;
-    let W512(left2, right2) = other;
-
-    let low1 = left1.clone() * right2.clone();
-    let low2 = right1.clone() * left2.clone();
-    let high1 = left1 * left2;
-    let high2 = right1 * right2;
-
-    W512(high1 + low1 + low2, high2)
-  }
-}
-
-impl Div for W512 {
-  type Output = W512;
-
-  fn div(self, _other: W512) -> W512 {
-    // Implement division for W512 (using arbitrary precision arithmetic)
-    unimplemented!()
-  }
-}
-
-impl Rem for W512 {
-  type Output = W512;
-
-  fn rem(self, _other: W512) -> W512 {
-    // Implement modulus for W512 (using arbitrary precision arithmetic)
-    unimplemented!()
-  }
-}
-
-impl Shr<u32> for W512 {
-  type Output = W512;
-
-  fn shr(self, _rhs: u32) -> W512 {
-    // Implement right shift for W512
-    unimplemented!()
-  }
-}
-
-impl Shl<u32> for W512 {
-  type Output = W512;
-
-  fn shl(self, _rhs: u32) -> W512 {
-    // Implement left shift for W512
-    unimplemented!()
   }
 }
 
