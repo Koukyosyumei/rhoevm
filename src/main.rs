@@ -24,6 +24,7 @@ struct Args {
   contract_name: String,
   function_names: String,
   target_dir: Option<String>,
+  max_num_iterations: Option<u32>,
   verbose_level: Option<String>,
 }
 
@@ -33,12 +34,15 @@ fn print_usage(program: &str, opts: &Options) {
   process::exit(0);
 }
 
+const DEFAULT_MAX_NUM_ITERATIONS: u32 = 10;
+
 fn parse_args() -> Args {
   let args: Vec<String> = env::args().collect();
   let program = args[0].clone();
 
   let mut opts = Options::new();
   opts.optopt("d", "dir", "target directory", "DIR");
+  opts.optopt("i", "max_num_iterations", "maximum number of iterations for loop", "MAX_NUM_ITER");
   opts.optopt("v", "verbose", "level of verbose", "LEVEL");
   opts.optflag("h", "help", "print this help menu");
 
@@ -70,9 +74,14 @@ fn parse_args() -> Args {
   };
 
   let target_dir = matches.opt_str("d");
+  let max_num_iterations = if let Some(i) = matches.opt_str("i") {
+    Some(i.parse::<u32>().unwrap_or(DEFAULT_MAX_NUM_ITERATIONS))
+  } else {
+    None
+  };
   let verbose_level = matches.opt_str("v");
 
-  Args { contract_name, function_names, target_dir, verbose_level }
+  Args { contract_name, function_names, target_dir, max_num_iterations, verbose_level }
 }
 
 fn print_ascii_art() {
@@ -283,7 +292,10 @@ fn main() {
           let prev_pc = vm.state.pc;
           let prev_addr = vm.state.contract.clone();
           let do_size = vm.decoded_opcodes.len();
-          let continue_flag = vm.exec1(&mut vms, if found_calldataload { 10 } else { 1 });
+          let continue_flag = vm.exec1(
+            &mut vms,
+            if found_calldataload { args.max_num_iterations.unwrap_or(DEFAULT_MAX_NUM_ITERATIONS) } else { 1 },
+          );
           let prev_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
 
           if !found_calldataload && prev_valid_op == "RETURN" && prev_op != "UNKNOWN" {
