@@ -112,3 +112,9 @@ $ rhoevm ./example/build/AssertInput "check"
 ```
 
 In the above example, rhoevm analyzes the `check` function of the SimpleAssert contract, highlighting a revert condition due to the failed assertion.
+
+## 3. License
+
+This project is licensed under the AGPL-3.0 license. See the [LICENSE](LICENSE) file for details.
+
+
