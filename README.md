@@ -13,7 +13,7 @@
 
 - Rust: Ensure you have Rust installed. You can download it from [rust-lang.org](https://www.rust-lang.org/).
 - Cargo: Rust's package manager should be installed with Rust.
-- Z3 Solver: rhoevm requires the Z3 solver for constraint solving.
+- Z3 Solver: `rhoevm` requires the Z3 solver for constraint solving.
 
 ### 1.2 Building from Source
 
@@ -56,7 +56,7 @@ Ensure that your environment is configured to locate the `.bin` and `.abi` files
 
 ### 2.2 Example
 
-Below is an example of how to use rhoevm with a simple Solidity smart contract.
+Below is an example of how to use `rhoevm` with a simple Solidity smart contract.
 
 - Example Solidity Contract
 
@@ -73,7 +73,7 @@ contract AssertInput {
 }
 ```
 
-- Symbolic Execution with rhoevm
+- Symbolic Execution with `rhoevm`
 
 ```bash
 # Compile the Solidity contract using solc or any preferred compiler.
@@ -112,7 +112,7 @@ $ rhoevm ./example/build/AssertInput "check"
 [2024-07-30T09:20:18Z INFO  rhoevm] EVM execution completed.
 ```
 
-In the above example, rhoevm analyzes the `check` function of the SimpleAssert contract, highlighting a revert condition due to the failed assertion.
+In the above example, `rhoevm` analyzes the `check` function of the SimpleAssert contract, highlighting a revert condition due to the failed assertion.
 
 ## 3. License
 
