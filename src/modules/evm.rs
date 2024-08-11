@@ -5,6 +5,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::vec;
+use tokio::task;
 
 use crate::modules::effects::Config;
 use crate::modules::expr::copy_slice;
@@ -3085,39 +3086,46 @@ fn account_empty(c: &Contract) -> bool {
 ///
 /// * `(bool, Option<String>)` - A tuple where the first element indicates whether the constraints are satisfiable,
 ///   and the second element is an optional string containing the model from the SMT solver if the constraints are satisfiable.
-pub fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> (bool, Option<String>) {
-  let config = Config::default();
-  let smt2 = assert_props(&config, pathconds.to_vec());
-  let content = format_smt2(&smt2) + "\n\n(check-sat)\n(get-model)";
+pub async fn solve_constraints(pc: usize, pathconds: Vec<Prop>) -> (bool, Option<String>) {
+  let result = task::spawn_blocking(move || {
+    let config = Config::default();
+    let smt2 = assert_props(&config, pathconds.to_vec());
+    let content = format_smt2(&smt2) + "\n\n(check-sat)\n(get-model)";
 
-  let mut hasher = DefaultHasher::new();
-  let mut pathconds_str: Vec<String> = pathconds.into_iter().map(|p| format!("{}", format_prop(p))).collect();
-  pathconds_str.sort();
-  for p in pathconds_str {
-    p.hash(&mut hasher);
-  }
-  let hash_val = hasher.finish();
+    let mut hasher = DefaultHasher::new();
+    let mut pathconds_str: Vec<String> = pathconds.into_iter().map(|p| format!("{}", format_prop(&p))).collect();
+    pathconds_str.sort();
+    for p in pathconds_str {
+      p.hash(&mut hasher);
+    }
+    let hash_val = hasher.finish();
 
-  let dir_path = Path::new("./.rhoevm");
-  if !dir_path.exists() {
-    let _ = fs::create_dir_all(&dir_path);
-  }
-  let file_path = dir_path.join(format!("query-{}-{}-{:x}.smt2", vm.state.pc, pathconds.len(), hash_val));
-  let _ = fs::write(file_path.clone(), content);
+    let dir_path = Path::new("./.rhoevm");
+    if !dir_path.exists() {
+      let _ = fs::create_dir_all(&dir_path);
+    }
+    let file_path = dir_path.join(format!("query-{}-{:x}.smt2", pc, hash_val));
+    let _ = fs::write(file_path.clone(), content);
 
-  let output = Command::new("z3")
-    .args(["-smt2", file_path.to_str().unwrap()]) // Pass the arguments to the command
-    .stdout(Stdio::piped()) // Capture standard output
-    .stderr(Stdio::piped()) // Capture standard error
-    .output()
-    .unwrap(); // Run the command and capture the output
+    let output = Command::new("z3")
+      .args(["-smt2", file_path.to_str().unwrap()]) // Pass the arguments to the command
+      .stdout(Stdio::piped()) // Capture standard output
+      .stderr(Stdio::piped()) // Capture standard error
+      .output()
+      .unwrap(); // Run the command and capture the output
 
-  if output.status.success() {
-    // Convert the standard output to a String
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    return (stdout[..3] == *"sat", Some(stdout));
-  }
-  (false, None)
+    if output.status.success() {
+      // Convert the standard output to a String
+      let stdout = String::from_utf8(output.stdout).unwrap();
+      (stdout[..3] == *"sat", Some(stdout))
+    } else {
+      (false, None)
+    }
+  })
+  .await
+  .unwrap();
+
+  result
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
