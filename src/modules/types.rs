@@ -1282,14 +1282,15 @@ pub struct VM {
   pub cache: Cache,
   pub burned: Gas,
   pub constraints: Vec<Prop>,
-  pub constraints_raw_expr: Vec<Box<Expr>>,
   pub config: RuntimeConfig,
   pub iterations: HashMap<CodeLocation, (i64, Vec<Box<Expr>>)>,
   pub forks: Vec<ForkState>,
   pub current_fork: i32,
   pub labels: HashMap<Addr, String>,
-  // log
-  pub decoded_opcodes: Vec<String>,
+  // -- log
+  // pub decoded_opcodes: Vec<String>,
+  // pub constraints_raw_expr: Vec<Box<Expr>>,
+  pub prev_opcode: String,
 }
 
 pub type CodeLocation = (Expr, i64);

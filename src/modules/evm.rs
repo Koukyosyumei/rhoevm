@@ -179,7 +179,6 @@ pub fn make_vm(opts: VMOpts) -> VM {
     cache: Cache { fetched: HashMap::new(), path: HashMap::new() },
     burned: Gas::Concerete(initial_gas()),
     constraints: opts.calldata.1.clone(),
-    constraints_raw_expr: vec![],
     iterations: HashMap::new(),
     config: RuntimeConfig {
       allow_ffi: opts.allow_ffi,
@@ -209,7 +208,8 @@ pub fn make_vm(opts: VMOpts) -> VM {
     }],
     current_fork: 0,
     labels: HashMap::new(),
-    decoded_opcodes: Vec::new(),
+    prev_opcode: "".to_string(), // constraints_raw_expr: vec![],
+                                 // decoded_opcodes: Vec::new(),
   }
 }
 
@@ -432,7 +432,11 @@ impl VM {
       };
 
       let decoded_op = get_op(op);
-      self.decoded_opcodes.push(op_string(&decoded_op).to_string());
+      if let Op::Unknown(_) = decoded_op {
+      } else {
+        self.prev_opcode = op_string(&decoded_op).to_string();
+      }
+      // self.decoded_opcodes.push(op_string(&decoded_op).to_string());
 
       match decoded_op {
         Op::Push0 => {
@@ -467,8 +471,9 @@ impl VM {
               from_list(padded_bytes)
             }
           };
-          let num_decoded_opcodes = self.decoded_opcodes.len() - 1;
-          self.decoded_opcodes[num_decoded_opcodes] += &(" ".to_string() + &xs.to_string());
+          // let num_decoded_opcodes = self.decoded_opcodes.len() - 1;
+          // self.decoded_opcodes[num_decoded_opcodes] += &(" ".to_string() + &xs.to_string());
+          self.prev_opcode += &(" ".to_string() + &xs.to_string());
 
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_verylow, || {});
@@ -3179,10 +3184,10 @@ where
   let then_branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)))));
   let else_branch_cond = Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)));
 
-  vm.constraints_raw_expr.push(cond.clone());
+  // vm.constraints_raw_expr.push(cond.clone());
   vm.constraints.push(then_branch_cond);
 
-  new_vm.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
+  // new_vm.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
   new_vm.constraints.push(else_branch_cond);
   if itr_cnt >= max_num_iterations as i64 {
     //*new_vm.iterations.entry(loc).or_insert((0, new_vm.state.stack.clone())) = (0, new_vm.state.stack.clone())

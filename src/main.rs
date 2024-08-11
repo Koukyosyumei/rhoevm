@@ -1,16 +1,15 @@
 use env_logger;
 use getopts::Options;
 use log::{debug, error, info, warn};
-use std::cmp::min;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::time;
 use std::{env, process};
-use std::{thread, time};
 use tiny_keccak::{Hasher, Keccak};
-use tokio::runtime::Runtime;
+use tokio::task;
 
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
 use rhoevm::modules::evm::{abstract_contract, opslen, solve_constraints};
@@ -133,7 +132,8 @@ fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) 
   Ok(vm)
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
   // Collect command-line arguments.
   let args = parse_args();
 
@@ -292,143 +292,154 @@ fn main() {
 
       let num_initial_constraints = vm.constraints.len();
 
-      let rt = Runtime::new().unwrap();
-      rt.block_on(async {
-        let mut vms = vec![];
-        let mut end = false;
-        let mut found_calldataload = false;
-        let mut prev_valid_op = "".to_string();
+      let mut vms = vec![];
+      let mut end = false;
+      let mut found_calldataload = false;
+      let mut prev_valid_op = "".to_string();
+      let mut potential_reverts: Vec<(usize, Vec<Prop>)> = vec![];
 
-        // ------------- Start symbolic execution -------------
-        info!("Starting EVM symbolic execution...");
-        while !end {
-          loop {
-            let prev_pc = vm.state.pc;
-            let prev_addr = vm.state.contract.clone();
-            let do_size = vm.decoded_opcodes.len();
-            let mut continue_flag = vm.exec1(
-              &mut vms,
-              if found_calldataload { args.max_num_iterations.unwrap_or(DEFAULT_MAX_NUM_ITERATIONS) } else { 1 },
-            );
-            let prev_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
+      // ------------- Start symbolic execution -------------
+      info!("Starting EVM symbolic execution...");
+      while !end {
+        loop {
+          let prev_pc = vm.state.pc;
+          let prev_addr = vm.state.contract.clone();
+          // let do_size = vm.decoded_opcodes.len();
+          let mut continue_flag = vm.exec1(
+            &mut vms,
+            if found_calldataload { args.max_num_iterations.unwrap_or(DEFAULT_MAX_NUM_ITERATIONS) } else { 1 },
+          );
+          let prev_op = vm.prev_opcode.clone(); //vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
 
-            if !found_calldataload && prev_valid_op == "RETURN" && prev_op != "UNKNOWN" {
-              vm.state.base_pc = prev_pc;
-              debug!("Base PC set to 0x{:x}", prev_pc);
-            }
+          if !found_calldataload && prev_valid_op == "RETURN" && prev_op != "UNKNOWN" {
+            vm.state.base_pc = prev_pc;
+            debug!("Base PC set to 0x{:x}", prev_pc);
+          }
 
-            if prev_op != "UNKNOWN" {
-              prev_valid_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
-            }
+          if prev_op != "UNKNOWN" {
+            prev_valid_op = vm.prev_opcode.clone(); // vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
+          }
 
-            debug!("Addr: {}, PC: 0x{:x}, Opcode: {}", prev_addr, prev_pc, prev_op);
+          debug!("Addr: {}, PC: 0x{:x}, Opcode: {}", prev_addr, prev_pc, prev_op);
 
-            if !found_calldataload {
-              found_calldataload = prev_valid_op == "CALLDATALOAD";
-            }
+          if !found_calldataload {
+            found_calldataload = prev_valid_op == "CALLDATALOAD";
+          }
 
-            if prev_op == "JUMPI" && is_function_sig_check_prop(vm.constraints.clone().last().unwrap()) {
-              let (reachability, _) = solve_constraints(vm.state.pc, vm.constraints.clone()).await;
-              if !reachability {
-                debug!("Skip non-target function");
-                continue_flag = false;
-              }
-            }
-
-            if found_calldataload
-              && (*prev_addr.clone() == Expr::SymAddr("entrypoint".to_string()))
-              && (prev_op == "STOP" || prev_op == "RETURN")
-            {
-              let (reachability, _) = solve_constraints(vm.state.pc, vm.constraints.clone()).await;
-              if reachability {
-                debug!("REACHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
-                next_reachable_envs.push(vm.env.clone());
-              } else {
-                debug!("UNRECHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
-              }
-            }
-
-            if found_calldataload && prev_op == "REVERT" {
-              let (reachability, model) = solve_constraints(vm.state.pc, vm.constraints.clone()).await;
-              end = true;
-
-              if reachability {
-                error!("\u{001b}[31mREACHABLE REVERT DETECTED @ PC=0x{:x}\u{001b}[0m", prev_pc);
-                if let Some(ref model_str) = model {
-                  let model = parse_z3_output(&model_str);
-
-                  let mut fname_to_args: HashMap<String, Vec<String>> = HashMap::new();
-                  for fname in &function_names_vec {
-                    fname_to_args.insert(fname.to_string(), vec![]);
-                  }
-
-                  for (k, v) in model.iter() {
-                    if k[..3] == *"arg" {
-                      let variable_id = k[3..].parse::<usize>().unwrap_or(0);
-                      if variable_id_to_function_name.contains_key(&variable_id) {
-                        fname_to_args
-                          .get_mut(variable_id_to_function_name.get(&variable_id).unwrap())
-                          .unwrap()
-                          .push(format!("{}=0x{},", k, v.trim_start_matches('0').to_string()));
-                      }
-                    }
-                  }
-
-                  let mut msg_model = "".to_string();
-                  for fname in &function_names_vec {
-                    if msg_model != "".to_string() {
-                      msg_model += " -> ";
-                    }
-                    let mut is_zero_args = true;
-                    msg_model += &(fname.to_string() + "(");
-                    for v in fname_to_args.get(fname).unwrap() {
-                      msg_model += v;
-                      is_zero_args = false;
-                    }
-                    if !is_zero_args {
-                      msg_model.pop();
-                    }
-                    msg_model.push(')');
-                  }
-
-                  error!("\u{001b}[31mmodel: {}\u{001b}[0m", msg_model);
-                }
-
-                let mut msg = "** Constraints (Raw Format):=\n true".to_string();
-                for e in &vm.constraints_raw_expr {
-                  msg = msg + &format!(" && {}\n", *e);
-                }
-                debug!("{}", msg);
-                break;
-              } else {
-                debug!("UNRECHABLE REVERT @ PC=0x{:x}", prev_pc);
-              }
-            }
-
-            if continue_flag {
-              if prev_pc == vm.state.pc {
-                vm.state.pc = vm.state.pc + 1;
-              }
-            } else if (vm.state.pc >= opslen(&vm.state.code)) && vms.len() == 0 {
-              end = true;
-              break;
-            } else if vms.len() == 0 && found_calldataload {
-              end = true;
-              break;
-            } else if vms.len() == 0 {
-              break;
-            } else {
-              vm = vms.pop().unwrap();
-              debug!("---------------");
+          if prev_op == "JUMPI" && is_function_sig_check_prop(vm.constraints.clone().last().unwrap()) {
+            let (reachability, _) = solve_constraints(vm.state.pc, vm.constraints.clone()).await;
+            if !reachability {
+              debug!("Skip non-target function");
+              continue_flag = false;
             }
           }
-          debug!("---------------");
-          vm.constraints = vm.constraints[..num_initial_constraints].to_vec();
-          //vm.constraints_raw_expr = vm.constraints_raw_expr[..num_initial_constraints].to_vec();
-          vm.constraints_raw_expr.clear();
-          vm.state.pc += 1;
+
+          if found_calldataload
+            && (*prev_addr.clone() == Expr::SymAddr("entrypoint".to_string()))
+            && (prev_op == "STOP" || prev_op == "RETURN")
+          {
+            let (reachability, _) = solve_constraints(vm.state.pc, vm.constraints.clone()).await;
+            if reachability {
+              debug!("REACHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
+              next_reachable_envs.push(vm.env.clone());
+            } else {
+              debug!("UNRECHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
+            }
+          }
+
+          if found_calldataload && prev_op == "REVERT" {
+            potential_reverts.push((vm.state.pc, vm.constraints.clone()));
+            end = true;
+          }
+
+          if continue_flag {
+            if prev_pc == vm.state.pc {
+              vm.state.pc = vm.state.pc + 1;
+            }
+          } else if (vm.state.pc >= opslen(&vm.state.code)) && vms.len() == 0 {
+            end = true;
+            break;
+          } else if vms.len() == 0 && found_calldataload {
+            end = true;
+            break;
+          } else if vms.len() == 0 {
+            break;
+          } else {
+            vm = vms.pop().unwrap();
+            debug!("---------------");
+          }
         }
-      });
+        debug!("---------------");
+        vm.constraints = vm.constraints[..num_initial_constraints].to_vec();
+        //vm.constraints_raw_expr.clear();
+        vm.state.pc += 1;
+      }
+
+      let mut tasks = vec![];
+      for (pc, constraints) in potential_reverts {
+        let constraints_clone = constraints.clone(); // Clone constraints to move into the task
+        let task = task::spawn(async move {
+          let (reachability, model) = solve_constraints(pc, constraints_clone).await;
+          (pc, reachability, model)
+        });
+        tasks.push(task);
+      }
+
+      for task in tasks {
+        let (pc, reachability, model) = task.await.unwrap(); // Await each task and unwrap the result
+        if reachability {
+          error!("\u{001b}[31mREACHABLE REVERT DETECTED @ PC=0x{:x}\u{001b}[0m", pc);
+          if let Some(ref model_str) = model {
+            let model = parse_z3_output(&model_str);
+
+            let mut fname_to_args: HashMap<String, Vec<String>> = HashMap::new();
+            for fname in &function_names_vec {
+              fname_to_args.insert(fname.to_string(), vec![]);
+            }
+
+            for (k, v) in model.iter() {
+              if k[..3] == *"arg" {
+                let variable_id = k[3..].parse::<usize>().unwrap_or(0);
+                if variable_id_to_function_name.contains_key(&variable_id) {
+                  fname_to_args
+                    .get_mut(variable_id_to_function_name.get(&variable_id).unwrap())
+                    .unwrap()
+                    .push(format!("{}=0x{},", k, v.trim_start_matches('0').to_string()));
+                }
+              }
+            }
+
+            let mut msg_model = "".to_string();
+            for fname in &function_names_vec {
+              if msg_model != "".to_string() {
+                msg_model += " -> ";
+              }
+              let mut is_zero_args = true;
+              msg_model += &(fname.to_string() + "(");
+              for v in fname_to_args.get(fname).unwrap() {
+                msg_model += v;
+                is_zero_args = false;
+              }
+              if !is_zero_args {
+                msg_model.pop();
+              }
+              msg_model.push(')');
+            }
+
+            error!("\u{001b}[31mmodel: {}\u{001b}[0m", msg_model);
+          }
+
+          //let mut msg = "** Constraints (Raw Format):=\n true".to_string();
+          //for e in &vm.constraints_raw_expr {
+          //  msg = msg + &format!(" && {}\n", *e);
+          //}
+          //debug!("{}", msg);
+          break;
+        } //else {
+          //debug!("UNRECHABLE REVERT @ PC=0x{:x}", pc);
+          //}
+      }
+
       info!("Execution of `{}` completed.\n", function_name);
     }
     reachable_envs = next_reachable_envs;
