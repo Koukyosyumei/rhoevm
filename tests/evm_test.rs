@@ -10,7 +10,7 @@ use rhoevm::modules::types::{ContractCode, Expr, Memory, Prop, RuntimeCodeStruct
 
 const MAX_NUM_ITERATIONS: u32 = 1;
 
-fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
+fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Box<Prop>>)) -> Result<VM, Box<dyn Error>> {
   let (miner, block_num, base_fee, prev_ran) = (Expr::SymAddr("miner".to_string()), W256(0, 0), W256(0, 0), W256(0, 0));
 
   let caller = Expr::SymAddr("caller".to_string());

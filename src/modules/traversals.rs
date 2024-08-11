@@ -127,19 +127,21 @@ where
     // control flow
     Expr::Success(a, _, c, mut d) => {
       f(&expr)
-        + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
+        + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), *p.clone()))
         + go_expr(f, acc, *c)
         + d.keys().fold(B::default(), |acc, k| acc + fold_expr(f, B::default(), k))
         + d.values().fold(B::default(), |acc, v| acc + fold_econtract(f, B::default(), v))
     }
     Expr::Failure(a, _, EvmError::Revert(c)) => {
-      f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone())) + go_expr(f, acc, *c)
+      f(&expr)
+        + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), *p.clone()))
+        + go_expr(f, acc, *c)
     }
     Expr::Failure(a, _, _) => {
-      f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
+      f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), *p.clone()))
     }
     Expr::Partial(a, _, _) => {
-      f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), p.clone()))
+      f(&expr) + a.iter().fold(B::default(), |acc, p| acc + fold_prop(f, B::default(), *p.clone()))
     }
     Expr::ITE(a, b, c) => f(&expr) + go_expr(f, acc.clone(), *a) + go_expr(f, acc.clone(), *b) + go_expr(f, acc, *c),
 
@@ -356,15 +358,15 @@ impl ExprMappable for Expr {
 
       // Control Flow
       Expr::Failure(a, b, c) => {
-        let a = (a.iter().map(|x| map_prop_m(f, x.clone()))).into_iter().collect();
+        let a = (a.iter().map(|x| Box::new(map_prop_m(f, *x.clone())))).into_iter().collect();
         f(&Expr::Failure(a, b.clone(), c.clone()))
       }
       Expr::Partial(a, b, c) => {
-        let a = (a.iter().map(|x| map_prop_m(f, x.clone()))).into_iter().collect();
+        let a = (a.iter().map(|x| Box::new(map_prop_m(f, *x.clone())))).into_iter().collect();
         f(&Expr::Partial(a, b.clone(), c.clone()))
       }
       Expr::Success(a, b, c, d) => {
-        let a_ = (a.iter().map(|x| map_prop_m(f, x.clone()))).into_iter().collect();
+        let a_ = (a.iter().map(|x| Box::new(map_prop_m(f, *x.clone())))).into_iter().collect();
         let c_ = c.map_expr_m(f);
         //let mut r = vec![];
         /*

@@ -104,7 +104,7 @@ fn print_ascii_art() {
   println!("       ╲");
 }
 
-fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
+fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Box<Prop>>)) -> Result<VM, Box<dyn Error>> {
   let (miner, block_num, base_fee, prev_ran) = (Expr::SymAddr("miner".to_string()), W256(0, 0), W256(0, 0), W256(0, 0));
 
   let caller = Expr::SymAddr("caller".to_string());
@@ -297,8 +297,8 @@ async fn main() {
       let mut found_calldataload = false;
       let mut prev_valid_op = "".to_string();
 
-      let mut potential_envs: Vec<(usize, Vec<Prop>, Env)> = vec![];
-      let mut potential_reverts: Vec<(usize, Vec<Prop>)> = vec![];
+      let mut potential_envs: Vec<(usize, Vec<Box<Prop>>, Env)> = vec![];
+      let mut potential_reverts: Vec<(usize, Vec<Box<Prop>>)> = vec![];
 
       // ------------- Start symbolic execution -------------
       info!("Starting EVM symbolic execution...");

@@ -415,9 +415,9 @@ pub enum Expr {
   JoinBytes(Vec<Expr>),
 
   // Control Flow
-  Partial(Vec<Prop>, TraceContext, PartialExec),
-  Failure(Vec<Prop>, TraceContext, EvmError),
-  Success(Vec<Prop>, TraceContext, Box<Expr>, ExprExprMap),
+  Partial(Vec<Box<Prop>>, TraceContext, PartialExec),
+  Failure(Vec<Box<Prop>>, TraceContext, EvmError),
+  Success(Vec<Box<Prop>>, TraceContext, Box<Expr>, ExprExprMap),
   ITE(Box<Expr>, Box<Expr>, Box<Expr>),
 
   // Integers
@@ -1281,7 +1281,7 @@ pub struct VM {
   pub traces: Vec<Trace>,
   pub cache: Cache,
   pub burned: Gas,
-  pub constraints: Vec<Prop>,
+  pub constraints: Vec<Box<Prop>>,
   pub config: RuntimeConfig,
   pub iterations: HashMap<CodeLocation, (i64, Vec<Box<Expr>>)>,
   pub forks: Vec<ForkState>,
@@ -1476,7 +1476,7 @@ pub struct SubState {
 pub struct VMOpts {
   pub contract: Contract,
   pub other_contracts: Vec<(Expr, Contract)>,
-  pub calldata: (Expr, Vec<Prop>),
+  pub calldata: (Expr, Vec<Box<Prop>>),
   pub base_state: BaseState,
   pub value: Expr,
   pub priority_fee: W256,

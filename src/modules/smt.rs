@@ -107,7 +107,7 @@ pub struct SMTCex {
 
 // RefinementEqs struct
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct RefinementEqs(Vec<Builder>, Vec<Prop>);
+struct RefinementEqs(Vec<Builder>, Vec<Box<Prop>>);
 
 impl RefinementEqs {
   fn new() -> RefinementEqs {
@@ -136,7 +136,7 @@ impl std::ops::AddAssign for RefinementEqs {
 
 // SMT2 struct
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SMT2(Vec<Builder>, RefinementEqs, CexVars, Vec<Prop>);
+pub struct SMT2(Vec<Builder>, RefinementEqs, CexVars, Vec<Box<Prop>>);
 
 // Implementing Semigroup and Monoid traits for SMT2
 impl std::ops::Add for SMT2 {
@@ -355,10 +355,11 @@ fn base_buf(e: Expr, benv: &BufEnv) -> Expr {
   }
 }
 
-fn discover_max_reads(props: &Vec<Prop>, benv: &BufEnv, senv: &StoreEnv) -> HashMap<String, Expr> {
+fn discover_max_reads(props: &Vec<Box<Prop>>, benv: &BufEnv, senv: &StoreEnv) -> HashMap<String, Expr> {
   // Find all buffer accesses
+  let props_tmp: Vec<Prop> = props.into_iter().map(|p| *p.clone()).collect();
   let all_reads = {
-    let mut reads = find_buffer_access(props);
+    let mut reads = find_buffer_access(&props_tmp);
     reads.extend(find_buffer_access(&benv.values().into_iter().map(|e: &Expr| e.clone()).collect()));
     reads.extend(find_buffer_access(&senv.values().into_iter().map(|e: &Expr| e.clone()).collect()));
     reads
@@ -369,7 +370,8 @@ fn discover_max_reads(props: &Vec<Prop>, benv: &BufEnv, senv: &StoreEnv) -> Hash
     let mut buf_set: HashSet<String> = HashSet::new();
 
     let mut pr: Vec<String> = vec![];
-    for p in props {
+    let props_tmp: Vec<Prop> = props.into_iter().map(|x| *x.clone()).collect();
+    for p in &props_tmp {
       pr.extend(referenced_bufs(p));
     }
 
@@ -414,7 +416,7 @@ fn discover_max_reads(props: &Vec<Prop>, benv: &BufEnv, senv: &StoreEnv) -> Hash
 }
 
 // Function to declare buffers
-fn declare_bufs(props: &Vec<Prop>, buf_env: BufEnv, store_env: StoreEnv) -> SMT2 {
+fn declare_bufs(props: &Vec<Box<Prop>>, buf_env: BufEnv, store_env: StoreEnv) -> SMT2 {
   let cexvars = CexVars { buffers: discover_max_reads(props, &buf_env, &store_env), ..CexVars::new() };
 
   let all_bufs: Vec<String> = cexvars.buffers.keys().cloned().collect();
@@ -439,12 +441,12 @@ fn declare_bufs(props: &Vec<Prop>, buf_env: BufEnv, store_env: StoreEnv) -> SMT2
 }
 
 // Declare frame context
-fn declare_frame_context(names: &Vec<(Builder, Vec<Prop>)>) -> SMT2 {
+fn declare_frame_context(names: &Vec<(Builder, Vec<Box<Prop>>)>) -> SMT2 {
   let declarations = vec!["; frame context".to_string()]
     .into_iter()
     .chain(names.iter().flat_map(|(n, props)| {
       let mut decls = vec![format!("(declare-fun {} () (_ BitVec 256))", n)];
-      decls.extend(props.iter().map(|p| format!("(assert {})", prop_to_smt(p.clone()))));
+      decls.extend(props.iter().map(|p| format!("(assert {})", prop_to_smt(*p.clone()))));
       decls
     }))
     .collect();
@@ -481,9 +483,9 @@ fn declare_block_context(names: &Vec<(Builder, Vec<Prop>)>) -> SMT2 {
   SMT2(declarations, RefinementEqs(vec![], vec![]), cexvars, vec![])
 }
 
-fn abstract_away_props(conf: &Config, ps: Vec<Prop>) -> (Vec<Prop>, AbstState) {
+fn abstract_away_props(conf: &Config, ps: Vec<Box<Prop>>) -> (Vec<Box<Prop>>, AbstState) {
   let mut state = AbstState { words: HashMap::new(), count: 0 };
-  let abstracted = ps.iter().map(|prop| abstract_away(conf, prop, &mut state)).collect::<Vec<_>>();
+  let abstracted = ps.iter().map(|prop| Box::new(abstract_away(conf, prop, &mut state))).collect::<Vec<_>>();
   (abstracted, state)
 }
 
@@ -505,10 +507,10 @@ pub fn abstr_expr(e: &Expr, state: &mut AbstState) -> Expr {
   Expr::Var(name.into())
 }
 
-fn decompose(props: Vec<Prop>, conf: &Config) -> Vec<Prop> {
+fn decompose(props: Vec<Box<Prop>>, conf: &Config) -> Vec<Box<Prop>> {
   if conf.decompose_storage && safe_exprs(&props.clone()) && safe_props(&props.clone()) {
     if let Some(v) = props.into_iter().map(|prop| decompose_storage_prop(prop)).collect::<Option<Vec<Prop>>>() {
-      v
+      v.into_iter().map(|a| Box::new(a)).collect()
     } else {
       vec![]
     }
@@ -518,9 +520,9 @@ fn decompose(props: Vec<Prop>, conf: &Config) -> Vec<Prop> {
 }
 
 // Placeholder functions for the omitted details
-fn decompose_storage_prop(prop: Prop) -> Option<Prop> {
+fn decompose_storage_prop(prop: Box<Prop>) -> Option<Prop> {
   // Implementation for decomposing a single Prop
-  Some(prop)
+  Some(*prop)
 }
 
 fn safe_to_decompose(_prop: &Prop) -> Option<()> {
@@ -533,11 +535,11 @@ fn safe_to_decompose_prop(_prop: &Prop) -> bool {
   true
 }
 
-fn safe_exprs(props: &[Prop]) -> bool {
+fn safe_exprs(props: &[Box<Prop>]) -> bool {
   props.iter().all(|prop| safe_to_decompose(prop).is_some())
 }
 
-fn safe_props(props: &[Prop]) -> bool {
+fn safe_props(props: &[Box<Prop>]) -> bool {
   props.iter().all(|prop| safe_to_decompose_prop(prop))
 }
 
@@ -549,7 +551,7 @@ fn abstract_vars(abst: &AbstState) -> Vec<Builder> {
   abst.words.clone().into_iter().map(|(_, v)| (format!("abst_{}", v))).collect()
 }
 
-fn concatenate_props(a: &[Prop], b: &[Prop], c: &[Prop]) -> Vec<Prop> {
+fn concatenate_props(a: &Vec<Box<Prop>>, b: &Vec<Box<Prop>>, c: &Vec<Box<Prop>>) -> Vec<Box<Prop>> {
   a.iter().cloned().chain(b.iter().cloned()).chain(c.iter().cloned()).collect()
 }
 
@@ -611,13 +613,13 @@ fn referenced_vars<T: TraversableTerm>(expr: &T) -> Vec<Builder> {
   vars.to_vec().iter().map(|s| (*s).clone()).collect()
 }
 
-fn referenced_frame_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<Prop>)> {
-  fn go(x: Expr) -> AddableVec<(Builder, Vec<Prop>)> {
+fn referenced_frame_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<Box<Prop>>)> {
+  fn go(x: Expr) -> AddableVec<(Builder, Vec<Box<Prop>>)> {
     match x.clone() {
       Expr::TxValue => AddableVec::from_vec(vec![("txvalue".to_string(), vec![])]),
       Expr::Balance(a) => AddableVec::from_vec(vec![(
         format!("balance_{}", format_e_addr(*a.clone())),
-        vec![Prop::PLT(x.clone(), Expr::Lit(W256(2, 0) ^ W256(96, 0)))],
+        vec![Box::new(Prop::PLT(x.clone(), Expr::Lit(W256(2, 0) ^ W256(96, 0))))],
       )]),
       Expr::Gas { .. } => {
         panic!("TODO: GAS");
@@ -675,14 +677,15 @@ fn referenced_block_context<T: TraversableTerm>(expr: &T) -> Vec<(Builder, Vec<P
 }
 
 fn gather_all_vars(
-  to_declare_ps_elim: &[Prop],
+  to_declare_ps_elim: &Vec<Box<Prop>>,
   buf_vals: &Vec<Expr>,
   store_vals: &Vec<Expr>,
   abst: &AbstState,
 ) -> Vec<Builder> {
   to_declare_ps_elim
     .iter()
-    .flat_map(|p| referenced_vars(p))
+    .map(|t| *t.clone())
+    .flat_map(|p| referenced_vars(&p))
     .chain(buf_vals.iter().flat_map(|v| referenced_vars(v)))
     .chain(store_vals.iter().flat_map(|v| referenced_vars(v)))
     .chain(abstract_vars(abst).into_iter())
@@ -690,43 +693,45 @@ fn gather_all_vars(
 }
 
 fn gather_frame_context(
-  to_declare_ps_elim: &[Prop],
+  to_declare_ps_elim: &Vec<Box<Prop>>,
   buf_vals: &Vec<Expr>,
   store_vals: &Vec<Expr>,
-) -> Vec<(Builder, Vec<Prop>)> {
+) -> Vec<(Builder, Vec<Box<Prop>>)> {
   to_declare_ps_elim
     .iter()
-    .flat_map(|p| referenced_frame_context(p))
+    .map(|t| *t.clone())
+    .flat_map(|p| referenced_frame_context(&p))
     .chain(buf_vals.iter().flat_map(|v| referenced_frame_context(v)))
     .chain(store_vals.iter().flat_map(|v| referenced_frame_context(v)))
     .collect()
 }
 
 fn gather_block_context(
-  to_declare_ps_elim: &[Prop],
+  to_declare_ps_elim: &Vec<Box<Prop>>,
   buf_vals: &Vec<Expr>,
   store_vals: &Vec<Expr>,
 ) -> Vec<(String, Vec<Prop>)> {
   to_declare_ps_elim
     .iter()
-    .flat_map(|p| referenced_block_context(p))
+    .map(|t| *t.clone())
+    .flat_map(|p| referenced_block_context(&p))
     .chain(buf_vals.iter().flat_map(|v| referenced_block_context(v)))
     .chain(store_vals.iter().flat_map(|v| referenced_block_context(v)))
     .collect()
 }
 
-fn create_keccak_assertions(kecc_assump: &[Prop], kecc_comp: &[Prop]) -> Vec<SMT2> {
+fn create_keccak_assertions(kecc_assump: &Vec<Box<Prop>>, kecc_comp: &Vec<Box<Prop>>) -> Vec<SMT2> {
   let mut assertions = Vec::new();
   assertions.push(smt2_line("; keccak assumptions".to_owned()));
   assertions.push(SMT2(
-    kecc_assump.iter().map(|p| format!("(assert {})", prop_to_smt(p.clone()))).collect(),
+    kecc_assump.iter().map(|p| format!("(assert {})", prop_to_smt(*p.clone()))).collect(),
     RefinementEqs::new(),
     CexVars::new(),
     vec![],
   ));
   assertions.push(smt2_line("; keccak computations".to_owned()));
   assertions.push(SMT2(
-    kecc_comp.iter().map(|p| format!("(assert {})", prop_to_smt(p.clone()))).collect(),
+    kecc_comp.iter().map(|p| format!("(assert {})", prop_to_smt(*p.clone()))).collect(),
     RefinementEqs::new(),
     CexVars::new(),
     vec![],
@@ -738,10 +743,10 @@ fn create_keccak_assertions(kecc_assump: &[Prop], kecc_comp: &[Prop]) -> Vec<SMT
 -- | Asserts that buffer reads beyond the size of the buffer are equal
 -- to zero. Looks for buffer reads in the a list of given predicates
 -- and the buffer and storage environments.
-assertReads :: [Prop] -> BufEnv -> StoreEnv -> [Prop]
+assertReads :: Vec<Box<Prop>> -> BufEnv -> StoreEnv -> Vec<Box<Prop>>
 assertReads props benv senv = concatMap assertRead allReads
   where
-    assertRead :: (Expr EWord, Expr EWord, Expr Buf) -> [Prop]
+    assertRead :: (Expr EWord, Expr EWord, Expr Buf) -> Vec<Box<Prop>>
     assertRead (idx, Lit 32, buf) = [PImpl (PGEq idx (bufLength buf)) (PEq (ReadWord idx buf) (Lit 0))]
     assertRead (idx, Lit sz, buf) =
       fmap
@@ -760,11 +765,12 @@ assertReads props benv senv = concatMap assertRead allReads
     keepRead _ = True
 */
 // Define the assert_reads function
-fn assert_reads(props: &[Prop], benv: &BufEnv, senv: &StoreEnv) -> Vec<Prop> {
+fn assert_reads(props: &Vec<Box<Prop>>, benv: &BufEnv, senv: &StoreEnv) -> Vec<Prop> {
   let mut all_reads = HashSet::new();
+  let props_tmp = props.into_iter().map(|t| *t.clone()).collect();
 
   // Collect all buffer access reads
-  all_reads.extend(find_buffer_access(&props.to_vec()));
+  all_reads.extend(find_buffer_access(&props_tmp));
   all_reads.extend(find_buffer_access(&benv.values().cloned().collect()));
   all_reads.extend(find_buffer_access(&senv.values().cloned().collect()));
 
@@ -812,7 +818,7 @@ fn keep_read(read: &(Expr, Expr, Expr), benv: &BufEnv) -> bool {
   }
 }
 
-fn create_read_assumptions(ps_elim: &[Prop], bufs: &BufEnv, stores: &StoreEnv) -> Vec<SMT2> {
+fn create_read_assumptions(ps_elim: &Vec<Box<Prop>>, bufs: &BufEnv, stores: &StoreEnv) -> Vec<SMT2> {
   let assumptions = assert_reads(ps_elim, bufs, stores);
   let mut result = Vec::new();
   result.push(smt2_line("; read assumptions".to_string()));
@@ -825,7 +831,7 @@ fn create_read_assumptions(ps_elim: &[Prop], bufs: &BufEnv, stores: &StoreEnv) -
   result
 }
 
-pub fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
+pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> SMT2 {
   let simplified_ps = decompose(simplify_props(ps_pre_conc.clone()), config);
 
   let ps = conc_keccak_props(simplified_ps);
@@ -837,7 +843,8 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
       (ps_elim.clone(), AbstState { words: HashMap::new(), count: 0 })
     };
 
-  let abst_props = abst_expr_to_int.into_iter().map(|(e, num)| to_prop(e.clone(), *num)).collect::<Vec<Prop>>();
+  let abst_props =
+    abst_expr_to_int.into_iter().map(|(e, num)| Box::new(to_prop(e.clone(), *num))).collect::<Vec<Box<Prop>>>();
 
   let buf_vals = bufs.values().cloned().collect::<Vec<_>>();
   let store_vals = stores.values().cloned().collect::<Vec<_>>();
@@ -854,15 +861,21 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   let storage_reads: HashMap<(Expr, Option<W256>), HashSet<Expr>> = to_declare_ps
     .clone()
     .into_iter()
+    .map(|t| *t.clone())
     .flat_map(|p: Prop| find_storage_reads(&p)) // Flatten HashMap into an iterator of tuples
     .fold(HashMap::new(), |mut acc, (key, value)| {
       acc.entry(key).or_insert_with(HashSet::new).extend(value);
       acc
     });
-  let abstract_stores_set: HashSet<Builder> =
-    to_declare_ps.clone().into_iter().flat_map(|term: Prop| referenced_abstract_stores(&term)).collect();
+  let abstract_stores_set: HashSet<Builder> = to_declare_ps
+    .clone()
+    .into_iter()
+    .map(|t| *t.clone())
+    .flat_map(|term: Prop| referenced_abstract_stores(&term))
+    .collect();
   let abstract_stores: Vec<Builder> = abstract_stores_set.into_iter().collect();
-  let addresses = to_declare_ps.into_iter().flat_map(|term: Prop| referenced_waddrs(&term)).collect();
+  let addresses =
+    to_declare_ps.into_iter().map(|t| *t.clone()).flat_map(|term: Prop| referenced_waddrs(&term)).collect();
 
   /*allVars = fmap referencedVars toDeclarePsElim <> fmap referencedVars bufVals <> fmap referencedVars storeVals <> [abstrVars abst] */
 
@@ -874,8 +887,8 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Prop>) -> SMT2 {
   let read_assumes = create_read_assumptions(&ps_elim, &bufs, &stores);
 
   // ----------------------------------------------------- //
-  let encs = ps_elim_abst.iter().map(|p| prop_to_smt(p.clone())).collect::<Vec<_>>();
-  let abst_smt = abst_props.iter().map(|p| prop_to_smt(p.clone())).collect::<Vec<_>>();
+  let encs = ps_elim_abst.iter().map(|p| prop_to_smt(*p.clone())).collect::<Vec<_>>();
+  let abst_smt = abst_props.iter().map(|p| prop_to_smt(*p.clone())).collect::<Vec<_>>();
   let intermediates = declare_intermediates(&bufs, &stores);
   // let decls = declare_intermediates(&bufs, &stores);
 

@@ -3091,7 +3091,7 @@ fn account_empty(c: &Contract) -> bool {
 ///
 /// * `(bool, Option<String>)` - A tuple where the first element indicates whether the constraints are satisfiable,
 ///   and the second element is an optional string containing the model from the SMT solver if the constraints are satisfiable.
-pub async fn solve_constraints(pc: usize, pathconds: Vec<Prop>) -> (bool, Option<String>) {
+pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, Option<String>) {
   let result = task::spawn_blocking(move || {
     let config = Config::default();
     let smt2 = assert_props(&config, pathconds.to_vec());
@@ -3185,10 +3185,10 @@ where
   let else_branch_cond = Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)));
 
   // vm.constraints_raw_expr.push(cond.clone());
-  vm.constraints.push(then_branch_cond);
+  vm.constraints.push(Box::new(then_branch_cond));
 
   // new_vm.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
-  new_vm.constraints.push(else_branch_cond);
+  new_vm.constraints.push(Box::new(else_branch_cond));
   if itr_cnt >= max_num_iterations as i64 {
     //*new_vm.iterations.entry(loc).or_insert((0, new_vm.state.stack.clone())) = (0, new_vm.state.stack.clone())
   }

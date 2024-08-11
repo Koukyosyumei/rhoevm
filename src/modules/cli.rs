@@ -73,7 +73,7 @@ pub struct SymbolicCommand {
   pub no_decompose: bool,        // Don't decompose storage slots into separate arrays
 }
 
-pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
+pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Box<Prop>>)) -> Result<VM, Box<dyn Error>> {
   let (miner, block_num, base_fee, prev_ran) = match &cmd.rpc {
     None => (Expr::SymAddr("miner".to_string()), W256(0, 0), W256(0, 0), W256(0, 0)),
     Some(url) => {
@@ -149,7 +149,7 @@ pub fn vm0(
   ts: Expr,
   block_num: W256,
   prev_ran: W256,
-  calldata: (Expr, Vec<Prop>),
+  calldata: (Expr, Vec<Box<Prop>>),
   callvalue: Expr,
   caller: Expr,
   c: Contract,
@@ -195,7 +195,10 @@ fn parse_initial_storage(is: InitialStorage) -> BaseState {
   }
 }
 
-pub fn build_calldata(cmd: &SymbolicCommand, offset: usize) -> Result<(Expr, Vec<Prop>), Box<dyn std::error::Error>> {
+pub fn build_calldata(
+  cmd: &SymbolicCommand,
+  offset: usize,
+) -> Result<(Expr, Vec<Box<Prop>>), Box<dyn std::error::Error>> {
   match (&cmd.calldata, &cmd.sig) {
     // Fully abstract calldata
     (None, None) => Ok(mk_calldata(&None, &[], offset)),
