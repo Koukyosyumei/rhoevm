@@ -601,13 +601,6 @@ impl fmt::Display for Expr {
   }
 }
 
-pub fn len_buf(e: &Expr) -> usize {
-  match e {
-    Expr::ConcreteBuf(buf) => buf.len(),
-    _ => 0,
-  }
-}
-
 impl Eq for Expr {}
 
 impl PartialEq for Expr {

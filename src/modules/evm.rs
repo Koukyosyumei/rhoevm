@@ -1,4 +1,4 @@
-use log::{error, info, warn};
+use log::{error, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -18,9 +18,9 @@ use crate::modules::format::format_prop;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
-  from_list, keccak, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right,
-  unbox, word256_bytes, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract, ContractCode, Env, EvmError,
-  Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory, PartialExec, Prop,
+  from_list, keccak, keccak_prime, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right, unbox,
+  word256_bytes, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr,
+  ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory, PartialExec, Prop,
   RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
 };
 
@@ -372,10 +372,10 @@ impl VM {
     if is_precompile(&self_contract) {
       if let Some(lit_self) = maybe_lit_addr(*self_contract) {
         // call to precompile
-        let calldatasize = len_buf(&self.state.calldata);
+        let calldatasize = buf_length(*self.state.calldata.clone());
         copy_bytes_to_memory(
           self.state.calldata.clone(),
-          Box::new(Expr::Lit(W256(calldatasize as u128, 0))),
+          Box::new(calldatasize.clone()),
           Box::new(Expr::Lit(W256(0, 0))),
           Box::new(Expr::Lit(W256(0, 0))),
           self,
@@ -384,7 +384,7 @@ impl VM {
           lit_self,
           self.state.gas.clone(),
           Expr::Lit(W256(0, 0)),
-          Expr::Lit(W256(calldatasize as u128, 0)),
+          calldatasize,
           Expr::Lit(W256(0, 0)),
           Expr::Lit(W256(0, 0)),
           vec![],
