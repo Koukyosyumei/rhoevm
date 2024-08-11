@@ -3,16 +3,18 @@
 `rhoevm` is a symbolic EVM execution engine written in Rust. It is inspired by [`hevm`](https://github.com/ethereum/hevm), which is implemented in Haskell. This project aims to provide a robust tool for analyzing Ethereum smart contracts by symbolically executing the EVM bytecode.
 
 
-> [!CAUTION]
-> Currently, this project is a work in progress.
+> [!NOTE]
+> This project is currently under active development. Some features may be incomplete or subject to change.
 
 ## 1. Install
 
 ### 1.1 Prerequisites
 
-- Rust: Ensure you have Rust installed. You can download it from [rust-lang.org](https://www.rust-lang.org/).
-- Cargo: Rust's package manager should be installed with Rust.
-- Z3 Solver: `rhoevm` requires the Z3 solver for constraint solving.
+Before building and running rhoevm, ensure you have the following installed:
+
+- Rust: Download and install from [rust-lang.org](https://www.rust-lang.org/).
+- Cargo: Comes with Rust as its package manager.
+- Z3 Solver: Required for constraint solving. Download from the [Z3 GitHub repository](https://github.com/Z3Prover/z3).
 
 ### 1.2 Building from Source
 
@@ -22,12 +24,14 @@ Clone the repository and build the project using Cargo:
 git clone https://github.com/Koukyosyumei/rhoevm.git
 cd rhoevm
 cargo build --release
+
+# Optionally, copy the binary to a directory in your PATH
 # sudo cp ./target/release/rhoevm /usr/local/bin/rhoevm
 ```
 
 ### 1.3 Running Tests
 
-Run tests to verify the installation:
+After building, you can run the tests to verify that everything is working correctly:
 
 ```bash
 cargo test
@@ -37,7 +41,7 @@ cargo test
 
 ### 2.1 Command-Line Interface
 
-`rhoevm` is operated via the command line. The general syntax is as follows:
+`rhoevm` provides a command-line interface for executing smart contract bytecode symbolically. The basic usage is as follows:
 
 ```bash
 rhoevm CONTRACT_NAME FUNCTION_NAMES [options]
@@ -46,10 +50,10 @@ rhoevm CONTRACT_NAME FUNCTION_NAMES [options]
 - Options
 
 ```
--d, --dir DIR: Specify the target directory where contract files are located.
--i, --max_num_iterations MAX_NUM_ITER: Maximum number of iterations for loop
--v, --verbose LEVEL: Set the verbosity level (0: error, 1: warn, 2: info, 3: debug, 4: trace).
--h, --help: Display help information.
+`-d, --dir DIR`: Specify the target directory where contract files are located.
+`-i, --max_num_iterations MAX_NUM_ITER`: Set the maximum number of iterations for loops.
+`-v, --verbose LEVEL`: Set the verbosity level (0: error, 1: warn, 2: info, 3: debug, 4: trace).
+`-h, --help`: Display help information.
 ```
 
 Ensure that your environment is configured to locate the `.bin` and `.abi` files for the contracts. The filenames should match the contract name provided.
