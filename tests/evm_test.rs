@@ -42,7 +42,7 @@ fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) 
 fn test_vm_exec_1() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   cmd.code = Some("608060405234801561000f575f80fd5b506101b18061001d5f395ff3fe608060405234801561000f575f80fd5b506004361061003f575f3560e01c80632a1afcd91461004357806360fe47b1146100615780636d4ce63c1461007d575b5f80fd5b61004b61009b565b60405161005891906100dc565b60405180910390f35b61007b60048036038101906100769190610123565b6100a0565b005b6100856100bc565b60405161009291906100dc565b60405180910390f35b5f5481565b805f8190555060645f5410156100b9576100b861014e565b5b50565b5f8054905090565b5f819050919050565b6100d6816100c4565b82525050565b5f6020820190506100ef5f8301846100cd565b92915050565b5f80fd5b610102816100c4565b811461010c575f80fd5b50565b5f8135905061011d816100f9565b92915050565b5f60208284031215610138576101376100f5565b5b5f6101458482850161010f565b91505092915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52600160045260245ffdfea2646970667358221220f5cf3af85892477d264b1cc67141f37e00f71d638b17b6446bb28e85e3ccb30364736f6c63430008180033".into());
-  let callcode = build_calldata(&cmd).unwrap();
+  let callcode = build_calldata(&cmd, 0).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
 
@@ -72,7 +72,7 @@ fn test_vm_exec_1() {
 fn test_vm_op2() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   cmd.code = Some("01".into());
-  let callcode = build_calldata(&cmd).unwrap();
+  let callcode = build_calldata(&cmd, 0).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
 
@@ -87,7 +87,7 @@ fn test_vm_op2() {
 fn test_vm_opsha3() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   cmd.code = Some("20".into());
-  let callcode = build_calldata(&cmd).unwrap();
+  let callcode = build_calldata(&cmd, 0).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
 
@@ -107,7 +107,7 @@ fn test_vm_opsha3() {
 fn test_vm_opswap() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   cmd.code = Some("92".into());
-  let callcode = build_calldata(&cmd).unwrap();
+  let callcode = build_calldata(&cmd, 0).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
 
@@ -128,7 +128,7 @@ fn test_vm_opswap() {
 fn test_vm_opdup() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   cmd.code = Some("81".into());
-  let callcode = build_calldata(&cmd).unwrap();
+  let callcode = build_calldata(&cmd, 0).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
 
@@ -147,7 +147,7 @@ fn test_vm_opdup() {
 fn test_vm_oppc() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   cmd.code = Some("000000000058".into());
-  let callcode = build_calldata(&cmd).unwrap();
+  let callcode = build_calldata(&cmd, 0).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
 
@@ -162,7 +162,7 @@ fn test_vm_oppc() {
 fn test_vm_jumpi_onlythen() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   cmd.code = Some("6080608014600957005B00".into());
-  let callcode = build_calldata(&cmd).unwrap();
+  let callcode = build_calldata(&cmd, 0).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
 
@@ -178,7 +178,7 @@ fn test_vm_jumpi_onlythen() {
 fn test_vm_jumpi_onlyelse() {
   let mut cmd = <SymbolicCommand as std::default::Default>::default();
   cmd.code = Some("6080604014600957005B00".into());
-  let callcode = build_calldata(&cmd).unwrap();
+  let callcode = build_calldata(&cmd, 0).unwrap();
   let mut vm = dummy_symvm_from_command(&cmd, callcode).unwrap();
   let mut vms = vec![];
 

@@ -2,6 +2,7 @@ use env_logger;
 use getopts::Options;
 use log::{debug, error, info, warn};
 use std::cmp::min;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
@@ -24,6 +25,7 @@ struct Args {
   contract_name: String,
   function_names: String,
   target_dir: Option<String>,
+  max_num_iterations: Option<u32>,
   verbose_level: Option<String>,
 }
 
@@ -33,12 +35,15 @@ fn print_usage(program: &str, opts: &Options) {
   process::exit(0);
 }
 
+const DEFAULT_MAX_NUM_ITERATIONS: u32 = 10;
+
 fn parse_args() -> Args {
   let args: Vec<String> = env::args().collect();
   let program = args[0].clone();
 
   let mut opts = Options::new();
   opts.optopt("d", "dir", "target directory", "DIR");
+  opts.optopt("i", "max_num_iterations", "maximum number of iterations for loop", "MAX_NUM_ITER");
   opts.optopt("v", "verbose", "level of verbose", "LEVEL");
   opts.optflag("h", "help", "print this help menu");
 
@@ -70,9 +75,14 @@ fn parse_args() -> Args {
   };
 
   let target_dir = matches.opt_str("d");
+  let max_num_iterations = if let Some(i) = matches.opt_str("i") {
+    Some(i.parse::<u32>().unwrap_or(DEFAULT_MAX_NUM_ITERATIONS))
+  } else {
+    None
+  };
   let verbose_level = matches.opt_str("v");
 
-  Args { contract_name, function_names, target_dir, verbose_level }
+  Args { contract_name, function_names, target_dir, max_num_iterations, verbose_level }
 }
 
 fn print_ascii_art() {
@@ -180,7 +190,7 @@ fn main() {
 
   // ------------- Load the abi file -------------
   let abi_filename = base_filename.to_string() + &".abi".to_string();
-  info!("Loading abi from file: {}", abi_filename);
+  info!("Loading abi from file: {}\n", abi_filename);
   let mut j = match File::open(abi_filename.clone()) {
     Ok(file) => file,
     Err(e) => {
@@ -196,15 +206,18 @@ fn main() {
   let abi_map = parse_abi_file(&abi_json);
   debug!("File '{}' read successfully.\n", abi_filename);
 
-  // ------------- Calculate the function signature -------------
-
+  // utility variables
   let function_names_vec: Vec<String> = args.function_names.split(',').map(|s| s.to_string()).collect();
   let mut cnt_function_names = 0;
   let mut reachable_envs: Vec<Env> = vec![];
+  let mut num_known_variables = 0;
+  let mut variable_id_to_function_name: HashMap<usize, String> = HashMap::new();
 
+  // ------------- MAIN PART: May rhoevm light your path to bug-free code -------------
   for function_name in &function_names_vec {
     let mut next_reachable_envs: Vec<Env> = vec![];
 
+    // ------------- Calculate the function signature -------------
     if !abi_map.contains_key(function_name) {
       error!("Cannot find the specified function `{}`", function_name);
       return;
@@ -236,7 +249,7 @@ fn main() {
     cmd.value = Some(W256(0, 0));
     //cmd.calldata = Some(function_selector_hex.clone().as_bytes().to_vec());
     cmd.code = Some(binary.clone().into());
-    let callcode = match build_calldata(&cmd) {
+    let callcode = match build_calldata(&cmd, num_known_variables) {
       Ok(calldata) => calldata,
       Err(e) => {
         error!("Failed to build calldata: {}", e);
@@ -244,6 +257,11 @@ fn main() {
       }
     };
     info!("Calldata constructed successfully for function '{}'", function_signature);
+
+    for i in 1 + num_known_variables..=num_known_variables + abi_map[function_name].len() {
+      variable_id_to_function_name.insert(i, function_name.to_string());
+    }
+    num_known_variables += abi_map[function_name].len();
 
     // ------------- Initialize VM -------------
     let vm = match dummy_symvm_from_command(&cmd, callcode.clone()) {
@@ -283,7 +301,10 @@ fn main() {
           let prev_pc = vm.state.pc;
           let prev_addr = vm.state.contract.clone();
           let do_size = vm.decoded_opcodes.len();
-          let continue_flag = vm.exec1(&mut vms, if found_calldataload { 10 } else { 1 });
+          let mut continue_flag = vm.exec1(
+            &mut vms,
+            if found_calldataload { args.max_num_iterations.unwrap_or(DEFAULT_MAX_NUM_ITERATIONS) } else { 1 },
+          );
           let prev_op = vm.decoded_opcodes[min(do_size, vm.decoded_opcodes.len() - 1)].clone();
 
           if !found_calldataload && prev_valid_op == "RETURN" && prev_op != "UNKNOWN" {
@@ -305,15 +326,9 @@ fn main() {
             let (reachability, _) = solve_constraints(&vm, &vm.constraints);
             if !reachability {
               debug!("Skip non-target function");
-              break;
+              continue_flag = false;
             }
           }
-
-          let mut msg = "** Constraints (Raw Format):=\n true".to_string();
-          for e in &vm.constraints_raw_expr {
-            msg = msg + &format!(" && {}\n", *e);
-          }
-          //debug!("{}", msg);
 
           if found_calldataload
             && (*prev_addr.clone() == Expr::SymAddr("entrypoint".to_string()))
@@ -321,10 +336,10 @@ fn main() {
           {
             let (reachability, _) = solve_constraints(&vm, &vm.constraints);
             if reachability {
-              debug!("RECHABLE {} @ PC={:x}", prev_op, prev_pc);
+              debug!("REACHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
               next_reachable_envs.push(vm.env.clone());
             } else {
-              debug!("UNRECHABLE {} @ PC={:x}", prev_op, prev_pc);
+              debug!("UNRECHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
             }
           }
 
@@ -333,22 +348,45 @@ fn main() {
             end = true;
 
             if reachability {
-              error!("REACHABLE REVERT DETECTED @ PC=0x{:x}", prev_pc);
+              error!("\u{001b}[31mREACHABLE REVERT DETECTED @ PC=0x{:x}\u{001b}[0m", prev_pc);
               if let Some(ref model_str) = model {
-                let mut msg_model = function_name.to_string() + "(";
                 let model = parse_z3_output(&model_str);
-                let mut is_zero_args = true;
+
+                let mut fname_to_args: HashMap<String, Vec<String>> = HashMap::new();
+                for fname in &function_names_vec {
+                  fname_to_args.insert(fname.to_string(), vec![]);
+                }
+
                 for (k, v) in model.iter() {
                   if k[..3] == *"arg" {
-                    msg_model += &format!("{}={},", k, v.1);
-                    is_zero_args = false;
+                    let variable_id = k[3..].parse::<usize>().unwrap_or(0);
+                    if variable_id_to_function_name.contains_key(&variable_id) {
+                      fname_to_args
+                        .get_mut(variable_id_to_function_name.get(&variable_id).unwrap())
+                        .unwrap()
+                        .push(format!("{}=0x{},", k, v.trim_start_matches('0').to_string()));
+                    }
                   }
                 }
-                if !is_zero_args {
-                  msg_model.pop();
+
+                let mut msg_model = "".to_string();
+                for fname in &function_names_vec {
+                  if msg_model != "".to_string() {
+                    msg_model += " -> ";
+                  }
+                  let mut is_zero_args = true;
+                  msg_model += &(fname.to_string() + "(");
+                  for v in fname_to_args.get(fname).unwrap() {
+                    msg_model += v;
+                    is_zero_args = false;
+                  }
+                  if !is_zero_args {
+                    msg_model.pop();
+                  }
+                  msg_model.push(')');
                 }
-                msg_model.push(')');
-                error!("model: {}", msg_model);
+
+                error!("\u{001b}[31mmodel: {}\u{001b}[0m", msg_model);
               }
 
               let mut msg = "** Constraints (Raw Format):=\n true".to_string();
@@ -357,6 +395,8 @@ fn main() {
               }
               debug!("{}", msg);
               break;
+            } else {
+              debug!("UNRECHABLE REVERT @ PC=0x{:x}", prev_pc);
             }
           }
 
@@ -383,7 +423,7 @@ fn main() {
         vm.constraints_raw_expr.clear();
         vm.state.pc += 1;
       }
-      info!("EVM execution completed.\n");
+      info!("Execution of `{}` completed.\n", function_name);
     }
     reachable_envs = next_reachable_envs;
     cnt_function_names += 1;

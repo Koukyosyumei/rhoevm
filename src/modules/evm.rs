@@ -14,21 +14,28 @@ use crate::modules::expr::{
   word_to_addr, write_byte, write_storage, write_word, MAX_BYTES,
 };
 use crate::modules::feeschedule::FeeSchedule;
+use crate::modules::format::format_prop;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
-  from_list, keccak, keccak_prime, len_buf, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right,
-  unbox, word256_bytes, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract, ContractCode, Env, EvmError,
-  Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory, PartialExec, Prop,
+  from_list, keccak, keccak_prime, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right, unbox,
+  word256_bytes, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr,
+  ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory, PartialExec, Prop,
   RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
 };
-
-use super::format::format_prop;
 
 fn initial_gas() -> u64 {
   10000 // Placeholder value
 }
 
+/// Initializes and returns a blank state frame for the EVM.
+///
+/// This function sets up an initial `FrameState` with default values for all fields,
+/// including zeroed addresses, empty code and memory, and no previous model.
+///
+/// # Returns
+///
+/// A `FrameState` struct with all fields initialized to default values.
 pub fn blank_state() -> FrameState {
   FrameState {
     contract: Box::new(Expr::LitAddr(W256(0, 0))),
@@ -49,6 +56,19 @@ pub fn blank_state() -> FrameState {
   }
 }
 
+/// Retrieves the bytecode of a contract as an expression.
+///
+/// This function examines the contract's code and returns the corresponding expression:
+/// - If the contract code is initialization code, an empty expression (`Expr::Mempty`) is returned.
+/// - If the contract code is runtime code, a concrete buffer containing the code is returned.
+///
+/// # Arguments
+///
+/// * `contract` - A reference to the `Contract` from which to extract the bytecode.
+///
+/// # Returns
+///
+/// An `Option<Expr>` containing the bytecode expression, or `None` if the contract code is unsupported.
 pub fn bytecode(contract: &Contract) -> Option<Expr> {
   match &contract.code {
     ContractCode::InitCode(_, _) => Some(Expr::Mempty),
@@ -57,10 +77,34 @@ pub fn bytecode(contract: &Contract) -> Option<Expr> {
   }
 }
 
+/// Retrieves the current contract being executed by the virtual machine.
+///
+/// This function returns a clone of the contract associated with the current code contract
+/// address in the VM's state environment.
+///
+/// # Arguments
+///
+/// * `vm` - A reference to the `VM` from which to retrieve the current contract.
+///
+/// # Returns
+///
+/// An `Option<Contract>` containing the current contract, or `None` if no contract is found.
 pub fn current_contract(vm: &VM) -> Option<Contract> {
   vm.env.contracts.get(&vm.state.code_contract).cloned()
 }
 
+/// Creates and initializes a virtual machine instance with the specified options.
+///
+/// This function sets up the `VM` struct, initializing transaction states,
+/// memory, and other environment settings based on the provided `VMOpts`.
+///
+/// # Arguments
+///
+/// * `opts` - A `VMOpts` struct containing various options and initial states for the virtual machine.
+///
+/// # Returns
+///
+/// A fully initialized `VM` struct ready for execution.
 pub fn make_vm(opts: VMOpts) -> VM {
   let txaccess_list = &opts.tx_access_list;
   let txorigin = opts.origin.clone();
@@ -168,6 +212,20 @@ pub fn make_vm(opts: VMOpts) -> VM {
   }
 }
 
+/// Creates and returns a contract with an unknown code.
+///
+/// This function initializes a `Contract` struct with abstract storage, balance,
+/// and code hash expressions based on the provided address. The code is marked
+/// as unknown, and the contract is not external.
+///
+/// # Arguments
+///
+/// * `addr` - An `Expr` representing the address to associate with the contract.
+///
+/// # Returns
+///
+/// A `Contract` struct initialized with unknown code and abstract attributes
+/// corresponding to the provided address.
 pub fn unknown_contract(addr: Expr) -> Contract {
   Contract {
     code: ContractCode::UnKnownCode(Box::new(addr.clone())),
@@ -182,6 +240,21 @@ pub fn unknown_contract(addr: Expr) -> Contract {
   }
 }
 
+/// Creates and returns an abstract contract based on the given code and address.
+///
+/// This function initializes a `Contract` struct with abstract storage, balance,
+/// and code hash expressions. It also sets the nonce based on whether the contract
+/// is being created or not, and generates operations based on the provided code.
+///
+/// # Arguments
+///
+/// * `code` - A `ContractCode` representing the code to be associated with the contract.
+/// * `addr` - An `Expr` representing the address to associate with the contract.
+///
+/// # Returns
+///
+/// A `Contract` struct initialized with abstract attributes and operations
+/// corresponding to the provided code and address.
 pub fn abstract_contract(code: ContractCode, addr: Expr) -> Contract {
   Contract {
     code: code.clone(),
@@ -196,10 +269,32 @@ pub fn abstract_contract(code: ContractCode, addr: Expr) -> Contract {
   }
 }
 
+/// Creates and returns an empty contract with a runtime code initialized to an empty buffer.
+///
+/// This function leverages `initial_contract` to create a contract with no code,
+/// empty storage, and a zero balance.
+///
+/// # Returns
+///
+/// A `Contract` struct representing an empty contract with no code or state
 pub fn empty_contract() -> Contract {
   initial_contract(ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(Vec::new()))))
 }
 
+/// Creates and returns an initial contract based on the given code.
+///
+/// This function initializes a `Contract` struct with concrete storage, a
+/// zero balance, and a code hash generated from the provided code. It also
+/// sets the nonce based on whether the contract is being created.
+///
+/// # Arguments
+///
+/// * `code` - A `ContractCode` representing the code to initialize the contract with.
+///
+/// # Returns
+///
+/// A `Contract` struct initialized with concrete attributes corresponding to
+/// the provided code.
 pub fn initial_contract(code: ContractCode) -> Contract {
   Contract {
     code: code.clone(),
@@ -214,6 +309,18 @@ pub fn initial_contract(code: ContractCode) -> Contract {
   }
 }
 
+/// Determines if the provided contract code represents creation code.
+///
+/// This function checks if the given `ContractCode` is an initialization
+/// code, which indicates that the contract is in the creation phase.
+///
+/// # Arguments
+///
+/// * `code` - A reference to the `ContractCode` to check.
+///
+/// # Returns
+///
+/// `true` if the code represents creation code, `false` otherwise.
 fn is_creation(code: &ContractCode) -> bool {
   match code {
     ContractCode::InitCode(_, _) => true,
@@ -221,6 +328,18 @@ fn is_creation(code: &ContractCode) -> bool {
   }
 }
 
+/// Determines if the provided expression corresponds to a precompiled contract.
+///
+/// This function checks if the given `Expr` represents an address within the range
+/// of precompiled contracts, typically those with addresses from 0x1 to 0x9.
+///
+/// # Arguments
+///
+/// * `expr` - A reference to the `Expr` to check.
+///
+/// # Returns
+///
+/// `true` if the expression corresponds to a precompiled contract address, `false` otherwise.
 fn is_precompile(expr: &Expr) -> bool {
   if let Some(lit_self) = maybe_lit_addr(expr.clone()) {
     return lit_self > W256(0x0, 0) && lit_self <= W256(0x9, 0);
@@ -228,6 +347,20 @@ fn is_precompile(expr: &Expr) -> bool {
   return false;
 }
 
+/// Executes one step of the virtual machine and optionally adds additional VMs to a queue.
+///
+/// This method processes the current operation code in the VM, handling
+/// execution for both precompiled contracts and runtime code. It advances
+/// the program counter and manages the VM's state based on the decoded operation.
+///
+/// # Arguments
+///
+/// * `vm_queue` - A mutable reference to a vector of VMs to which additional VMs may be added.
+/// * `max_num_iterations` - A `u32` specifying the maximum number of iterations for loop.
+///
+/// # Returns
+///
+/// `true` if the execution was successful and the VM should continue, `false` if the execution is complete.
 impl VM {
   pub fn exec1(&mut self, vm_queue: &mut Vec<VM>, max_num_iterations: u32) -> bool {
     // let mut vm.state.stack = &vm.state.stack;
@@ -239,10 +372,10 @@ impl VM {
     if is_precompile(&self_contract) {
       if let Some(lit_self) = maybe_lit_addr(*self_contract) {
         // call to precompile
-        let calldatasize = len_buf(&self.state.calldata);
+        let calldatasize = buf_length(*self.state.calldata.clone());
         copy_bytes_to_memory(
           self.state.calldata.clone(),
-          Box::new(Expr::Lit(W256(calldatasize as u128, 0))),
+          Box::new(calldatasize.clone()),
           Box::new(Expr::Lit(W256(0, 0))),
           Box::new(Expr::Lit(W256(0, 0))),
           self,
@@ -251,7 +384,7 @@ impl VM {
           lit_self,
           self.state.gas.clone(),
           Expr::Lit(W256(0, 0)),
-          Expr::Lit(W256(calldatasize as u128, 0)),
+          calldatasize,
           Expr::Lit(W256(0, 0)),
           Expr::Lit(W256(0, 0)),
           vec![],
@@ -299,13 +432,6 @@ impl VM {
 
       let decoded_op = get_op(op);
       self.decoded_opcodes.push(op_string(&decoded_op).to_string());
-
-      let mut sm: String = (&"[").to_string();
-      for s in self.state.stack.clone() {
-        sm = sm.to_owned() + &format!("{},", s);
-      }
-      sm += "]";
-      //info!("stack: {}", sm);
 
       match decoded_op {
         Op::Push0 => {
@@ -1582,6 +1708,16 @@ impl VM {
   }
 }
 
+/// Writes a buffer of bytes into memory at a specified offset.
+///
+/// This function expands the memory as needed to accommodate the buffer,
+/// then writes the contents of the buffer starting at the specified offset.
+///
+/// # Arguments
+///
+/// * `memory` - A mutable reference to the `MutableMemory` where the bytes will be written.
+/// * `offset` - The starting position in memory to begin writing the buffer.
+/// * `buf` - A reference to a vector of bytes to be written into memory.
 fn write_memory(memory: &mut MutableMemory, offset: usize, buf: &Vec<u8>) {
   expand_memory(memory, offset + buf.len());
   // Write buf into memory starting from offset
@@ -1590,6 +1726,15 @@ fn write_memory(memory: &mut MutableMemory, offset: usize, buf: &Vec<u8>) {
   }
 }
 
+/// Expands the memory to a specified size, if necessary.
+///
+/// This function increases the size of the memory to the target size by adding zero-initialized
+/// bytes, but only if the target size is greater than the current memory size.
+///
+/// # Arguments
+///
+/// * `memory` - A mutable reference to the `MutableMemory` to be expanded.
+/// * `target_size` - The desired size of the memory after expansion.
 fn expand_memory(memory: &mut MutableMemory, target_size: usize) {
   let current_size = memory.len();
   if target_size > current_size {
@@ -1597,10 +1742,35 @@ fn expand_memory(memory: &mut MutableMemory, target_size: usize) {
   }
 }
 
+/// Freezes the current state of the memory into an expression.
+///
+/// This function creates an `Expr::ConcreteBuf` from the current state of the memory,
+/// effectively freezing it so it can be used in symbolic execution or further analysis.
+///
+/// # Arguments
+///
+/// * `memory` - A reference to the `MutableMemory` to be frozen.
+///
+/// # Returns
+///
+/// An `Expr` representing the frozen state of the memory.
 fn freeze_memory(memory: &MutableMemory) -> Expr {
   Expr::ConcreteBuf(memory.clone()) // Clone the memory vector to freeze it
 }
 
+/// Copies a slice of bytes into the virtual machine's memory.
+///
+/// This function copies a slice of bytes from the provided expression into the VM's memory,
+/// taking into account the size, source offset, and memory offset. It handles both concrete
+/// and symbolic memory cases.
+///
+/// # Arguments
+///
+/// * `bs` - A `Box<Expr>` representing the source of bytes to copy.
+/// * `size` - A `Box<Expr>` representing the number of bytes to copy.
+/// * `src_offset` - A `Box<Expr>` representing the offset within the source bytes.
+/// * `mem_offset` - A `Box<Expr>` representing the offset within the VM's memory where bytes will be copied.
+/// * `vm` - A mutable reference to the `VM` where the bytes will be copied.
 fn copy_bytes_to_memory(bs: Box<Expr>, size: Box<Expr>, src_offset: Box<Expr>, mem_offset: Box<Expr>, vm: &mut VM) {
   if *size == Expr::Lit(W256(0, 0)) {
     return;
@@ -1634,6 +1804,21 @@ fn copy_bytes_to_memory(bs: Box<Expr>, size: Box<Expr>, src_offset: Box<Expr>, m
   }
 }
 
+/// Executes a precompiled contract.
+///
+/// This function handles the execution logic for Ethereum precompiled contracts,
+/// which are special contracts with predefined functionality. The implementation
+/// details vary based on the specific precompile address and other parameters.
+///
+/// # Arguments
+///
+/// * `_pre_compile_addr` - The address of the precompiled contract to execute.
+/// * `_gas` - The amount of gas available for execution.
+/// * `_in_offset` - The offset in memory for the input data.
+/// * `_in_size` - The size of the input data.
+/// * `_out_offset` - The offset in memory for the output data.
+/// * `_out_size` - The size of the output data.
+/// * `_xs` - A vector of additional expressions representing input parameters.
 fn execute_precompile(
   _pre_compile_addr: Addr,
   _gas: Gas,
@@ -1646,6 +1831,17 @@ fn execute_precompile(
   // Implement precompile logic
 }
 
+/// Fetches an account from the virtual machine's environment and applies a function to it.
+///
+/// This function retrieves a contract from the VM's environment based on the provided address,
+/// then applies the given closure to the contract. If the address is symbolic or not yet
+/// present in storage, it handles these cases accordingly.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the `VM` from which to fetch the account.
+/// * `addr` - A reference to the `Expr` representing the address of the account to fetch.
+/// * `f` - A closure to apply to the fetched `Contract`.
 fn fetch_account<F: FnOnce(&Contract)>(vm: &mut VM, addr: &Expr, f: F) {
   // Implement account fetching logic
   match vm.env.contracts.get(&addr.clone()) {
@@ -1675,16 +1871,34 @@ fn fetch_account<F: FnOnce(&Contract)>(vm: &mut VM, addr: &Expr, f: F) {
   }
 }
 
+/// Marks an account as "touched" within the virtual machine's transaction state.
+///
+/// This function adds the given account address to the list of touched accounts in the VM's
+/// transaction substate. Touched accounts are those that have been accessed during execution
+/// and may require special handling or state updates.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the `VM` where the account is being touched.
+/// * `addr` - A reference to the `Expr` representing the address of the account to touch.
 fn touch_account(vm: &mut VM, addr: &Expr) {
   // Implement account touching logic
   vm.tx.substate.touched_accounts.push(Box::new(addr.clone()));
 }
 
+/// Raises a virtual machine error, halting execution.
+///
+/// This function triggers a panic with the provided error message, effectively halting
+/// the virtual machine's execution and signaling a critical error condition.
+///
+/// # Arguments
+///
+/// * `error` - A string slice representing the error message to display.
 fn vm_error(error: &str) {
   panic!("{}", error.to_string())
 }
 
-// FrameResult definition
+/// FrameResult definition
 #[derive(Debug, Clone)]
 enum FrameResult {
   FrameReturned(Expr),
@@ -1692,9 +1906,20 @@ enum FrameResult {
   FrameErrored(EvmError),
 }
 
-// This function defines how to pop the current stack frame in either of the ways specified by 'FrameResult'.
-// It also handles the case when the current stack frame is the only one;
-// in this case, we set the final '_result' of the VM execution.
+/// Finalizes the execution of the current frame in the virtual machine.
+///
+/// This function determines the result of the current execution frame, whether it's a return,
+/// revert, or error, and handles the necessary state transitions within the VM. If this is the last
+/// frame, it sets the final result of the VM execution.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the `VM` where the frame is being finalized.
+/// * `result` - The result of the frame, which can be a return value, revert buffer, or error.
+///
+/// # Returns
+///
+/// `true` if the execution should continue, `false` if the VM execution is complete.
 fn finish_frame(vm: &mut VM, result: FrameResult) -> bool {
   match vm.frames.clone().as_slice() {
     // Is the current frame the only one?
@@ -2035,19 +2260,19 @@ fn read_memory(vm: &mut VM, offset_: Expr, size_: Expr) -> Expr {
       _ => {
         let buf = freeze_memory(mem);
         copy_slice(
-          Box::new(offset_),
+          Box::new(simplify(Box::new(offset_.clone()))),
           Box::new(Expr::Lit(W256(0, 0))),
-          Box::new(size_),
+          Box::new(simplify(Box::new(size_))),
           Box::new(buf),
           Box::new(Expr::Mempty),
         )
       }
     },
     Memory::SymbolicMemory(mem) => copy_slice(
-      Box::new(offset_),
+      Box::new(simplify(Box::new(offset_.clone()))),
       Box::new(Expr::Lit(W256(0, 0))),
-      Box::new(size_),
-      Box::new(mem.clone()),
+      Box::new(simplify(Box::new(size_))),
+      Box::new(simplify(Box::new(mem.clone()))),
       Box::new(Expr::Mempty),
     ),
   }
@@ -2434,7 +2659,6 @@ fn general_call(
           Box::new(read_memory(vm, x_in_offset, Expr::Lit(W256(4, 0)))),
         ));
 
-        // warn!("abi: {}", abi.clone().unwrap().to_hex());
         let new_context = FrameContext::CallContext {
           target: x_to.clone(),
           context: x_context.clone(),
@@ -2678,6 +2902,19 @@ fn check_jump(vm: &mut VM, x: usize, xs: Vec<Box<Expr>>) -> Result<(), EvmError>
   }
 }
 
+/// Checks if the given position in the contract code is a valid jump destination.
+///
+/// This function verifies whether the operation at the specified position in the contract code
+/// is a `JUMPDEST` operation, which is necessary for safe execution of a jump in the EVM.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+/// * `x` - The index in the code to be checked for being a valid jump destination.
+///
+/// # Returns
+///
+/// * `bool` - Returns `true` if the position is a valid `JUMPDEST`, otherwise returns `false`.
 fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
   let code = &vm.state.code;
   //let self_addr = vm.state.code_contract.clone();
@@ -2702,7 +2939,23 @@ fn is_valid_jump_dest(vm: &mut VM, x: usize) -> bool {
   }
 }
 
-// Handles transfers of value between accounts
+/// Handles the transfer of value (e.g., Ether) between two accounts.
+///
+/// This function ensures that the transfer of value between the source and destination
+/// accounts is executed correctly, including checking balances and handling cases where
+/// the accounts may not be fully initialized.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+/// * `src` - The source account from which the value is being transferred.
+/// * `dst` - The destination account to which the value is being transferred.
+/// * `val` - The value to be transferred.
+/// * `max_num_iterations` - The maximum number of iterations allowed for the transfer.
+///
+/// # Returns
+///
+/// * `Result<(), EvmError>` - Returns `Ok(())` if the transfer is successful, otherwise returns an `EvmError`.
 fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr, max_num_iterations: u32) -> Result<(), EvmError> {
   if let Expr::Lit(W256(0, 0)) = val {
     return Ok(());
@@ -2776,12 +3029,38 @@ fn transfer(vm: &mut VM, src: Expr, dst: Expr, val: Expr, max_num_iterations: u3
   }
 }
 
+/// Constructs a trace object that includes the current location in the contract.
+///
+/// This function creates a trace object, which contains information about the current
+/// execution location within the contract, such as the program counter (PC) and the contract itself.
+///
+/// # Arguments
+///
+/// * `vm` - A reference to the current state of the virtual machine (VM).
+/// * `trace_data` - The trace data to be included in the trace object.
+///
+/// # Returns
+///
+/// * `Trace` - A trace object containing the provided trace data and the current contract information.
 fn with_trace_location(vm: &VM, trace_data: TraceData) -> Trace {
   let current_contract = vm.env.contracts.get(&vm.state.code_contract).unwrap();
   let op_ix = current_contract.op_idx_map.get(vm.state.pc).cloned().unwrap_or(0);
   Trace { tracedata: trace_data, contract: current_contract.clone(), op_ix: op_ix }
 }
 
+/// Checks if an Ethereum account is empty.
+///
+/// This function determines whether an account is considered empty by checking the length
+/// of its code, nonce, and balance. An account is deemed empty if its code is either empty
+/// or symbolic, its nonce is zero, and its balance is minimal (set to 1 wei).
+///
+/// # Arguments
+///
+/// * `c` - A reference to the contract representing the Ethereum account.
+///
+/// # Returns
+///
+/// * `bool` - Returns `true` if the account is empty, otherwise returns `false`.
 fn account_empty(c: &Contract) -> bool {
   let cc = match &c.code {
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(rc)) => rc.len() == 0,
@@ -2791,6 +3070,21 @@ fn account_empty(c: &Contract) -> bool {
   cc && c.nonce == Some(0) && c.balance == Expr::Lit(W256(1, 0))
 }
 
+/// Solves the constraints in the current execution path using an SMT solver.
+///
+/// This function generates SMT-LIB 2.0 compliant queries based on the constraints in the
+/// execution path, writes them to a file, and invokes the Z3 SMT solver to determine the satisfiability
+/// of the constraints.
+///
+/// # Arguments
+///
+/// * `vm` - A reference to the current state of the virtual machine (VM).
+/// * `pathconds` - A vector of constraints (propositions) representing the current path conditions.
+///
+/// # Returns
+///
+/// * `(bool, Option<String>)` - A tuple where the first element indicates whether the constraints are satisfiable,
+///   and the second element is an optional string containing the model from the SMT solver if the constraints are satisfiable.
 pub fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> (bool, Option<String>) {
   let config = Config::default();
   let smt2 = assert_props(&config, pathconds.to_vec());
@@ -2834,6 +3128,22 @@ enum BranchReachability {
   NONE,
 }
 
+/// Branches the execution based on a given condition, creating a new VM state for the alternative path.
+///
+/// This function creates a branch in the execution, evaluating the provided condition. If the condition
+/// holds true, the `then` branch is executed; otherwise, the `else` branch is executed. A new VM state is created
+/// for the alternative branch to explore both paths.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+/// * `cond` - The condition to evaluate, which determines the branch taken.
+/// * `continue_fn` - A function to be executed based on the branch taken.
+/// * `max_num_iterations` - The maximum number of iterations allowed for the branch.
+///
+/// # Returns
+///
+/// * `Option<VM>` - A new VM state representing the alternative branch, or `None` if branching is not possible.
 fn branch<F>(vm: &mut VM, cond: Box<Expr>, continue_fn: F, max_num_iterations: u32) -> Option<VM>
 where
   F: FnOnce(BranchReachability) -> Result<(), EvmError>,
@@ -2877,6 +3187,18 @@ where
   Some(new_vm)
 }
 
+/// Checks for the existence of a collision in the provided contract.
+///
+/// This function checks whether a contract has a non-zero nonce or non-empty code,
+/// which would indicate a potential collision in the address space.
+///
+/// # Arguments
+///
+/// * `c_` - An optional contract to be checked for a collision.
+///
+/// # Returns
+///
+/// * `bool` - Returns `true` if a collision is detected, otherwise returns `false`.
 fn collision(c_: Option<Contract>) -> bool {
   match c_ {
     Some(c) => {
@@ -2892,6 +3214,20 @@ fn collision(c_: Option<Contract>) -> bool {
   }
 }
 
+/// Creates a new Ethereum address based on the provided expression and optional nonce.
+///
+/// This function generates a new Ethereum address, either by creating it from a literal
+/// address and nonce or by generating a fresh symbolic address.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+/// * `e` - The expression representing the base address.
+/// * `n_` - An optional nonce used to create the address.
+///
+/// # Returns
+///
+/// * `Expr` - The newly created address as an expression.
 fn create_address(vm: &mut VM, e: Expr, n_: Option<W64>) -> Expr {
   match (e, n_) {
     (Expr::LitAddr(a), Some(n)) => create_address_(a, n),
@@ -2900,6 +3236,21 @@ fn create_address(vm: &mut VM, e: Expr, n_: Option<W64>) -> Expr {
   }
 }
 
+/// Creates a new Ethereum address using the CREATE2 opcode.
+///
+/// This function generates a new Ethereum address based on the provided base address,
+/// salt, and bytecode, following the CREATE2 specification.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+/// * `e` - The expression representing the base address.
+/// * `s` - The salt used in the CREATE2 operation.
+/// * `b` - The bytecode used to create the new address.
+///
+/// # Returns
+///
+/// * `Expr` - The newly created address as an expression.
 fn create2_address(vm: &mut VM, e: Expr, s: W256, b: &ByteString) -> Expr {
   match (e, s, b) {
     (Expr::LitAddr(a), s, b) => create2_address_(a, s, b.to_vec()),
@@ -2909,6 +3260,17 @@ fn create2_address(vm: &mut VM, e: Expr, s: W256, b: &ByteString) -> Expr {
   }
 }
 
+/// Generates a fresh symbolic address for use in the virtual machine.
+///
+/// This function creates a new symbolic address, ensuring that it is unique within the current VM instance.
+///
+/// # Arguments
+///
+/// * `vm` - A mutable reference to the current state of the virtual machine (VM).
+///
+/// # Returns
+///
+/// * `Expr` - The newly generated symbolic address as an expression.
 fn fresh_sym_addr(vm: &mut VM) -> Expr {
   vm.env.fresh_address += 1;
   let n = vm.env.fresh_address;
@@ -2919,6 +3281,18 @@ fn cheat_code() -> Expr {
   Expr::LitAddr(keccak_prime(&"hevm cheat code".as_bytes().to_vec()))
 }
 
+/// Parses the initialization code of a contract and returns it as a `ContractCode` object.
+///
+/// This function processes the provided buffer to extract the initialization code, converting it
+/// into a `ContractCode` object that represents the contract's initial state.
+///
+/// # Arguments
+///
+/// * `buf` - The buffer containing the initialization code to be parsed.
+///
+/// # Returns
+///
+/// * `Option<ContractCode>` - The parsed initialization code, or `None` if parsing fails.
 fn parse_init_code(buf: Expr) -> Option<ContractCode> {
   match buf {
     Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(Box::new(b.to_vec()), Box::new(Expr::Mempty))),

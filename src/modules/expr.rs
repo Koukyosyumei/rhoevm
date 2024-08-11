@@ -340,7 +340,11 @@ pub fn sar(x: Box<Expr>, y: Box<Expr>) -> Expr {
 pub fn in_range(sz: u32, e: Box<Expr>) -> Prop {
   Prop::PAnd(
     Box::new(Prop::PGEq(*e.clone(), Expr::Lit(W256(0, 0)))),
-    Box::new(Prop::PLEq(*e.clone(), Expr::Lit(W256(2_u128, 0).pow(sz)))),
+    if sz < 256 {
+      Box::new(Prop::PLEq(*e.clone(), Expr::Lit(W256(2_u128, 0).pow(sz))))
+    } else {
+      Box::new(Prop::PLEq(*e.clone(), Expr::Lit(MAX_LIT)))
+    },
   )
 }
 
@@ -1635,7 +1639,7 @@ pub fn simplify_props(ps: Vec<Prop>) -> Vec<Prop> {
 fn simplify_reads(expr: Box<Expr>) -> Expr {
   match *expr.clone() {
     Expr::ReadWord(a, b) => match *a {
-      Expr::Lit(idx) => *read_word(Box::new(Expr::Lit(idx.clone())), Box::new(strip_writes(idx, W256(32, 0), b))),
+      Expr::Lit(idx) => *read_word(Box::new(Expr::Lit(idx.clone())), Box::new(strip_writes(idx, W256(4, 0), b))),
       _ => *expr,
     },
     Expr::ReadByte(a, b) => match *a {
@@ -1765,7 +1769,7 @@ pub fn get_addr(e: Box<Expr>) -> Option<Expr> {
     Expr::AbstractStore(a, _) => Some(*a),
     Expr::ConcreteStore(_) => None,
     Expr::GVar(_) => panic!("cannot determine addr of a GVar"),
-    _ => panic!("unexpected expressions"),
+    _ => panic!("unexpected expression: {}", e),
   }
 }
 
@@ -1775,7 +1779,7 @@ pub fn get_logical_idx(e: Box<Expr>) -> Option<W256> {
     Expr::AbstractStore(_, idx) => idx,
     Expr::ConcreteStore(_) => None,
     Expr::GVar(_) => panic!("cannot determine addr of a GVar"),
-    _ => panic!("unexpected expressions"),
+    _ => panic!("unexpected expression: {}", e),
   }
 }
 
@@ -1840,7 +1844,7 @@ pub fn min_length(buf_env: &BufEnv, buf: Box<Expr>) -> Option<i64> {
       },
       Expr::GVar(GVar::BufVar(a)) => buf_env.get(&(a as usize)).and_then(|b| go(l, Box::new(b.clone()), buf_env)),
       // Handle other cases if necessary
-      _ => panic!("unexpected expr"),
+      _ => panic!("unexpected expression: {}", buf),
     }
 
     // go(std::cmp::max(dst_offset + size, l), dst)
@@ -1898,7 +1902,7 @@ pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> E
           emax(Box::new(l), Box::new(Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(a))))))
         }
       }
-      Expr::Mempty => Expr::Lit(W256(0, 0)),
+      Expr::Mempty => l,
       _ => panic!("unsupported expression: {}", buf),
     }
   }
