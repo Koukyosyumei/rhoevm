@@ -1,1 +1,0 @@
-[{"inputs":[{"internalType":"uint32","name":"x","type":"uint32"},{"internalType":"uint32","name":"y","type":"uint32"}],"name":"check","outputs":[],"stateMutability":"pure","type":"function"}]

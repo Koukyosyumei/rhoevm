@@ -1,6 +1,6 @@
 # Examples
 
-### SimpleAssert
+## Call
 
 - source
 
@@ -8,182 +8,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-contract SimpleAssert {
-    function check() public pure {
-        assert(20 >= 100);
-    }
-}
-```
-
-- output
-
-```bash
-./target/debug/rhoevm ./example/build/SimpleAssert "check"
-   ╭───────────────╮
-   │  R H O  │
-   │  E V M  │
-   ╰───────────────╯
-  ╱🦀╱╱╱╲╱╲╱╲
- ╱ 🦀╲╲╲╲╲╲  ╲
-╱   🦀╲╲╲╲╲╲  ╲ symbolic EVM
-╲    ╱🦀╱╱╱╱  ╱ execution engine
- ╲  ╱🦀╱╱╱╱╱ ╱  written in Rust
-  ╲╱🦀╱╱╱╱╱╲╱
-   ╲🦀╲╲╲╲╲╱
-    ╲🦀╲╲╲╱
-     ╲🦀╲
-      ╲🦀
-       ╲
-[2024-08-10T16:16:53Z WARN  rhoevm] Currently, this project is a work in progress.
-[2024-08-10T16:16:53Z INFO  rhoevm] Loading binary from file: ././example/build/SimpleAssert.bin
-[2024-08-10T16:16:53Z INFO  rhoevm] Loading abi from file: ././example/build/SimpleAssert.abi
-
-[2024-08-10T16:16:53Z INFO  rhoevm] Using function signature: check()
-[2024-08-10T16:16:53Z INFO  rhoevm] Calculated function selector: 0x919840ad
-[2024-08-10T16:16:53Z INFO  rhoevm] Calldata constructed successfully for function 'check()'
-[2024-08-10T16:16:53Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-10T16:16:53Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-10T16:16:53Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x8b
-[2024-08-10T16:16:53Z ERROR rhoevm] model:  -> check()
-[2024-08-10T16:16:53Z INFO  rhoevm] Execution of `check` completed.
-```
-
-### AssertInput
-
-- source
-
-```javascript
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-contract AssertInput {
-    function check(uint32 x, uint32 y) public pure {
-        if (x > 0 && x < 100 && y > 0 && y < 100) {
-            assert(x + y != 142);
-        }
-    }
-}
-```
-
-- output
-
-```bash
-./target/debug/rhoevm ./example/build/AssertInput "check"
-   ╭───────────────╮
-   │  R H O  │
-   │  E V M  │
-   ╰───────────────╯
-  ╱🦀╱╱╱╲╱╲╱╲
- ╱ 🦀╲╲╲╲╲╲  ╲
-╱   🦀╲╲╲╲╲╲  ╲ symbolic EVM
-╲    ╱🦀╱╱╱╱  ╱ execution engine
- ╲  ╱🦀╱╱╱╱╱ ╱  written in Rust
-  ╲╱🦀╱╱╱╱╱╲╱
-   ╲🦀╲╲╲╲╲╱
-    ╲🦀╲╲╲╱
-     ╲🦀╲
-      ╲🦀
-       ╲
-[2024-08-10T16:18:00Z WARN  rhoevm] Currently, this project is a work in progress.
-[2024-08-10T16:18:00Z INFO  rhoevm] Loading binary from file: ././example/build/AssertInput.bin
-[2024-08-10T16:18:00Z INFO  rhoevm] Loading abi from file: ././example/build/AssertInput.abi
-
-[2024-08-10T16:18:00Z INFO  rhoevm] Using function signature: check(uint32,uint32)
-[2024-08-10T16:18:00Z INFO  rhoevm] Calculated function selector: 0xc5eb648f
-[2024-08-10T16:18:00Z INFO  rhoevm] Calldata constructed successfully for function 'check(uint32,uint32)'
-[2024-08-10T16:18:00Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-10T16:18:00Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-10T16:18:06Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x1db
-[2024-08-10T16:18:06Z ERROR rhoevm] model:  -> check(arg1=66,arg2=76)
-[2024-08-10T16:18:06Z INFO  rhoevm] Execution of `check` completed.
-```
-
-### SimpleCallTest
-
-- source
-
-```javascript
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-contract SimpleCallee {
-    function check() public pure {
-        assert(20 >= 100);
-    }
-}
-
-contract SimpleCalleeTest {
-    SimpleCallee callee;
-
-    function setUp() public {
-        callee = new SimpleCallee();
-    }
-
-    function callcheck() public view {
-        callee.check();
-    }
-}
-```
-
-- output
-
-```bash
-./target/debug/rhoevm ./example/build/SimpleCalleeTest "setUp,callcheck"
-   ╭───────────────╮
-   │  R H O  │
-   │  E V M  │
-   ╰───────────────╯
-  ╱🦀╱╱╱╲╱╲╱╲
- ╱ 🦀╲╲╲╲╲╲  ╲
-╱   🦀╲╲╲╲╲╲  ╲ symbolic EVM
-╲    ╱🦀╱╱╱╱  ╱ execution engine
- ╲  ╱🦀╱╱╱╱╱ ╱  written in Rust
-  ╲╱🦀╱╱╱╱╱╲╱
-   ╲🦀╲╲╲╲╲╱
-    ╲🦀╲╲╲╱
-     ╲🦀╲
-      ╲🦀
-       ╲
-[2024-08-10T16:21:52Z WARN  rhoevm] Currently, this project is a work in progress.
-[2024-08-10T16:21:52Z INFO  rhoevm] Loading binary from file: ././example/build/SimpleCalleeTest.bin
-[2024-08-10T16:21:52Z INFO  rhoevm] Loading abi from file: ././example/build/SimpleCalleeTest.abi
-
-[2024-08-10T16:21:52Z INFO  rhoevm] Using function signature: setUp()
-[2024-08-10T16:21:52Z INFO  rhoevm] Calculated function selector: 0x0a9254e4
-[2024-08-10T16:21:52Z INFO  rhoevm] Calldata constructed successfully for function 'setUp()'
-[2024-08-10T16:21:52Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-10T16:21:52Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-10T16:21:52Z INFO  rhoevm] Execution of `setUp` completed.
-
-[2024-08-10T16:21:52Z INFO  rhoevm] Using function signature: callcheck()
-[2024-08-10T16:21:52Z INFO  rhoevm] Calculated function selector: 0x2e2eb030
-[2024-08-10T16:21:52Z INFO  rhoevm] Calldata constructed successfully for function 'callcheck()'
-[2024-08-10T16:21:52Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-10T16:21:52Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-10T16:21:53Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x70
-[2024-08-10T16:21:53Z ERROR rhoevm] model: setUp() -> callcheck()
-[2024-08-10T16:21:53Z INFO  rhoevm] Execution of `callcheck` completed.
-```
-
-### CallerWithInput
-
-- source
-
-```javascript
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-contract CalleeWithInput {
+contract Callee {
     function check(uint x) public pure {
         assert(x + 10 != 100);
     }
 }
 
-contract CallerWithInput {
-    CalleeWithInput callee;
+contract Caller {
+    Callee callee;
 
     function setUp() public {
-        callee = new CalleeWithInput();
+        callee = new Callee();
     }
 
     function callcheck(uint y) public view {
@@ -195,7 +30,8 @@ contract CallerWithInput {
 - output
 
 ```bash
-./target/debug/rhoevm ./example/build/CallerWithInput "setUp,callcheck"
+$  ./target/debug/rhoevm Caller "setUp,callcheck" -d
+ ./example/build/
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -211,28 +47,28 @@ contract CallerWithInput {
      ╲🦀╲
       ╲🦀
        ╲
-[2024-08-10T16:13:44Z WARN  rhoevm] Currently, this project is a work in progress.
-[2024-08-10T16:13:44Z INFO  rhoevm] Loading binary from file: ././example/build/CallerWithInput.bin
-[2024-08-10T16:13:44Z INFO  rhoevm] Loading abi from file: ././example/build/CallerWithInput.abi
+[2024-08-11T13:09:43Z WARN  rhoevm] Currently, this project is a work in progress.
+[2024-08-11T13:09:43Z INFO  rhoevm] Loading binary from file: ./example/build/Caller.bin
+[2024-08-11T13:09:43Z INFO  rhoevm] Loading abi from file: ./example/build/Caller.abi
 
-[2024-08-10T16:13:44Z INFO  rhoevm] Using function signature: setUp()
-[2024-08-10T16:13:44Z INFO  rhoevm] Calculated function selector: 0x0a9254e4
-[2024-08-10T16:13:44Z INFO  rhoevm] Calldata constructed successfully for function 'setUp()'
-[2024-08-10T16:13:44Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-10T16:13:44Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-10T16:13:44Z INFO  rhoevm] Execution of `setUp` completed.
+[2024-08-11T13:09:43Z INFO  rhoevm] Using function signature: setUp()
+[2024-08-11T13:09:43Z INFO  rhoevm] Calculated function selector: 0x0a9254e4
+[2024-08-11T13:09:43Z INFO  rhoevm] Calldata constructed successfully for function 'setUp()'
+[2024-08-11T13:09:43Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-11T13:09:43Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-11T13:09:43Z INFO  rhoevm] Execution of `setUp` completed.
 
-[2024-08-10T16:13:44Z INFO  rhoevm] Using function signature: callcheck(uint256)
-[2024-08-10T16:13:44Z INFO  rhoevm] Calculated function selector: 0x3f67f6b2
-[2024-08-10T16:13:44Z INFO  rhoevm] Calldata constructed successfully for function 'callcheck(uint256)'
-[2024-08-10T16:13:44Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-10T16:13:44Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-10T16:13:46Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x157
-[2024-08-10T16:13:46Z ERROR rhoevm] model: setUp() -> callcheck(arg1=90)
-[2024-08-10T16:13:46Z INFO  rhoevm] Execution of `callcheck` completed.
+[2024-08-11T13:09:43Z INFO  rhoevm] Using function signature: callcheck(uint256)
+[2024-08-11T13:09:43Z INFO  rhoevm] Calculated function selector: 0x3f67f6b2
+[2024-08-11T13:09:43Z INFO  rhoevm] Calldata constructed successfully for function 'callcheck(uint256)'
+[2024-08-11T13:09:43Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-11T13:09:43Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-11T13:09:45Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x157
+[2024-08-11T13:09:45Z ERROR rhoevm] model: setUp() -> callcheck(arg1=0x5a)
+[2024-08-11T13:09:45Z INFO  rhoevm] Execution of `callcheck` completed.
 ```
 
-### StoreLoad
+## Store & Load
 
 - source
 
@@ -260,7 +96,7 @@ contract StoreLoad {
 - output
 
 ```bash
-./target/debug/rhoevm StoreLoad "store,load" -d ./example/build/ -v 2
+$  ./target/debug/rhoevm StoreLoad "store,load" -d ./example/build/
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -276,28 +112,28 @@ contract StoreLoad {
      ╲🦀╲
       ╲🦀
        ╲
-[2024-08-11T12:53:41Z WARN  rhoevm] Currently, this project is a work in progress.
-[2024-08-11T12:53:41Z INFO  rhoevm] Loading binary from file: ./example/build/StoreLoad.bin
-[2024-08-11T12:53:41Z INFO  rhoevm] Loading abi from file: ./example/build/StoreLoad.abi
+[2024-08-11T13:07:28Z WARN  rhoevm] Currently, this project is a work in progress.
+[2024-08-11T13:07:28Z INFO  rhoevm] Loading binary from file: ./example/build/StoreLoad.bin
+[2024-08-11T13:07:28Z INFO  rhoevm] Loading abi from file: ./example/build/StoreLoad.abi
 
-[2024-08-11T12:53:41Z INFO  rhoevm] Using function signature: store(uint256,uint256)
-[2024-08-11T12:53:41Z INFO  rhoevm] Calculated function selector: 0x6ed28ed0
-[2024-08-11T12:53:41Z INFO  rhoevm] Calldata constructed successfully for function 'store(uint256,uint256)'
-[2024-08-11T12:53:41Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-11T12:53:41Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-11T12:53:42Z INFO  rhoevm] Execution of `store` completed.
+[2024-08-11T13:07:28Z INFO  rhoevm] Using function signature: store(uint256,uint256)
+[2024-08-11T13:07:28Z INFO  rhoevm] Calculated function selector: 0x6ed28ed0
+[2024-08-11T13:07:28Z INFO  rhoevm] Calldata constructed successfully for function 'store(uint256,uint256)'
+[2024-08-11T13:07:28Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-11T13:07:28Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-11T13:07:29Z INFO  rhoevm] Execution of `store` completed.
 
-[2024-08-11T12:53:42Z INFO  rhoevm] Using function signature: load(uint256)
-[2024-08-11T12:53:42Z INFO  rhoevm] Calculated function selector: 0x99d548aa
-[2024-08-11T12:53:42Z INFO  rhoevm] Calldata constructed successfully for function 'load(uint256)'
-[2024-08-11T12:53:42Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-11T12:53:42Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-11T12:54:23Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x250
-[2024-08-11T12:54:23Z ERROR rhoevm] model: store(arg2=0x5,arg1=0x2) -> load(arg3=0x3)
-[2024-08-11T12:54:23Z INFO  rhoevm] Execution of `load` completed.
+[2024-08-11T13:07:29Z INFO  rhoevm] Using function signature: load(uint256)
+[2024-08-11T13:07:29Z INFO  rhoevm] Calculated function selector: 0x99d548aa
+[2024-08-11T13:07:29Z INFO  rhoevm] Calldata constructed successfully for function 'load(uint256)'
+[2024-08-11T13:07:29Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-11T13:07:29Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-11T13:08:09Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x250
+[2024-08-11T13:08:09Z ERROR rhoevm] model: store(arg2=0x2,arg1=0x3) -> load(arg3=0x5)
+[2024-08-11T13:08:09Z INFO  rhoevm] Execution of `load` completed.
 ```
 
-### WhileContract
+## While
 
 - source
 
@@ -326,7 +162,8 @@ contract WhileContract {
 - output
 
 ```bash
-./target/debug/rhoevm ./example/build/WhileContract "check"
+$  ./target/debug/rhoevm WhileContract "check" -d ./
+example/build/
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -342,16 +179,16 @@ contract WhileContract {
      ╲🦀╲
       ╲🦀
        ╲
-[2024-08-10T16:19:38Z WARN  rhoevm] Currently, this project is a work in progress.
-[2024-08-10T16:19:38Z INFO  rhoevm] Loading binary from file: ././example/build/WhileContract.bin
-[2024-08-10T16:19:38Z INFO  rhoevm] Loading abi from file: ././example/build/WhileContract.abi
+[2024-08-11T13:11:00Z WARN  rhoevm] Currently, this project is a work in progress.
+[2024-08-11T13:11:00Z INFO  rhoevm] Loading binary from file: ./example/build/WhileContract.bin
+[2024-08-11T13:11:00Z INFO  rhoevm] Loading abi from file: ./example/build/WhileContract.abi
 
-[2024-08-10T16:19:38Z INFO  rhoevm] Using function signature: check(uint32)
-[2024-08-10T16:19:38Z INFO  rhoevm] Calculated function selector: 0x2b1f2f00
-[2024-08-10T16:19:38Z INFO  rhoevm] Calldata constructed successfully for function 'check(uint32)'
-[2024-08-10T16:19:38Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-10T16:19:38Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-10T16:19:49Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x2d6
-[2024-08-10T16:19:49Z ERROR rhoevm] model:  -> check(arg1=3)
-[2024-08-10T16:19:49Z INFO  rhoevm] Execution of `check` completed.
+[2024-08-11T13:11:00Z INFO  rhoevm] Using function signature: check(uint32)
+[2024-08-11T13:11:00Z INFO  rhoevm] Calculated function selector: 0x2b1f2f00
+[2024-08-11T13:11:00Z INFO  rhoevm] Calldata constructed successfully for function 'check(uint32)'
+[2024-08-11T13:11:00Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-11T13:11:00Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-11T13:11:09Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x2d6
+[2024-08-11T13:11:09Z ERROR rhoevm] model: check(arg1=0x3)
+[2024-08-11T13:11:09Z INFO  rhoevm] Execution of `check` completed.
 ```
