@@ -1,4 +1,4 @@
-use log::{error, warn};
+use log::{error, info, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -433,12 +433,14 @@ impl VM {
       let decoded_op = get_op(op);
       self.decoded_opcodes.push(op_string(&decoded_op).to_string());
 
+      /*
       let mut sm: String = (&"[").to_string();
       for s in self.state.stack.clone() {
         sm = sm.to_owned() + &format!("{},", s);
       }
       sm += "]";
-      //info!("stack: {}", sm);
+      info!("stack: {}", sm);
+      */
 
       match decoded_op {
         Op::Push0 => {

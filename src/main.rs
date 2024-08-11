@@ -339,7 +339,6 @@ fn main() {
                 let model = parse_z3_output(&model_str);
                 let mut is_zero_args = true;
                 for (k, v) in model.iter() {
-                  warn!("{} {}", k, v);
                   if k[..3] == *"arg" {
                     msg_model += &format!("{}=0x{},", k, v.trim_start_matches('0').to_string());
                     is_zero_args = false;
@@ -359,7 +358,7 @@ fn main() {
 
           if found_calldataload && prev_op == "REVERT" {
             let (reachability, model) = solve_constraints(&vm, &vm.constraints);
-            // end = true;
+            end = true;
 
             if reachability {
               error!("\u{001b}[31mREACHABLE REVERT DETECTED @ PC=0x{:x}\u{001b}[0m", prev_pc);
@@ -368,7 +367,6 @@ fn main() {
                 let model = parse_z3_output(&model_str);
                 let mut is_zero_args = true;
                 for (k, v) in model.iter() {
-                  warn!("{} {}", k, v);
                   if k[..3] == *"arg" {
                     msg_model += &format!("{}=0x{},", k, v.trim_start_matches('0').to_string());
                     is_zero_args = false;

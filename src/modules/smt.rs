@@ -1,4 +1,3 @@
-use log::info;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::{fmt, vec};
