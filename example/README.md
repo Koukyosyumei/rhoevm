@@ -232,6 +232,71 @@ contract CallerWithInput {
 [2024-08-10T16:13:46Z INFO  rhoevm] Execution of `callcheck` completed.
 ```
 
+### StoreLoad
+
+- source
+
+```javascript
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract StoreLoad {
+    uint s;
+    uint t;
+
+    function store(uint x, uint y) public {
+        s = x;
+        t = y;
+    }
+
+    function load(uint z) public view {
+        if (s > 1 && t > 1 &&  z > 1 && s < 100 && t < 100 && z < 100) {
+            assert(s * t * z != 30);
+        }
+    }
+}
+```
+
+- output
+
+```bash
+./target/debug/rhoevm StoreLoad "store,load" -d ./example/build/ -v 2
+   ╭───────────────╮
+   │  R H O  │
+   │  E V M  │
+   ╰───────────────╯
+  ╱🦀╱╱╱╲╱╲╱╲
+ ╱ 🦀╲╲╲╲╲╲  ╲
+╱   🦀╲╲╲╲╲╲  ╲ symbolic EVM
+╲    ╱🦀╱╱╱╱  ╱ execution engine
+ ╲  ╱🦀╱╱╱╱╱ ╱  written in Rust
+  ╲╱🦀╱╱╱╱╱╲╱
+   ╲🦀╲╲╲╲╲╱
+    ╲🦀╲╲╲╱
+     ╲🦀╲
+      ╲🦀
+       ╲
+[2024-08-11T12:53:41Z WARN  rhoevm] Currently, this project is a work in progress.
+[2024-08-11T12:53:41Z INFO  rhoevm] Loading binary from file: ./example/build/StoreLoad.bin
+[2024-08-11T12:53:41Z INFO  rhoevm] Loading abi from file: ./example/build/StoreLoad.abi
+
+[2024-08-11T12:53:41Z INFO  rhoevm] Using function signature: store(uint256,uint256)
+[2024-08-11T12:53:41Z INFO  rhoevm] Calculated function selector: 0x6ed28ed0
+[2024-08-11T12:53:41Z INFO  rhoevm] Calldata constructed successfully for function 'store(uint256,uint256)'
+[2024-08-11T12:53:41Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-11T12:53:41Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-11T12:53:42Z INFO  rhoevm] Execution of `store` completed.
+
+[2024-08-11T12:53:42Z INFO  rhoevm] Using function signature: load(uint256)
+[2024-08-11T12:53:42Z INFO  rhoevm] Calculated function selector: 0x99d548aa
+[2024-08-11T12:53:42Z INFO  rhoevm] Calldata constructed successfully for function 'load(uint256)'
+[2024-08-11T12:53:42Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-11T12:53:42Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-11T12:54:23Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x250
+[2024-08-11T12:54:23Z ERROR rhoevm] model: store(arg2=0x5,arg1=0x2) -> load(arg3=0x3)
+[2024-08-11T12:54:23Z INFO  rhoevm] Execution of `load` completed.
+```
+
 ### WhileContract
 
 - source

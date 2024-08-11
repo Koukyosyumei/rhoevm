@@ -1,5 +1,3 @@
-use log::warn;
-
 use crate::modules::abi::Sig;
 use crate::modules::abi::{make_abi_value, selector, AbiType, AbiValue};
 use crate::modules::expr::{add, buf_length, in_range, read_byte, write_byte, write_word};
