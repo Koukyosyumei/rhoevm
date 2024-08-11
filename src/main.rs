@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::{env, process};
+use std::{thread, time};
 use tiny_keccak::{Hasher, Keccak};
 use tokio::runtime::Runtime;
 
@@ -215,6 +216,7 @@ fn main() {
   let mut variable_id_to_function_name: HashMap<usize, String> = HashMap::new();
 
   // ------------- MAIN PART: May rhoevm light your path to bug-free code -------------
+  let start_time = time::Instant::now();
   for function_name in &function_names_vec {
     let mut next_reachable_envs: Vec<Env> = vec![];
 
@@ -432,4 +434,5 @@ fn main() {
     reachable_envs = next_reachable_envs;
     cnt_function_names += 1;
   }
+  info!("Execution Time: {:?}", start_time.elapsed());
 }
