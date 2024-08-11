@@ -296,6 +296,8 @@ async fn main() {
       let mut end = false;
       let mut found_calldataload = false;
       let mut prev_valid_op = "".to_string();
+
+      let mut potential_envs: Vec<(usize, Vec<Prop>, Env)> = vec![];
       let mut potential_reverts: Vec<(usize, Vec<Prop>)> = vec![];
 
       // ------------- Start symbolic execution -------------
@@ -338,13 +340,8 @@ async fn main() {
             && (*prev_addr.clone() == Expr::SymAddr("entrypoint".to_string()))
             && (prev_op == "STOP" || prev_op == "RETURN")
           {
-            let (reachability, _) = solve_constraints(vm.state.pc, vm.constraints.clone()).await;
-            if reachability {
-              debug!("REACHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
-              next_reachable_envs.push(vm.env.clone());
-            } else {
-              debug!("UNRECHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
-            }
+            potential_envs.push((vm.state.pc, vm.constraints.clone(), vm.env.clone()));
+            // let (reachability, _) = solve_constraints(vm.state.pc, vm.constraints.clone()).await;
           }
 
           if found_calldataload && prev_op == "REVERT" {
@@ -375,17 +372,37 @@ async fn main() {
         vm.state.pc += 1;
       }
 
-      let mut tasks = vec![];
+      let mut tasks_check_envs = vec![];
+      for (pc, constraints, env) in potential_envs {
+        let constraints_clone = constraints.clone(); // Clone constraints to move into the task
+        let task = task::spawn(async move {
+          let (reachability, _) = solve_constraints(pc, constraints_clone).await;
+          (pc, reachability, env)
+        });
+        tasks_check_envs.push(task);
+      }
+
+      for task in tasks_check_envs {
+        let (_, reachability, env) = task.await.unwrap();
+        if reachability {
+          //debug!("REACHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
+          next_reachable_envs.push(env.clone());
+        } else {
+          //debug!("UNRECHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
+        }
+      }
+
+      let mut tasks_check_revert = vec![];
       for (pc, constraints) in potential_reverts {
         let constraints_clone = constraints.clone(); // Clone constraints to move into the task
         let task = task::spawn(async move {
           let (reachability, model) = solve_constraints(pc, constraints_clone).await;
           (pc, reachability, model)
         });
-        tasks.push(task);
+        tasks_check_revert.push(task);
       }
 
-      for task in tasks {
+      for task in tasks_check_revert {
         let (pc, reachability, model) = task.await.unwrap(); // Await each task and unwrap the result
         if reachability {
           error!("\u{001b}[31mREACHABLE REVERT DETECTED @ PC=0x{:x}\u{001b}[0m", pc);
