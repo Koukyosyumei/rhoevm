@@ -205,15 +205,16 @@ fn main() {
   let abi_map = parse_abi_file(&abi_json);
   debug!("File '{}' read successfully.\n", abi_filename);
 
-  // ------------- Calculate the function signature -------------
-
   let function_names_vec: Vec<String> = args.function_names.split(',').map(|s| s.to_string()).collect();
   let mut cnt_function_names = 0;
   let mut reachable_envs: Vec<(String, Env)> = vec![];
+  let mut num_known_variables = 0;
 
+  // ------------- MAIN PART: May rhoevm light your path to bug-free code -------------
   for function_name in &function_names_vec {
     let mut next_reachable_envs: Vec<(String, Env)> = vec![];
 
+    // ------------- Calculate the function signature -------------
     if !abi_map.contains_key(function_name) {
       error!("Cannot find the specified function `{}`", function_name);
       return;
@@ -245,7 +246,7 @@ fn main() {
     cmd.value = Some(W256(0, 0));
     //cmd.calldata = Some(function_selector_hex.clone().as_bytes().to_vec());
     cmd.code = Some(binary.clone().into());
-    let callcode = match build_calldata(&cmd) {
+    let callcode = match build_calldata(&cmd, num_known_variables) {
       Ok(calldata) => calldata,
       Err(e) => {
         error!("Failed to build calldata: {}", e);
@@ -253,6 +254,7 @@ fn main() {
       }
     };
     info!("Calldata constructed successfully for function '{}'", function_signature);
+    num_known_variables += abi_map[function_name].len();
 
     // ------------- Initialize VM -------------
     let vm = match dummy_symvm_from_command(&cmd, callcode.clone()) {
@@ -321,12 +323,6 @@ fn main() {
             }
           }
 
-          let mut msg = "** Constraints (Raw Format):=\n true".to_string();
-          for e in &vm.constraints_raw_expr {
-            msg = msg + &format!(" && {}\n", *e);
-          }
-          //debug!("{}", msg);
-
           if found_calldataload
             && (*prev_addr.clone() == Expr::SymAddr("entrypoint".to_string()))
             && (prev_op == "STOP" || prev_op == "RETURN")
@@ -334,7 +330,7 @@ fn main() {
             let (reachability, model) = solve_constraints(&vm, &vm.constraints);
             if reachability {
               if let Some(ref model_str) = model {
-                debug!("RECHABLE {} @ PC={:x}", prev_op, prev_pc);
+                debug!("REACHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
                 let mut msg_model = function_name.to_string() + "(";
                 let model = parse_z3_output(&model_str);
                 let mut is_zero_args = true;
@@ -352,7 +348,7 @@ fn main() {
                   .push((if env.0 == "" { msg_model } else { format!("{} -> {}", env.0, msg_model) }, vm.env.clone()));
               }
             } else {
-              debug!("UNRECHABLE {} @ PC={:x}", prev_op, prev_pc);
+              debug!("UNRECHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
             }
           }
 
@@ -385,6 +381,8 @@ fn main() {
               }
               debug!("{}", msg);
               break;
+            } else {
+              debug!("UNRECHABLE REVERT @ PC=0x{:x}", prev_pc);
             }
           }
 

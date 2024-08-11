@@ -8,7 +8,9 @@ contract StoreLoad {
         s = x;
     }
 
-    function load() public view {
-        assert(s != 100);
+    function load(uint y) public view {
+        if (s > 1 && y > 1 && s < 100 && y < 100) {
+            assert(s * y != 225);
+        }
     }
 }

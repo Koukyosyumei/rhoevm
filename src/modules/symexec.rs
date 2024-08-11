@@ -174,6 +174,7 @@ fn write_selector(buf: &Expr, sig: &str) -> Expr {
 /// * `type_signature` - A slice of `AbiType` representing the function's input types.
 /// * `concrete_args` - A slice of strings representing concrete argument values, if any.
 /// * `base` - The base expression to start from.
+/// * `offset` - The number of existing variables
 ///
 /// # Returns
 ///
@@ -182,7 +183,13 @@ fn write_selector(buf: &Expr, sig: &str) -> Expr {
 /// # Panics
 ///
 /// Panics if any ABI type is unsupported or concrete arguments cannot be parsed.
-pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[String], base: &Expr) -> (Expr, Vec<Prop>) {
+pub fn sym_calldata(
+  sig: &str,
+  type_signature: &[AbiType],
+  concrete_args: &[String],
+  base: &Expr,
+  offset: usize,
+) -> (Expr, Vec<Prop>) {
   let binding = "<symbolic>".to_string();
   let args = concrete_args.iter().chain(std::iter::repeat(&binding)).take(type_signature.len()).collect::<Vec<_>>();
   let mk_arg = |typ: &AbiType, arg: &String, n: usize| -> CalldataFragment {
@@ -197,8 +204,12 @@ pub fn sym_calldata(sig: &str, type_signature: &[AbiType], concrete_args: &[Stri
       },
     }
   };
-  let calldatas: Vec<CalldataFragment> =
-    type_signature.iter().zip(args.iter()).enumerate().map(|(i, (typ, arg))| mk_arg(typ, arg, i + 1)).collect();
+  let calldatas: Vec<CalldataFragment> = type_signature
+    .iter()
+    .zip(args.iter())
+    .enumerate()
+    .map(|(i, (typ, arg))| mk_arg(typ, arg, i + 1 + offset))
+    .collect();
   let (cd_buf, props) = combine_fragments(&calldatas, &base);
   let with_selector = write_selector(&cd_buf, sig);
   let size_constraints = Prop::PAnd(
@@ -245,6 +256,7 @@ fn cd_len(cfs: &Vec<CalldataFragment>) -> Expr {
 ///
 /// * `sig` - An optional `Sig` representing the function signature and input types.
 /// * `concrete_args` - A slice of strings representing concrete argument values, if any.
+/// * `offset` - The number of existing variables
 ///
 /// # Returns
 ///
@@ -253,10 +265,10 @@ fn cd_len(cfs: &Vec<CalldataFragment>) -> Expr {
 /// # Panics
 ///
 /// Panics if any argument type is unsupported or concrete arguments cannot be parsed.
-pub fn mk_calldata(sig: &Option<Sig>, concrete_args: &[String]) -> (Expr, Vec<Prop>) {
+pub fn mk_calldata(sig: &Option<Sig>, concrete_args: &[String], offset: usize) -> (Expr, Vec<Prop>) {
   match sig {
     Some(Sig { method_signature: name, inputs: types }) => {
-      sym_calldata(&name, &types, concrete_args, &Expr::AbstractBuf("txdata".to_string()))
+      sym_calldata(&name, &types, concrete_args, &Expr::AbstractBuf("txdata".to_string()), offset)
     }
     None => (
       Expr::AbstractBuf("txdata".to_string()),
