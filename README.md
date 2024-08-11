@@ -48,6 +48,7 @@ rhoevm CONTRACT_NAME FUNCTION_NAMES [options]
 
 ```
 -d, --dir DIR: Specify the target directory where contract files are located.
+-i, --max_num_iterations MAX_NUM_ITER: Maximum number of iterations for loop
 -v, --verbose LEVEL: Set the verbosity level (0: error, 1: warn, 2: info, 3: debug, 4: trace).
 -h, --help: Display help information.
 ```

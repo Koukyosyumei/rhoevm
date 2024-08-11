@@ -2,6 +2,7 @@ use env_logger;
 use getopts::Options;
 use log::{debug, error, info, warn};
 use std::cmp::min;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
@@ -205,14 +206,16 @@ fn main() {
   let abi_map = parse_abi_file(&abi_json);
   debug!("File '{}' read successfully.\n", abi_filename);
 
+  // utility variables
   let function_names_vec: Vec<String> = args.function_names.split(',').map(|s| s.to_string()).collect();
   let mut cnt_function_names = 0;
-  let mut reachable_envs: Vec<(String, Env)> = vec![];
+  let mut reachable_envs: Vec<Env> = vec![];
   let mut num_known_variables = 0;
+  let mut variable_id_to_function_name: HashMap<usize, String> = HashMap::new();
 
   // ------------- MAIN PART: May rhoevm light your path to bug-free code -------------
   for function_name in &function_names_vec {
-    let mut next_reachable_envs: Vec<(String, Env)> = vec![];
+    let mut next_reachable_envs: Vec<Env> = vec![];
 
     // ------------- Calculate the function signature -------------
     if !abi_map.contains_key(function_name) {
@@ -254,6 +257,10 @@ fn main() {
       }
     };
     info!("Calldata constructed successfully for function '{}'", function_signature);
+
+    for i in 1 + num_known_variables..=num_known_variables + abi_map[function_name].len() {
+      variable_id_to_function_name.insert(i, function_name.to_string());
+    }
     num_known_variables += abi_map[function_name].len();
 
     // ------------- Initialize VM -------------
@@ -266,7 +273,7 @@ fn main() {
     };
     if cnt_function_names == 0 {
       debug!("Generate the blank environment");
-      reachable_envs.push(("".to_string(), vm.env.clone()));
+      reachable_envs.push(vm.env.clone());
     }
 
     info!("Number of initial environments: {}", reachable_envs.len());
@@ -278,7 +285,7 @@ fn main() {
           return;
         }
       };
-      vm.env = env.1.clone();
+      vm.env = env.clone();
 
       let num_initial_constraints = vm.constraints.len();
 
@@ -327,26 +334,10 @@ fn main() {
             && (*prev_addr.clone() == Expr::SymAddr("entrypoint".to_string()))
             && (prev_op == "STOP" || prev_op == "RETURN")
           {
-            let (reachability, model) = solve_constraints(&vm, &vm.constraints);
+            let (reachability, _) = solve_constraints(&vm, &vm.constraints);
             if reachability {
-              if let Some(ref model_str) = model {
-                debug!("REACHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
-                let mut msg_model = function_name.to_string() + "(";
-                let model = parse_z3_output(&model_str);
-                let mut is_zero_args = true;
-                for (k, v) in model.iter() {
-                  if k[..3] == *"arg" {
-                    msg_model += &format!("{}=0x{},", k, v.trim_start_matches('0').to_string());
-                    is_zero_args = false;
-                  }
-                }
-                if !is_zero_args {
-                  msg_model.pop();
-                }
-                msg_model.push(')');
-                next_reachable_envs
-                  .push((if env.0 == "" { msg_model } else { format!("{} -> {}", env.0, msg_model) }, vm.env.clone()));
-              }
+              debug!("REACHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
+              next_reachable_envs.push(vm.env.clone());
             } else {
               debug!("UNRECHABLE {} @ PC=0x{:x}", prev_op, prev_pc);
             }
@@ -359,20 +350,43 @@ fn main() {
             if reachability {
               error!("\u{001b}[31mREACHABLE REVERT DETECTED @ PC=0x{:x}\u{001b}[0m", prev_pc);
               if let Some(ref model_str) = model {
-                let mut msg_model = function_name.to_string() + "(";
                 let model = parse_z3_output(&model_str);
-                let mut is_zero_args = true;
+
+                let mut fname_to_args: HashMap<String, Vec<String>> = HashMap::new();
+                for fname in &function_names_vec {
+                  fname_to_args.insert(fname.to_string(), vec![]);
+                }
+
                 for (k, v) in model.iter() {
                   if k[..3] == *"arg" {
-                    msg_model += &format!("{}=0x{},", k, v.trim_start_matches('0').to_string());
-                    is_zero_args = false;
+                    let variable_id = k[3..].parse::<usize>().unwrap_or(0);
+                    if variable_id_to_function_name.contains_key(&variable_id) {
+                      fname_to_args
+                        .get_mut(variable_id_to_function_name.get(&variable_id).unwrap())
+                        .unwrap()
+                        .push(format!("{}=0x{},", k, v.trim_start_matches('0').to_string()));
+                    }
                   }
                 }
-                if !is_zero_args {
-                  msg_model.pop();
+
+                let mut msg_model = "".to_string();
+                for fname in &function_names_vec {
+                  if msg_model != "".to_string() {
+                    msg_model += " -> ";
+                  }
+                  let mut is_zero_args = true;
+                  msg_model += &(fname.to_string() + "(");
+                  for v in fname_to_args.get(fname).unwrap() {
+                    msg_model += v;
+                    is_zero_args = false;
+                  }
+                  if !is_zero_args {
+                    msg_model.pop();
+                  }
+                  msg_model.push(')');
                 }
-                msg_model.push(')');
-                error!("\u{001b}[31mmodel: {}\u{001b}[0m", format!("{} -> {}", env.0, msg_model));
+
+                error!("\u{001b}[31mmodel: {}\u{001b}[0m", msg_model);
               }
 
               let mut msg = "** Constraints (Raw Format):=\n true".to_string();
