@@ -60,21 +60,24 @@ pub fn eliminate_expr<'a>(e: Expr) -> (Expr, BufEnv, StoreEnv) {
   (e_prime, invert_key_val(state.bufs.clone()), invert_key_val(state.stores.clone()))
 }
 
-fn eliminate_prop<'a>(mut state: &mut BuilderState, prop: Prop) -> (&mut BuilderState, Prop) {
+fn eliminate_prop<'a>(mut state: &mut BuilderState, prop: Box<Prop>) -> (&mut BuilderState, Prop) {
   let mut go_ = |expr: &Expr| go(&mut state, expr.clone()).1;
-  let new_prop = map_prop_m(&mut go_, prop);
+  let new_prop = map_prop_m(&mut go_, *prop);
   (state, new_prop)
 }
 
-pub fn eliminate_props_prime<'a>(state: &mut BuilderState, props: Vec<Prop>) -> (&mut BuilderState, Vec<Prop>) {
+pub fn eliminate_props_prime<'a>(
+  state: &mut BuilderState,
+  props: Vec<Box<Prop>>,
+) -> (&mut BuilderState, Vec<Box<Prop>>) {
   let mut result = vec![];
   for p in props {
-    result.push(eliminate_prop(state, p).1);
+    result.push(Box::new(eliminate_prop(state, p).1));
   }
   (state, result)
 }
 
-pub fn eliminate_props(props: Vec<Prop>) -> (Vec<Prop>, BufEnv, StoreEnv) {
+pub fn eliminate_props(props: Vec<Box<Prop>>) -> (Vec<Box<Prop>>, BufEnv, StoreEnv) {
   let mut state = init_state();
   let (_, props_prime) = eliminate_props_prime(&mut state, props);
   (props_prime, invert_key_val(state.bufs.clone()), invert_key_val(state.stores.clone()))

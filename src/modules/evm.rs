@@ -5,6 +5,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::vec;
+use tokio::task;
 
 use crate::modules::effects::Config;
 use crate::modules::expr::copy_slice;
@@ -178,7 +179,6 @@ pub fn make_vm(opts: VMOpts) -> VM {
     cache: Cache { fetched: HashMap::new(), path: HashMap::new() },
     burned: Gas::Concerete(initial_gas()),
     constraints: opts.calldata.1.clone(),
-    constraints_raw_expr: vec![],
     iterations: HashMap::new(),
     config: RuntimeConfig {
       allow_ffi: opts.allow_ffi,
@@ -208,7 +208,8 @@ pub fn make_vm(opts: VMOpts) -> VM {
     }],
     current_fork: 0,
     labels: HashMap::new(),
-    decoded_opcodes: Vec::new(),
+    prev_opcode: "".to_string(), // constraints_raw_expr: vec![],
+                                 // decoded_opcodes: Vec::new(),
   }
 }
 
@@ -431,7 +432,11 @@ impl VM {
       };
 
       let decoded_op = get_op(op);
-      self.decoded_opcodes.push(op_string(&decoded_op).to_string());
+      if let Op::Unknown(_) = decoded_op {
+      } else {
+        self.prev_opcode = op_string(&decoded_op).to_string();
+      }
+      // self.decoded_opcodes.push(op_string(&decoded_op).to_string());
 
       match decoded_op {
         Op::Push0 => {
@@ -466,8 +471,9 @@ impl VM {
               from_list(padded_bytes)
             }
           };
-          let num_decoded_opcodes = self.decoded_opcodes.len() - 1;
-          self.decoded_opcodes[num_decoded_opcodes] += &(" ".to_string() + &xs.to_string());
+          // let num_decoded_opcodes = self.decoded_opcodes.len() - 1;
+          // self.decoded_opcodes[num_decoded_opcodes] += &(" ".to_string() + &xs.to_string());
+          self.prev_opcode += &(" ".to_string() + &xs.to_string());
 
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_verylow, || {});
@@ -3085,39 +3091,46 @@ fn account_empty(c: &Contract) -> bool {
 ///
 /// * `(bool, Option<String>)` - A tuple where the first element indicates whether the constraints are satisfiable,
 ///   and the second element is an optional string containing the model from the SMT solver if the constraints are satisfiable.
-pub fn solve_constraints(vm: &VM, pathconds: &Vec<Prop>) -> (bool, Option<String>) {
-  let config = Config::default();
-  let smt2 = assert_props(&config, pathconds.to_vec());
-  let content = format_smt2(&smt2) + "\n\n(check-sat)\n(get-model)";
+pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, Option<String>) {
+  let result = task::spawn_blocking(move || {
+    let config = Config::default();
+    let smt2 = assert_props(&config, pathconds.to_vec());
+    let content = format_smt2(&smt2) + "\n\n(check-sat)\n(get-model)";
 
-  let mut hasher = DefaultHasher::new();
-  let mut pathconds_str: Vec<String> = pathconds.into_iter().map(|p| format!("{}", format_prop(p))).collect();
-  pathconds_str.sort();
-  for p in pathconds_str {
-    p.hash(&mut hasher);
-  }
-  let hash_val = hasher.finish();
+    let mut hasher = DefaultHasher::new();
+    let mut pathconds_str: Vec<String> = pathconds.into_iter().map(|p| format!("{}", format_prop(&p))).collect();
+    pathconds_str.sort();
+    for p in pathconds_str {
+      p.hash(&mut hasher);
+    }
+    let hash_val = hasher.finish();
 
-  let dir_path = Path::new("./.rhoevm");
-  if !dir_path.exists() {
-    let _ = fs::create_dir_all(&dir_path);
-  }
-  let file_path = dir_path.join(format!("query-{}-{}-{:x}.smt2", vm.state.pc, pathconds.len(), hash_val));
-  let _ = fs::write(file_path.clone(), content);
+    let dir_path = Path::new("./.rhoevm");
+    if !dir_path.exists() {
+      let _ = fs::create_dir_all(&dir_path);
+    }
+    let file_path = dir_path.join(format!("query-{}-{:x}.smt2", pc, hash_val));
+    let _ = fs::write(file_path.clone(), content);
 
-  let output = Command::new("z3")
-    .args(["-smt2", file_path.to_str().unwrap()]) // Pass the arguments to the command
-    .stdout(Stdio::piped()) // Capture standard output
-    .stderr(Stdio::piped()) // Capture standard error
-    .output()
-    .unwrap(); // Run the command and capture the output
+    let output = Command::new("z3")
+      .args(["-smt2", file_path.to_str().unwrap()]) // Pass the arguments to the command
+      .stdout(Stdio::piped()) // Capture standard output
+      .stderr(Stdio::piped()) // Capture standard error
+      .output()
+      .unwrap(); // Run the command and capture the output
 
-  if output.status.success() {
-    // Convert the standard output to a String
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    return (stdout[..3] == *"sat", Some(stdout));
-  }
-  (false, None)
+    if output.status.success() {
+      // Convert the standard output to a String
+      let stdout = String::from_utf8(output.stdout).unwrap();
+      (stdout[..3] == *"sat", Some(stdout))
+    } else {
+      (false, None)
+    }
+  })
+  .await
+  .unwrap();
+
+  result
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3171,11 +3184,11 @@ where
   let then_branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)))));
   let else_branch_cond = Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)));
 
-  vm.constraints_raw_expr.push(cond.clone());
-  vm.constraints.push(then_branch_cond);
+  // vm.constraints_raw_expr.push(cond.clone());
+  vm.constraints.push(Box::new(then_branch_cond));
 
-  new_vm.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
-  new_vm.constraints.push(else_branch_cond);
+  // new_vm.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
+  new_vm.constraints.push(Box::new(else_branch_cond));
   if itr_cnt >= max_num_iterations as i64 {
     //*new_vm.iterations.entry(loc).or_insert((0, new_vm.state.stack.clone())) = (0, new_vm.state.stack.clone())
   }

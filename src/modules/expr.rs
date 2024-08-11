@@ -915,10 +915,12 @@ pub fn conc_keccak_simp_expr(expr: Box<Expr>) -> Expr {
 // Only concretize Keccak in Props
 // Needed because if it also simplified, we may not find some simplification errors, as
 // simplification would always be ON
-pub fn conc_keccak_props(props: Vec<Prop>) -> Vec<Prop> {
+pub fn conc_keccak_props(props: Vec<Box<Prop>>) -> Vec<Box<Prop>> {
   until_fixpoint(
     |ps| {
-      ps.into_iter().map(|p| map_prop(&mut |e: &Expr| conc_keccak_one_pass(Box::new(e.clone())), p.clone())).collect()
+      ps.into_iter()
+        .map(|p| Box::new(map_prop(&mut |e: &Expr| conc_keccak_one_pass(Box::new(e.clone())), *p.clone())))
+        .collect()
     },
     props,
   )
@@ -1275,12 +1277,12 @@ fn go_expr(expr: Box<Expr>) -> Expr {
   }
 }
 
-pub fn simplify_prop(prop: Prop) -> Prop {
+pub fn simplify_prop(prop: Box<Prop>) -> Prop {
   let mut fp: &dyn Fn(&Prop) -> Prop = &go_prop;
-  let new_prop = map_prop_prime(&mut fp, simp_inner_expr(prop.clone()));
+  let new_prop = map_prop_prime(&mut fp, simp_inner_expr(*prop.clone()));
 
-  let sp = if new_prop == prop { prop.clone() } else { simplify_prop(new_prop) };
-  sp
+  let sp = if new_prop == *prop { prop.clone() } else { Box::new(simplify_prop(Box::new(new_prop))) };
+  *sp
 }
 
 fn simp_inner_expr(prop: Prop) -> Prop {
@@ -1507,16 +1509,16 @@ pub fn create2_address_(a: Addr, s: W256, b: ByteString) -> Expr {
 }
 
 // Function to flatten PAnd
-fn flatten_props(props: Vec<Prop>) -> Vec<Prop> {
+fn flatten_props(props: Vec<Box<Prop>>) -> Vec<Box<Prop>> {
   let mut result = Vec::new();
 
   for prop in props {
-    match prop {
+    match *prop.clone() {
       Prop::PAnd(x1, x2) => {
-        result.push(*x1);
-        result.push(*x2);
+        result.push(x1);
+        result.push(x2);
       }
-      x => result.push(x),
+      _ => result.push(prop),
     }
   }
 
@@ -1524,17 +1526,17 @@ fn flatten_props(props: Vec<Prop>) -> Vec<Prop> {
 }
 
 // Function to remove redundant props
-fn rem_redundant_props(props: Vec<Prop>) -> Vec<Prop> {
+fn rem_redundant_props(props: Vec<Box<Prop>>) -> Vec<Box<Prop>> {
   // Filter out PBool(true)
-  let filtered: Vec<Prop> = props.into_iter().filter(|x| *x != Prop::PBool(true)).collect();
+  let filtered: Vec<Box<Prop>> = props.into_iter().filter(|x| *x.clone() != Prop::PBool(true)).collect();
 
   // Check if PBool(false) is present
-  if filtered.iter().any(|x| *x == Prop::PBool(false)) {
-    vec![Prop::PBool(false)] // Return only PBool(false) if it exists
+  if filtered.iter().any(|x| *x.clone() == Prop::PBool(false)) {
+    vec![Box::new(Prop::PBool(false))] // Return only PBool(false) if it exists
   } else {
     // Use HashSet to remove duplicates
-    let unique: HashSet<Prop> = filtered.into_iter().collect();
-    unique.into_iter().collect()
+    let unique: HashSet<Prop> = filtered.into_iter().map(|a| *a).collect();
+    unique.into_iter().map(|a| Box::new(a)).collect()
   }
 }
 
@@ -1552,11 +1554,11 @@ impl ConstState {
 }
 
 // Function to fold constants
-fn const_fold_prop(ps: Vec<Prop>) -> bool {
+fn const_fold_prop(ps: Vec<Box<Prop>>) -> bool {
   // Inner function one_run to process props
-  fn one_run(ps2: Vec<Prop>, start_state: &mut ConstState) -> bool {
+  fn one_run(ps2: Vec<Box<Prop>>, start_state: &mut ConstState) -> bool {
     for p in ps2 {
-      go_const_fold_prop(p, start_state);
+      go_const_fold_prop(*p, start_state);
     }
     start_state.can_be_sat
   }
@@ -1603,13 +1605,13 @@ fn const_fold_prop(ps: Vec<Prop>) -> bool {
       // POr
       Prop::POr(a, b) => {
         let mut s = state.clone();
-        let v1 = one_run(vec![*a.clone()], &mut s);
-        let v2 = one_run(vec![*b.clone()], state);
+        let v1 = one_run(vec![a.clone()], &mut s);
+        let v2 = one_run(vec![b.clone()], state);
         if !v1 {
-          go_const_fold_prop(*b, state);
+          go_const_fold_prop(*b.clone(), state);
         }
         if !v2 {
-          go_const_fold_prop(*a, state);
+          go_const_fold_prop(*a.clone(), state);
         }
         state.can_be_sat = state.can_be_sat && (v1 || v2);
       }
@@ -1622,16 +1624,16 @@ fn const_fold_prop(ps: Vec<Prop>) -> bool {
     }
   }
 
-  one_run(ps.into_iter().map(simplify_prop).collect(), &mut ConstState::new())
+  one_run(ps.into_iter().map(|a| Box::new(simplify_prop(a))).collect(), &mut ConstState::new())
 }
 
-pub fn simplify_props(ps: Vec<Prop>) -> Vec<Prop> {
-  let simplified = rem_redundant_props(flatten_props(ps).into_iter().map(simplify_prop).collect());
+pub fn simplify_props(ps: Vec<Box<Prop>>) -> Vec<Box<Prop>> {
+  let simplified = rem_redundant_props(flatten_props(ps).into_iter().map(|a| Box::new(simplify_prop(a))).collect());
   let can_be_sat = const_fold_prop(simplified.clone());
   if can_be_sat {
     simplified
   } else {
-    vec![Prop::PBool(false)]
+    vec![Box::new(Prop::PBool(false))]
   }
 }
 

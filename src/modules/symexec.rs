@@ -10,8 +10,8 @@ use crate::modules::types::{Expr, Prop, W256};
 /// - `Comp(Vec<CalldataFragment>)`: A compound fragment containing other fragments.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CalldataFragment {
-  St(Vec<Prop>, Expr),
-  Dy(Vec<Prop>, Expr, Expr),
+  St(Vec<Box<Prop>>, Expr),
+  Dy(Vec<Box<Prop>>, Expr, Expr),
   Comp(Vec<CalldataFragment>),
 }
 
@@ -51,7 +51,7 @@ pub fn sym_abi_arg(name: &str, abi_type: AbiType) -> CalldataFragment {
     AbiType::AbiUIntType(n) => {
       if n % 8 == 0 && n <= 256 {
         let v = Expr::Var(name.into());
-        CalldataFragment::St(vec![in_range(n as u32, Box::new(v.clone()))], v)
+        CalldataFragment::St(vec![Box::new(in_range(n as u32, Box::new(v.clone())))], v)
       } else {
         panic!("bad type")
       }
@@ -59,20 +59,20 @@ pub fn sym_abi_arg(name: &str, abi_type: AbiType) -> CalldataFragment {
     AbiType::AbiIntType(n) => {
       if n % 8 == 0 && n <= 256 {
         let v = Expr::Var(name.into());
-        CalldataFragment::St(vec![in_range(n as u32, Box::new(v.clone()))], v)
+        CalldataFragment::St(vec![Box::new(in_range(n as u32, Box::new(v.clone())))], v)
       } else {
         panic!("bad type")
       }
     }
     AbiType::AbiBoolType => {
       let v = Expr::Var(name.into());
-      CalldataFragment::St(vec![to_bool(&v)], v)
+      CalldataFragment::St(vec![Box::new(to_bool(&v))], v)
     }
     AbiType::AbiAddressType => CalldataFragment::St(vec![], Expr::SymAddr(name.into())),
     AbiType::AbiBytesType(n) => {
       if n > 0 && n <= 32 {
         let v = Expr::Var(name.into());
-        CalldataFragment::St(vec![in_range((n * 8) as u32, Box::new(v.clone()))], v)
+        CalldataFragment::St(vec![Box::new(in_range((n * 8) as u32, Box::new(v.clone())))], v)
       } else {
         panic!("bad type")
       }
@@ -110,8 +110,8 @@ fn is_st(cf: &CalldataFragment) -> bool {
 /// # Returns
 ///
 /// A tuple containing the combined expression and a vector of properties associated with the calldata.
-fn combine_fragments(fragments: &[CalldataFragment], base: &Expr) -> (Expr, Vec<Prop>) {
-  fn go(idx: Expr, fragments: &[CalldataFragment], acc: (Expr, Vec<Prop>)) -> (Expr, Vec<Prop>) {
+fn combine_fragments(fragments: &[CalldataFragment], base: &Expr) -> (Expr, Vec<Box<Prop>>) {
+  fn go(idx: Expr, fragments: &[CalldataFragment], acc: (Expr, Vec<Box<Prop>>)) -> (Expr, Vec<Box<Prop>>) {
     if fragments.is_empty() {
       return acc;
     }
@@ -187,7 +187,7 @@ pub fn sym_calldata(
   concrete_args: &[String],
   base: &Expr,
   offset: usize,
-) -> (Expr, Vec<Prop>) {
+) -> (Expr, Vec<Box<Prop>>) {
   let binding = "<symbolic>".to_string();
   let args = concrete_args.iter().chain(std::iter::repeat(&binding)).take(type_signature.len()).collect::<Vec<_>>();
   let mk_arg = |typ: &AbiType, arg: &String, n: usize| -> CalldataFragment {
@@ -210,10 +210,10 @@ pub fn sym_calldata(
     .collect();
   let (cd_buf, props) = combine_fragments(&calldatas, &base);
   let with_selector = write_selector(&cd_buf, sig);
-  let size_constraints = Prop::PAnd(
+  let size_constraints = Box::new(Prop::PAnd(
     Box::new(Prop::PGEq(Expr::BufLength(Box::new(with_selector.clone())), cd_len(&calldatas))),
     Box::new(Prop::PLT(Expr::BufLength(Box::new(with_selector.clone())), Expr::Lit(W256(2_u128.pow(64), 0)))),
-  );
+  ));
   (with_selector, vec![size_constraints].into_iter().chain(props).collect())
 }
 
@@ -263,14 +263,14 @@ fn cd_len(cfs: &Vec<CalldataFragment>) -> Expr {
 /// # Panics
 ///
 /// Panics if any argument type is unsupported or concrete arguments cannot be parsed.
-pub fn mk_calldata(sig: &Option<Sig>, concrete_args: &[String], offset: usize) -> (Expr, Vec<Prop>) {
+pub fn mk_calldata(sig: &Option<Sig>, concrete_args: &[String], offset: usize) -> (Expr, Vec<Box<Prop>>) {
   match sig {
     Some(Sig { method_signature: name, inputs: types }) => {
       sym_calldata(&name, &types, concrete_args, &Expr::AbstractBuf("txdata".to_string()), offset)
     }
     None => (
       Expr::AbstractBuf("txdata".to_string()),
-      vec![Prop::PLEq(buf_length(Expr::AbstractBuf("txdata".to_string())), Expr::Lit(W256(2 ^ 64, 0)))],
+      vec![Box::new(Prop::PLEq(buf_length(Expr::AbstractBuf("txdata".to_string())), Expr::Lit(W256(2 ^ 64, 0))))],
     ),
   }
 }

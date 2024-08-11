@@ -10,7 +10,7 @@ use rhoevm::modules::types::{ContractCode, Expr, Memory, Prop, RuntimeCodeStruct
 
 const MAX_NUM_ITERATIONS: u32 = 1;
 
-fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Prop>)) -> Result<VM, Box<dyn Error>> {
+fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Box<Prop>>)) -> Result<VM, Box<dyn Error>> {
   let (miner, block_num, base_fee, prev_ran) = (Expr::SymAddr("miner".to_string()), W256(0, 0), W256(0, 0), W256(0, 0));
 
   let caller = Expr::SymAddr("caller".to_string());
@@ -48,21 +48,21 @@ fn test_vm_exec_1() {
 
   assert_eq!(vm.state.pc, 0);
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
-  assert_eq!(vm.decoded_opcodes.len(), 1);
-  assert_eq!(vm.decoded_opcodes, vec!["PUSH1 Lit(0x80)"]);
+  //assert_eq!(vm.decoded_opcodes.len(), 1);
+  assert_eq!(vm.prev_opcode, "PUSH1 Lit(0x80)");
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x80)");
   assert_eq!(vm.state.pc, 2);
 
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.state.pc, 4);
-  assert_eq!(vm.decoded_opcodes.len(), 2);
-  assert_eq!(vm.decoded_opcodes, vec!["PUSH1 Lit(0x80)", "PUSH1 Lit(0x40)"]);
+  // assert_eq!(vm.decoded_opcodes.len(), 2);
+  assert_eq!(vm.prev_opcode, "PUSH1 Lit(0x40)");
   assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x40)");
 
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
   assert_eq!(vm.state.pc, 5);
-  assert_eq!(vm.decoded_opcodes.len(), 3);
-  assert_eq!(vm.decoded_opcodes, vec!["PUSH1 Lit(0x80)", "PUSH1 Lit(0x40)", "MSTORE"]);
+  // assert_eq!(vm.decoded_opcodes.len(), 3);
+  assert_eq!(vm.prev_opcode, "MSTORE");
   let mut mem = vec![0; 96];
   mem[0x40 + 31] = 0x80;
   assert_eq!(vm.state.memory, Memory::ConcreteMemory(mem));
@@ -136,7 +136,7 @@ fn test_vm_opdup() {
   vm.state.stack.push(Box::new(Expr::Lit(W256(2, 0))));
 
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
-  assert_eq!(vm.decoded_opcodes, vec!["DUP2"]);
+  assert_eq!(vm.prev_opcode, "DUP2");
   assert_eq!(vm.state.stack.len(), 3);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x1)");
   assert_eq!(vm.state.stack.get(1).unwrap().to_string(), "Lit(0x2)");
@@ -153,7 +153,7 @@ fn test_vm_oppc() {
 
   vm.state.pc = 5;
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS);
-  assert_eq!(vm.decoded_opcodes, vec!["PC"]);
+  assert_eq!(vm.prev_opcode, "PC");
   assert_eq!(vm.state.stack.len(), 1);
   assert_eq!(vm.state.stack.get(0).unwrap().to_string(), "Lit(0x5)");
 }
