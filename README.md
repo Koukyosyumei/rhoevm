@@ -65,7 +65,7 @@ Below is an example of how to use `rhoevm` with a simple Solidity smart contract
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-contract AssertInput {
+contract SimpleContract {
     function check(uint32 x, uint32 y) public pure {
         if (x > 0 && x < 100 && y > 0 && y < 100) {
             assert(x + y != 142);
@@ -80,7 +80,7 @@ contract AssertInput {
 # Compile the Solidity contract using solc or any preferred compiler.
 # Assuming the compiled binary and ABI are located in ./example/build
 
-$ rhoevm ./example/build/AssertInput "check"
+$ rhoevm SimpleContract "check" -d ./example/build/
 ```
 
 - Output
@@ -101,19 +101,23 @@ $ rhoevm ./example/build/AssertInput "check"
      ╲🦀╲
       ╲🦀
        ╲
-[2024-07-30T09:20:13Z INFO  rhoevm] Loading binary from file: ./example/build/AssertInput.bin
-[2024-07-30T09:20:13Z INFO  rhoevm] Loading abi from file: ./example/build/AssertInput.abi
-[2024-07-30T09:20:13Z INFO  rhoevm] Using function signature: check(uint32,uint32)
-[2024-07-30T09:20:13Z INFO  rhoevm] Calculated function selector: 0xc5eb648f
-[2024-07-30T09:20:13Z INFO  rhoevm] Calldata constructed successfully for function 'check(uint32,uint32)'
+[2024-08-11T13:21:39Z WARN  rhoevm] Currently, this project is a work in progress.
+[2024-08-11T13:21:39Z INFO  rhoevm] Loading binary from file: ./example/build/SimpleContract.bin
+[2024-08-11T13:21:39Z INFO  rhoevm] Loading abi from file: ./example/build/SimpleContract.abi
 
-[2024-07-30T09:20:13Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-07-30T09:20:18Z ERROR rhoevm] REVERT DETECTED @ PC = 0x1db
-[2024-07-30T09:20:18Z ERROR rhoevm] model: check(arg1=50,arg2=92)
-[2024-07-30T09:20:18Z INFO  rhoevm] EVM execution completed.
+[2024-08-11T13:21:39Z INFO  rhoevm] Using function signature: check(uint32,uint32)
+[2024-08-11T13:21:39Z INFO  rhoevm] Calculated function selector: 0xc5eb648f
+[2024-08-11T13:21:39Z INFO  rhoevm] Calldata constructed successfully for function 'check(uint32,uint32)'
+[2024-08-11T13:21:39Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-11T13:21:39Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-11T13:21:45Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x1db
+[2024-08-11T13:21:45Z ERROR rhoevm] model: check(arg2=0x54,arg1=0x3a)
+[2024-08-11T13:21:45Z INFO  rhoevm] Execution of `check` completed.
 ```
 
 In the above example, `rhoevm` analyzes the `check` function of the SimpleAssert contract, highlighting a revert condition due to the failed assertion.
+
+You can find more examples in [example](example).
 
 ## 3. License
 
