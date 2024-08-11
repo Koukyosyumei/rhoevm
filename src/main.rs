@@ -292,7 +292,7 @@ fn main() {
           let prev_pc = vm.state.pc;
           let prev_addr = vm.state.contract.clone();
           let do_size = vm.decoded_opcodes.len();
-          let continue_flag = vm.exec1(
+          let mut continue_flag = vm.exec1(
             &mut vms,
             if found_calldataload { args.max_num_iterations.unwrap_or(DEFAULT_MAX_NUM_ITERATIONS) } else { 1 },
           );
@@ -317,7 +317,7 @@ fn main() {
             let (reachability, _) = solve_constraints(&vm, &vm.constraints);
             if !reachability {
               debug!("Skip non-target function");
-              break;
+              continue_flag = false;
             }
           }
 

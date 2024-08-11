@@ -10,10 +10,5 @@ contract StoreLoad {
 
     function load() public view {
         assert(s != 100);
-        /*
-        if (s > 1 && y > 1 && s < 100 && y < 100) {
-            assert (s * y != 35);
-        }
-        */
     }
 }

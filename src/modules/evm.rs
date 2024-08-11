@@ -433,15 +433,6 @@ impl VM {
       let decoded_op = get_op(op);
       self.decoded_opcodes.push(op_string(&decoded_op).to_string());
 
-      /*
-      let mut sm: String = (&"[").to_string();
-      for s in self.state.stack.clone() {
-        sm = sm.to_owned() + &format!("{},", s);
-      }
-      sm += "]";
-      info!("stack: {}", sm);
-      */
-
       match decoded_op {
         Op::Push0 => {
           // stack output
@@ -2668,7 +2659,6 @@ fn general_call(
           Box::new(read_memory(vm, x_in_offset, Expr::Lit(W256(4, 0)))),
         ));
 
-        // warn!("abi: {}", abi.clone().unwrap().to_hex());
         let new_context = FrameContext::CallContext {
           target: x_to.clone(),
           context: x_context.clone(),
