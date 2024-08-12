@@ -1,3 +1,5 @@
+use log::info;
+
 use crate::modules::abi::Sig;
 use crate::modules::abi::{make_abi_value, selector, AbiType, AbiValue};
 use crate::modules::expr::{add, buf_length, in_range, read_byte, write_byte, write_word};
@@ -188,6 +190,7 @@ pub fn sym_calldata(
   base: &Expr,
   offset: usize,
 ) -> (Expr, Vec<Box<Prop>>) {
+  info!("sig: {}", sig);
   let binding = "<symbolic>".to_string();
   let args = concrete_args.iter().chain(std::iter::repeat(&binding)).take(type_signature.len()).collect::<Vec<_>>();
   let mk_arg = |typ: &AbiType, arg: &String, n: usize| -> CalldataFragment {

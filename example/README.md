@@ -30,8 +30,7 @@ contract Caller {
 - output
 
 ```bash
-$  ./target/debug/rhoevm Caller "setUp,callcheck" -d
- ./example/build/
+$  ./target/release/rhoevm ./example/build/Caller.bin "setUp()|callcheck(uint)"
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -47,25 +46,25 @@ $  ./target/debug/rhoevm Caller "setUp,callcheck" -d
      ╲🦀╲
       ╲🦀
        ╲
-[2024-08-11T13:09:43Z WARN  rhoevm] Currently, this project is a work in progress.
-[2024-08-11T13:09:43Z INFO  rhoevm] Loading binary from file: ./example/build/Caller.bin
-[2024-08-11T13:09:43Z INFO  rhoevm] Loading abi from file: ./example/build/Caller.abi
+[2024-08-12T18:23:41Z WARN  rhoevm] Currently, this project is a work in progress.
+[2024-08-12T18:23:41Z INFO  rhoevm] Loading binary from file: ./example/build/Caller.bin
+[2024-08-12T18:23:41Z INFO  rhoevm] Target function signature: setUp()
+[2024-08-12T18:23:41Z INFO  rhoevm] fname: setUp
+[2024-08-12T18:23:41Z INFO  rhoevm::modules::symexec] sig: setUp()
+[2024-08-12T18:23:41Z INFO  rhoevm] Calldata constructed successfully for function 'setUp()'
+[2024-08-12T18:23:41Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-12T18:23:41Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-12T18:23:41Z INFO  rhoevm] Execution of 'setUp()' completed.
 
-[2024-08-11T13:09:43Z INFO  rhoevm] Using function signature: setUp()
-[2024-08-11T13:09:43Z INFO  rhoevm] Calculated function selector: 0x0a9254e4
-[2024-08-11T13:09:43Z INFO  rhoevm] Calldata constructed successfully for function 'setUp()'
-[2024-08-11T13:09:43Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-11T13:09:43Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-11T13:09:43Z INFO  rhoevm] Execution of `setUp` completed.
-
-[2024-08-11T13:09:43Z INFO  rhoevm] Using function signature: callcheck(uint256)
-[2024-08-11T13:09:43Z INFO  rhoevm] Calculated function selector: 0x3f67f6b2
-[2024-08-11T13:09:43Z INFO  rhoevm] Calldata constructed successfully for function 'callcheck(uint256)'
-[2024-08-11T13:09:43Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-11T13:09:43Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-11T13:09:45Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x157
-[2024-08-11T13:09:45Z ERROR rhoevm] model: setUp() -> callcheck(arg1=0x5a)
-[2024-08-11T13:09:45Z INFO  rhoevm] Execution of `callcheck` completed.
+[2024-08-12T18:23:41Z INFO  rhoevm] Target function signature: callcheck(uint256)
+[2024-08-12T18:23:41Z INFO  rhoevm] fname: callcheck
+[2024-08-12T18:23:41Z INFO  rhoevm::modules::symexec] sig: callcheck(uint256)
+[2024-08-12T18:23:41Z INFO  rhoevm] Calldata constructed successfully for function 'callcheck(uint256)'
+[2024-08-12T18:23:41Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-12T18:23:41Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-12T18:23:42Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x153
+[2024-08-12T18:23:42Z ERROR rhoevm] model: setUp() -> callcheck(arg1=0x5a)
+[2024-08-12T18:23:42Z INFO  rhoevm] Execution of 'callcheck(uint256)' completed.
 ```
 
 ## Store & Load
@@ -96,7 +95,7 @@ contract StoreLoad {
 - output
 
 ```bash
-$  ./target/debug/rhoevm StoreLoad "store,load" -d ./example/build/
+$  ./target/release/rhoevm ./example/build/StoreLoad.bin "store(uint,uint)|load(uint)"
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -112,25 +111,25 @@ $  ./target/debug/rhoevm StoreLoad "store,load" -d ./example/build/
      ╲🦀╲
       ╲🦀
        ╲
-[2024-08-11T13:07:28Z WARN  rhoevm] Currently, this project is a work in progress.
-[2024-08-11T13:07:28Z INFO  rhoevm] Loading binary from file: ./example/build/StoreLoad.bin
-[2024-08-11T13:07:28Z INFO  rhoevm] Loading abi from file: ./example/build/StoreLoad.abi
+[2024-08-12T18:21:51Z WARN  rhoevm] Currently, this project is a work in progress.
+[2024-08-12T18:21:51Z INFO  rhoevm] Loading binary from file: ./example/build/StoreLoad.bin
+[2024-08-12T18:21:51Z INFO  rhoevm] Target function signature: store(uint256,uint256)
+[2024-08-12T18:21:51Z INFO  rhoevm] fname: store
+[2024-08-12T18:21:51Z INFO  rhoevm::modules::symexec] sig: store(uint256,uint256)
+[2024-08-12T18:21:51Z INFO  rhoevm] Calldata constructed successfully for function 'store(uint256,uint256)'
+[2024-08-12T18:21:51Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-12T18:21:51Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-12T18:21:51Z INFO  rhoevm] Execution of 'store(uint256,uint256)' completed.
 
-[2024-08-11T13:07:28Z INFO  rhoevm] Using function signature: store(uint256,uint256)
-[2024-08-11T13:07:28Z INFO  rhoevm] Calculated function selector: 0x6ed28ed0
-[2024-08-11T13:07:28Z INFO  rhoevm] Calldata constructed successfully for function 'store(uint256,uint256)'
-[2024-08-11T13:07:28Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-11T13:07:28Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-11T13:07:29Z INFO  rhoevm] Execution of `store` completed.
-
-[2024-08-11T13:07:29Z INFO  rhoevm] Using function signature: load(uint256)
-[2024-08-11T13:07:29Z INFO  rhoevm] Calculated function selector: 0x99d548aa
-[2024-08-11T13:07:29Z INFO  rhoevm] Calldata constructed successfully for function 'load(uint256)'
-[2024-08-11T13:07:29Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-11T13:07:29Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-11T13:08:09Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x250
-[2024-08-11T13:08:09Z ERROR rhoevm] model: store(arg2=0x2,arg1=0x3) -> load(arg3=0x5)
-[2024-08-11T13:08:09Z INFO  rhoevm] Execution of `load` completed.
+[2024-08-12T18:21:51Z INFO  rhoevm] Target function signature: load(uint256)
+[2024-08-12T18:21:51Z INFO  rhoevm] fname: load
+[2024-08-12T18:21:51Z INFO  rhoevm::modules::symexec] sig: load(uint256)
+[2024-08-12T18:21:51Z INFO  rhoevm] Calldata constructed successfully for function 'load(uint256)'
+[2024-08-12T18:21:51Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-12T18:21:51Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-12T18:21:57Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x250
+[2024-08-12T18:21:57Z ERROR rhoevm] model: store(arg2=0x2,arg1=0x5) -> load(arg3=0x3)
+[2024-08-12T18:21:57Z INFO  rhoevm] Execution of 'load(uint256)' completed.
 ```
 
 ## While
@@ -162,8 +161,7 @@ contract WhileContract {
 - output
 
 ```bash
-$  ./target/debug/rhoevm WhileContract "check" -d ./
-example/build/
+$  ./target/release/rhoevm ./example/build/WhileContract.bin "check(uint32)"
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -179,16 +177,17 @@ example/build/
      ╲🦀╲
       ╲🦀
        ╲
-[2024-08-11T13:11:00Z WARN  rhoevm] Currently, this project is a work in progress.
-[2024-08-11T13:11:00Z INFO  rhoevm] Loading binary from file: ./example/build/WhileContract.bin
-[2024-08-11T13:11:00Z INFO  rhoevm] Loading abi from file: ./example/build/WhileContract.abi
-
-[2024-08-11T13:11:00Z INFO  rhoevm] Using function signature: check(uint32)
-[2024-08-11T13:11:00Z INFO  rhoevm] Calculated function selector: 0x2b1f2f00
-[2024-08-11T13:11:00Z INFO  rhoevm] Calldata constructed successfully for function 'check(uint32)'
-[2024-08-11T13:11:00Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-11T13:11:00Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-11T13:11:09Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x2d6
-[2024-08-11T13:11:09Z ERROR rhoevm] model: check(arg1=0x3)
-[2024-08-11T13:11:09Z INFO  rhoevm] Execution of `check` completed.
+[2024-08-12T18:20:43Z WARN  rhoevm] Currently, this project is a work in progress.
+[2024-08-12T18:20:43Z INFO  rhoevm] Loading binary from file: ./example/build/WhileContract.bin
+[2024-08-12T18:20:43Z INFO  rhoevm] Target function signature: check(uint32)
+[2024-08-12T18:20:43Z INFO  rhoevm] fname: check
+[2024-08-12T18:20:43Z INFO  rhoevm::modules::symexec] sig: check(uint32)
+[2024-08-12T18:20:43Z INFO  rhoevm] Calldata constructed successfully for function 'check(uint32)'
+[2024-08-12T18:20:43Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-12T18:20:43Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-12T18:20:44Z WARN  rhoevm::modules::evm] LOOP DETECTED @ PC=0x137
+[2024-08-12T18:20:44Z WARN  rhoevm::modules::evm] LOOP DETECTED @ PC=0x459
+[2024-08-12T18:20:44Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x2d6
+[2024-08-12T18:20:44Z ERROR rhoevm] model: check(arg1=0x3)
+[2024-08-12T18:20:44Z INFO  rhoevm] Execution of 'check(uint32)' completed.
 ```
