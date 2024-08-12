@@ -225,7 +225,7 @@ async fn main() {
         return;
       }
     };
-    info!("calldata: {}", callcode.0);
+    debug!("Calldata: {}", callcode.0);
     info!("Calldata constructed successfully for function '{}'", function_signature);
 
     for i in 1 + num_known_variables..=num_known_variables + abi_map[&fname].len() {
