@@ -102,7 +102,7 @@ contract SimpleContract {
 # Compile the Solidity contract using solc or any preferred compiler.
 # Assuming the compiled binary and ABI are located in ./example/build
 
-$ rhoevm SimpleContract "check" -d ./example/build/
+$ rhoevm ./example/build/SimpleContract.bin "check(uint32,uint32)"
 ```
 
 - Output
