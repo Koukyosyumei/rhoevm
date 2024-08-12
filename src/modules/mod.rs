@@ -2,7 +2,6 @@ pub mod abi;
 pub mod cli;
 pub mod cse;
 pub mod effects;
-pub mod etypes;
 pub mod evm;
 pub mod expr;
 pub mod feeschedule;
