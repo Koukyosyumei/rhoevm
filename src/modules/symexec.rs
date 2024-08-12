@@ -190,7 +190,6 @@ pub fn sym_calldata(
   base: &Expr,
   offset: usize,
 ) -> (Expr, Vec<Box<Prop>>) {
-  info!("sig: {}", sig);
   let binding = "<symbolic>".to_string();
   let args = concrete_args.iter().chain(std::iter::repeat(&binding)).take(type_signature.len()).collect::<Vec<_>>();
   let mk_arg = |typ: &AbiType, arg: &String, n: usize| -> CalldataFragment {
