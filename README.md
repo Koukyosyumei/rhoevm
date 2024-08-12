@@ -75,8 +75,6 @@ rhoevm <BINARY_FILE_PATH> <FUNCTION_SIGNATURES> [options]
 `-h, --help`: Display help information.
 ```
 
-Ensure that your environment is configured to locate the `.bin` and `.abi` files for the contracts. The filenames should match the contract name provided.
-
 ### 2.2 Example
 
 Below is an example of how to use `rhoevm` with a simple Solidity smart contract.
@@ -100,7 +98,7 @@ contract SimpleContract {
 
 ```bash
 # Compile the Solidity contract using solc or any preferred compiler.
-# Assuming the compiled binary and ABI are located in ./example/build
+# Assuming the compiled binary is located in ./example/build
 
 $ rhoevm ./example/build/SimpleContract.bin "check(uint32,uint32)"
 ```
