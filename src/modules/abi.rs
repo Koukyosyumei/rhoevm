@@ -159,8 +159,12 @@ impl AbiType {
   pub fn from_solidity_type(sol_type: &str) -> Self {
     if let Some(size) = sol_type.strip_prefix("uint").and_then(|s| s.parse::<i32>().ok()) {
       AbiType::AbiUIntType(size)
+    } else if sol_type == "uint" {
+      AbiType::AbiUIntType(256)
     } else if let Some(size) = sol_type.strip_prefix("int").and_then(|s| s.parse::<i32>().ok()) {
       AbiType::AbiIntType(size)
+    } else if sol_type == "int" {
+      AbiType::AbiIntType(256)
     } else if sol_type == "address" {
       AbiType::AbiAddressType
     } else if sol_type == "bool" {

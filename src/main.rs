@@ -11,20 +11,19 @@ use std::{env, process};
 use tiny_keccak::{Hasher, Keccak};
 use tokio::task;
 
+use rhoevm::modules::abi::{AbiType, Sig};
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
 use rhoevm::modules::evm::{abstract_contract, opslen, solve_constraints};
+use rhoevm::modules::expr::is_function_sig_check_prop;
 use rhoevm::modules::format::{hex_byte_string, strip_0x};
 use rhoevm::modules::smt::parse_z3_output;
-
-use rhoevm::modules::abi::{parse_abi_file, Sig};
-use rhoevm::modules::expr::is_function_sig_check_prop;
 use rhoevm::modules::transactions::init_tx;
 use rhoevm::modules::types::{ContractCode, Env, Expr, Prop, RuntimeCodeStruct, VM, W256};
 
 #[derive(Debug)]
 struct Args {
   contract_name: String,
-  function_names: String,
+  function_signatures: String,
   target_dir: Option<String>,
   max_num_iterations: Option<u32>,
   verbose_level: Option<String>,
@@ -68,7 +67,7 @@ fn parse_args() -> Args {
     panic!("Error: CONTRACT_NAME is required.")
   };
 
-  let function_names = if matches.free.len() > 1 {
+  let function_signatures = if matches.free.len() > 1 {
     matches.free[1].clone()
   } else {
     print_usage(&program, &opts);
@@ -83,7 +82,7 @@ fn parse_args() -> Args {
   };
   let verbose_level = matches.opt_str("v");
 
-  Args { contract_name, function_names, target_dir, max_num_iterations, verbose_level }
+  Args { contract_name, function_signatures, target_dir, max_num_iterations, verbose_level }
 }
 
 fn print_ascii_art() {
@@ -190,54 +189,57 @@ async fn main() {
   }
   debug!("File '{}' read successfully.", bin_filename);
 
-  // ------------- Load the abi file -------------
-  let abi_filename = base_filename.to_string() + &".abi".to_string();
-  info!("Loading abi from file: {}\n", abi_filename);
-  let mut j = match File::open(abi_filename.clone()) {
-    Ok(file) => file,
-    Err(e) => {
-      error!("Failed to open file '{}': {}", abi_filename, e);
-      return;
-    }
-  };
-  let mut abi_json = String::new();
-  if let Err(e) = j.read_to_string(&mut abi_json) {
-    error!("Failed to read file '{}': {}", abi_filename, e);
-    return;
-  }
-  let abi_map = parse_abi_file(&abi_json);
-  debug!("File '{}' read successfully.\n", abi_filename);
-
   // utility variables
-  let function_names_vec: Vec<String> = args.function_names.split(',').map(|s| s.to_string()).collect();
-  let mut cnt_function_names = 0;
+  let mut normalized_function_names_vec: Vec<String> = vec![];
+  let mut function_names_vec: Vec<String> = vec![];
+  let mut signature_to_name: HashMap<String, String> = HashMap::new();
+  let mut cnt_function_signatures = 0;
   let mut reachable_envs: Vec<Env> = vec![];
   let mut num_known_variables = 0;
-  let mut variable_id_to_function_name: HashMap<usize, String> = HashMap::new();
+  let mut abi_map: HashMap<String, Vec<AbiType>> = HashMap::new();
+  let mut variable_id_to_function_signature: HashMap<usize, String> = HashMap::new();
+
+  // abi map
+  let function_signatures_vec: Vec<String> = args.function_signatures.split('|').map(|s| s.to_string()).collect();
+  for function_signature in &function_signatures_vec {
+    if let Some(start) = function_signature.find('(') {
+      if let Some(end) = function_signature.find(')') {
+        let fname = &function_signature[..start];
+        function_names_vec.push(fname.to_string());
+        let types_str = &function_signature[start + 1..end];
+        if types_str == "" {
+          abi_map.insert(fname.to_string(), vec![]);
+        } else {
+          abi_map.insert(fname.to_string(), types_str.split(',').map(|s| AbiType::from_solidity_type(s)).collect());
+        }
+
+        let mut normalized_function_signature = fname.to_string() + "(";
+        for t in abi_map[fname].clone() {
+          normalized_function_signature += &format!("{},", t);
+        }
+        if abi_map[fname].len() != 0 {
+          normalized_function_signature.pop();
+          normalized_function_signature.push(')');
+        } else {
+          normalized_function_signature += ")";
+        }
+        normalized_function_names_vec.push(normalized_function_signature.clone());
+        signature_to_name.insert(normalized_function_signature.to_string(), fname.to_string());
+      }
+    }
+  }
 
   // ------------- MAIN PART: May rhoevm light your path to bug-free code -------------
   let start_time = time::Instant::now();
-  for function_name in &function_names_vec {
+  for function_signature in &normalized_function_names_vec {
+    info!("Target function signature: {}", function_signature);
     let mut next_reachable_envs: Vec<Env> = vec![];
 
-    // ------------- Calculate the function signature -------------
-    if !abi_map.contains_key(function_name) {
-      error!("Cannot find the specified function `{}`", function_name);
-      return;
-    }
+    // ------------- Build Calldata -------------
+    let fname = signature_to_name[function_signature].clone();
+    info!("fname: {}", fname);
 
-    let mut function_signature = function_name.clone() + "(";
-    for t in abi_map[function_name].clone() {
-      function_signature += &format!("{},", t);
-    }
-    if abi_map[function_name].len() != 0 {
-      function_signature.pop();
-      function_signature.push(')');
-    } else {
-      function_signature += ")";
-    }
-    info!("Using function signature: {}", function_signature);
-
+    /*
     let mut hasher = Keccak::v256();
     hasher.update(function_signature.as_bytes());
     let mut output = [0u8; 32];
@@ -245,12 +247,12 @@ async fn main() {
     let function_selector = &output[..4];
     let function_selector_hex: String = function_selector.iter().map(|byte| format!("{:02x}", byte)).collect();
     info!("Calculated function selector: 0x{}", function_selector_hex);
+    */
 
     // ------------- Build command and calldata -------------
     let mut cmd = <SymbolicCommand as std::default::Default>::default();
-    cmd.sig = Some(Sig::new(&function_signature, &abi_map[function_name]));
+    cmd.sig = Some(Sig::new(&function_signature, &abi_map[&fname]));
     cmd.value = Some(W256(0, 0));
-    //cmd.calldata = Some(function_selector_hex.clone().as_bytes().to_vec());
     cmd.code = Some(binary.clone().into());
     let callcode = match build_calldata(&cmd, num_known_variables) {
       Ok(calldata) => calldata,
@@ -259,12 +261,13 @@ async fn main() {
         return;
       }
     };
+    info!("calldata: {}", callcode.0);
     info!("Calldata constructed successfully for function '{}'", function_signature);
 
-    for i in 1 + num_known_variables..=num_known_variables + abi_map[function_name].len() {
-      variable_id_to_function_name.insert(i, function_name.to_string());
+    for i in 1 + num_known_variables..=num_known_variables + abi_map[&fname].len() {
+      variable_id_to_function_signature.insert(i, fname.to_string());
     }
-    num_known_variables += abi_map[function_name].len();
+    num_known_variables += abi_map[&fname].len();
 
     // ------------- Initialize VM -------------
     let vm = match dummy_symvm_from_command(&cmd, callcode.clone()) {
@@ -274,7 +277,7 @@ async fn main() {
         return;
       }
     };
-    if cnt_function_names == 0 {
+    if cnt_function_signatures == 0 {
       debug!("Generate the blank environment");
       reachable_envs.push(vm.env.clone());
     }
@@ -417,9 +420,9 @@ async fn main() {
             for (k, v) in model.iter() {
               if k[..3] == *"arg" {
                 let variable_id = k[3..].parse::<usize>().unwrap_or(0);
-                if variable_id_to_function_name.contains_key(&variable_id) {
+                if variable_id_to_function_signature.contains_key(&variable_id) {
                   fname_to_args
-                    .get_mut(variable_id_to_function_name.get(&variable_id).unwrap())
+                    .get_mut(variable_id_to_function_signature.get(&variable_id).unwrap())
                     .unwrap()
                     .push(format!("{}=0x{},", k, v.trim_start_matches('0').to_string()));
                 }
@@ -457,10 +460,10 @@ async fn main() {
           //}
       }
 
-      info!("Execution of `{}` completed.\n", function_name);
+      info!("Execution of `{}` completed.\n", function_signature);
     }
     reachable_envs = next_reachable_envs;
-    cnt_function_names += 1;
+    cnt_function_signatures += 1;
   }
   info!("Execution Time: {:?}", start_time.elapsed());
 }

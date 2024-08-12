@@ -30,8 +30,7 @@ contract Caller {
 - output
 
 ```bash
-$  ./target/debug/rhoevm Caller "setUp,callcheck" -d
- ./example/build/
+$  ./target/release/rhoevm Caller "setUp,callcheck" -d./example/build/
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -96,7 +95,7 @@ contract StoreLoad {
 - output
 
 ```bash
-$  ./target/debug/rhoevm StoreLoad "store,load" -d ./example/build/
+$  ./target/release/rhoevm StoreLoad "store,load" -d ./example/build/
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -162,7 +161,7 @@ contract WhileContract {
 - output
 
 ```bash
-$  ./target/debug/rhoevm WhileContract "check" -d ./
+$  ./target/release/rhoevm WhileContract "check" -d ./
 example/build/
    ╭───────────────╮
    │  R H O  │
