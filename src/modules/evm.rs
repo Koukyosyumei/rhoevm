@@ -662,20 +662,15 @@ impl VM {
           true
         }
         Op::Calldatacopy => {
-          if let Some((x_to, rest)) = self.state.stack.clone().split_last() {
-            if let Some((x_from, rest)) = rest.split_last() {
-              if let Some((x_size, xs)) = rest.split_last() {
-                burn_calldatacopy(self, unbox(x_size.clone()), self.block.schedule.clone(), || {});
-                access_memory_range(self, *x_to.clone(), *x_size.clone(), || {});
-                self.state.stack = xs.to_vec();
-                copy_bytes_to_memory(self.state.calldata.clone(), x_size.clone(), x_from.clone(), x_to.clone(), self);
-                next(self, op);
-              } else {
-                underrun();
-              }
-            } else {
-              underrun();
-            }
+          if self.state.stack.len() >= 3 {
+            let x_to = self.state.stack.pop().unwrap();
+            let x_from = self.state.stack.pop().unwrap();
+            let x_size = self.state.stack.pop().unwrap();
+            burn_calldatacopy(self, unbox(x_size.clone()), self.block.schedule.clone(), || {});
+            access_memory_range(self, *x_to.clone(), *x_size.clone(), || {});
+            // self.state.stack = xs.to_vec();
+            copy_bytes_to_memory(self.state.calldata.clone(), x_size.clone(), x_from.clone(), x_to.clone(), self);
+            next(self, op);
           } else {
             underrun();
           }
@@ -698,9 +693,12 @@ impl VM {
           - offset: byte offset in the code to copy.
           - size: byte size to copy.
           */
-          if let [xs @ .., n, code_offset, mem_offset] = &self.state.stack.clone()[..] {
+          if self.state.stack.len() >= 3 {
+            let mem_offset = self.state.stack.pop().unwrap();
+            let code_offset = self.state.stack.pop().unwrap();
+            let n = self.state.stack.pop().unwrap();
             next(self, op);
-            self.state.stack = xs.to_vec();
+            // self.state.stack = xs.to_vec();
             burn_codecopy(self, unbox(n.clone()), self.block.schedule.clone(), || {});
             access_memory_range(self, *mem_offset.clone(), *n.clone(), || {});
             if let Some(b) = to_buf(&self.state.code) {
@@ -818,7 +816,7 @@ impl VM {
           true
         }
         Op::Selfbalance => {
-          limit_stack(1, self.state.stack.clone().len(), || {
+          limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
             next(self, op);
             push_sym(self, Box::new(this_contract.balance.clone()))
@@ -868,10 +866,11 @@ impl VM {
           Stack output
           - value: the 32 bytes in memory starting at that offset. If it goes beyond its current size (see MSIZE), writes 0s.
           */
-          if let Some((x, xs)) = self.state.stack.clone().split_last() {
+          if self.state.stack.len() >= 1 {
+            let x = self.state.stack.pop().unwrap();
             let buf = read_memory(self, *x.clone(), Expr::Lit(W256(32, 0)));
             let w = read_word_from_bytes(Box::new(Expr::Lit(W256(0, 0))), Box::new(buf));
-            self.state.stack = xs.to_vec();
+            // self.state.stack = xs.to_vec();
             self.state.stack.push(w);
             // self.state.stack = std::iter::once(w).chain(xs.iter().cloned()).collect();
             next(self, op);
@@ -996,7 +995,9 @@ impl VM {
 
           // Ensure we're not in a static context
           not_static(self, || {});
-          if let [xs @ .., new, x] = &self.state.stack.clone()[..] {
+          if self.state.stack.len() >= 2 {
+            let x = self.state.stack.pop().unwrap();
+            let new = self.state.stack.pop().unwrap();
             // Access current storage
             let mut current: Expr = Expr::Mempty;
             access_storage(self, *self_contract.clone(), *x.clone(), |current_| current = current_);
@@ -1032,7 +1033,7 @@ impl VM {
             // Burn gas
             burn(self, storage_cost + cold_storage_cost, || {});
             next(self, op);
-            self.state.stack = xs.to_vec();
+            // self.state.stack = xs.to_vec();
             self.env.contracts.get_mut(&self_contract.clone()).unwrap().storage = write_storage(
               x.clone(),
               new.clone(),
@@ -1132,10 +1133,12 @@ impl VM {
           //       https://hackage.haskell.org/package/sbv-9.0/docs/src/Data.SBV.Core.Model.html#.%5E
           //       However, it requires symbolic gas, since the gas depends on the exponent
           //if let [base, exponent, xs @ ..] = &self.state.stack.clone()[..] {
-          if let [xs @ .., exponent, base] = &self.state.stack.clone()[..] {
+          if self.state.stack.len() >= 2 {
+            let base = self.state.stack.pop().unwrap();
+            let exponent = self.state.stack.pop().unwrap();
             //burn_exp(exponent, || {
             next(self, op);
-            self.state.stack = xs.to_vec();
+            // self.state.stack = xs.to_vec();
             self.state.stack.push(Box::new(Expr::Exp(base.clone(), exponent.clone())));
             //});
           } else {
