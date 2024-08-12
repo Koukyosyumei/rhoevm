@@ -991,7 +991,9 @@ impl VM {
 
           // Ensure we're not in a static context
           not_static(self, || {});
-          if let [xs @ .., new, x] = &self.state.stack.clone()[..] {
+          if self.state.stack.len() >= 2 {
+            let x = self.state.stack.pop().unwrap();
+            let new = self.state.stack.pop().unwrap();
             // Access current storage
             let mut current: Expr = Expr::Mempty;
             access_storage(self, *self_contract.clone(), *x.clone(), |current_| current = current_);
@@ -1027,7 +1029,7 @@ impl VM {
             // Burn gas
             burn(self, storage_cost + cold_storage_cost, || {});
             next(self, op);
-            self.state.stack = xs.to_vec();
+            // self.state.stack = xs.to_vec();
             self.env.contracts.get_mut(&self_contract.clone()).unwrap().storage = write_storage(
               x.clone(),
               new.clone(),
