@@ -1748,10 +1748,17 @@ impl_hashmap_traits!(AddrStringMap, Addr, String);
 impl_hashmap_traits!(ExprExprMap, Expr, Expr);
 impl_hashmap_traits!(W256W256Map, W256, W256);
 
-pub fn unbox<T>(value: Box<T>) -> T {
-  *value
-}
-
+/// Pads a vector of bytes `xs` to the left with zeros until it reaches the desired length `n`.
+///
+/// If the length of `xs` is already greater than or equal to `n`, the original vector is returned unchanged.
+/// This function is useful for ensuring that a byte vector conforms to a specified length.
+///
+/// # Parameters
+/// - `n`: The desired length of the resulting vector.
+/// - `xs`: The input vector of bytes to be padded.
+///
+/// # Returns
+/// - A `Vec<u8>` padded with leading zeros to reach the length `n`.
 pub fn pad_left(n: usize, xs: Vec<u8>) -> Vec<u8> {
   if xs.len() >= n {
     return xs; // No padding needed if already of sufficient length
@@ -1761,6 +1768,17 @@ pub fn pad_left(n: usize, xs: Vec<u8>) -> Vec<u8> {
   padding.chain(xs.into_iter()).collect()
 }
 
+/// Pads a vector of boxed `Expr` elements to the left with `Expr::LitByte(0)` until it reaches the desired length `n`.
+///
+/// If the length of `xs` is already greater than or equal to `n`, the original vector is returned unchanged.
+/// This function is useful for padding expressions in symbolic computations.
+///
+/// # Parameters
+/// - `n`: The desired length of the resulting vector.
+/// - `xs`: The input vector of boxed `Expr` elements to be padded.
+///
+/// # Returns
+/// - A `Vec<Box<Expr>>` padded with leading `Expr::LitByte(0)` elements to reach the length `n`.
 pub fn pad_left_prime(n: usize, xs: Vec<Box<Expr>>) -> Vec<Box<Expr>> {
   if xs.len() >= n {
     return xs; // No padding needed if already of sufficient length
@@ -1770,6 +1788,17 @@ pub fn pad_left_prime(n: usize, xs: Vec<Box<Expr>>) -> Vec<Box<Expr>> {
   padding.chain(xs.into_iter()).collect()
 }
 
+/// Pads a vector of bytes `xs` to the right with zeros until it reaches the desired length `n`.
+///
+/// If the length of `xs` is already greater than or equal to `n`, the original vector is returned unchanged.
+/// This function is useful for ensuring that a byte vector conforms to a specified length when right-aligned data is needed.
+///
+/// # Parameters
+/// - `n`: The desired length of the resulting vector.
+/// - `xs`: The input vector of bytes to be padded.
+///
+/// # Returns
+/// - A `Vec<u8>` padded with trailing zeros to reach the length `n`.
 pub fn pad_right(n: usize, mut xs: Vec<u8>) -> Vec<u8> {
   if xs.len() >= n {
     return xs; // No padding needed if already of sufficient length
@@ -1779,6 +1808,15 @@ pub fn pad_right(n: usize, mut xs: Vec<u8>) -> Vec<u8> {
   xs
 }
 
+/// Attempts to extract a 256-bit word (`W256`) from an `Expr` if it represents a literal value.
+///
+/// This function checks if the expression is a literal or an address containing a literal and returns the corresponding word if found.
+///
+/// # Parameters
+/// - `word`: The input `Expr` to be checked for a literal value.
+///
+/// # Returns
+/// - `Some(W256)` if the expression is a literal or contains a literal address; otherwise, `None`.
 pub fn maybe_lit_word(word: Expr) -> Option<W256> {
   match word {
     Expr::Lit(w) => Some(w),
@@ -1790,6 +1828,15 @@ pub fn maybe_lit_word(word: Expr) -> Option<W256> {
   }
 }
 
+/// Attempts to extract a byte (`Word8`) from an `Expr` if it represents a literal byte.
+///
+/// This function is useful for working with expressions that may represent literal byte values.
+///
+/// # Parameters
+/// - `byte`: The input `Expr` to be checked for a literal byte.
+///
+/// # Returns
+/// - `Some(Word8)` if the expression is a literal byte; otherwise, `None`.
 pub fn maybe_lit_byte(byte: Expr) -> Option<Word8> {
   if let Expr::LitByte(b) = byte {
     Some(b.clone())
@@ -1798,6 +1845,15 @@ pub fn maybe_lit_byte(byte: Expr) -> Option<Word8> {
   }
 }
 
+/// Attempts to extract an address (`Addr`) from an `Expr` if it represents a literal address.
+///
+/// This function is useful for working with expressions that may represent literal address values.
+///
+/// # Parameters
+/// - `addr`: The input `Expr` to be checked for a literal address.
+///
+/// # Returns
+/// - `Some(Addr)` if the expression is a literal address; otherwise, `None`.
 pub fn maybe_lit_addr(addr: Expr) -> Option<Addr> {
   if let Expr::LitAddr(s) = addr {
     Some(s.clone())
@@ -1806,6 +1862,20 @@ pub fn maybe_lit_addr(addr: Expr) -> Option<Addr> {
   }
 }
 
+/// Applies a function `f` repeatedly to a value `x` until a fixpoint is reached, i.e., until applying `f` no longer changes `x`.
+///
+/// This function is useful in scenarios where iterative refinement is needed until a stable state is achieved.
+///
+/// # Parameters
+/// - `f`: A closure that takes a reference to `T` and returns a new `T`.
+/// - `x`: The initial value to which the function `f` will be applied.
+///
+/// # Type Parameters
+/// - `F`: A closure that takes a reference to `T` and returns a new `T`.
+/// - `T`: A type that implements `PartialEq` and `Clone`.
+///
+/// # Returns
+/// - The value of `x` after the function `f` has been applied until no further changes occur.
 pub fn until_fixpoint<F, T>(f: F, mut x: T) -> T
 where
   F: Fn(&T) -> T,
@@ -1820,6 +1890,16 @@ where
   }
 }
 
+/// Converts a byte string (`ByteString`) into a 256-bit word (`W256`).
+///
+/// This function pads the byte string to 32 bytes if necessary and deserializes it into a 256-bit word.
+/// It is optimized for cases where the byte string is exactly 1 byte long.
+///
+/// # Parameters
+/// - `xs`: A reference to a `ByteString` to be converted.
+///
+/// # Returns
+/// - A `W256` representing the 256-bit word derived from the byte string.
 pub fn word256(xs: &ByteString) -> W256 {
   // If the length of xs is 1, optimize for one-byte pushes
   if xs.len() == 1 {
@@ -1839,6 +1919,15 @@ pub fn word256(xs: &ByteString) -> W256 {
   W256((a << 64) | b, (c << 64) | d)
 }
 
+/// Converts a 256-bit word (`W256`) into a byte vector.
+///
+/// This function serializes the 256-bit word into a 32-byte vector, with each 128-bit portion encoded separately.
+///
+/// # Parameters
+/// - `w256`: The 256-bit word to be converted.
+///
+/// # Returns
+/// - A `Vec<u8>` representing the serialized 256-bit word.
 pub fn word256_bytes(w256: W256) -> Vec<u8> {
   /*
   let W256(a, b) = w256;
@@ -1856,6 +1945,15 @@ pub fn word256_bytes(w256: W256) -> Vec<u8> {
   buffer
 }
 
+/// Computes the Keccak-256 hash of a byte string (`ByteString`).
+///
+/// This function uses the Keccak-256 algorithm to generate a 256-bit (32-byte) hash of the input data.
+///
+/// # Parameters
+/// - `input`: A reference to the byte string to be hashed.
+///
+/// # Returns
+/// - A `ByteString` containing the 32-byte hash result.
 pub fn keccak_bytes(input: &ByteString) -> ByteString {
   let mut keccak = Keccak::v256();
   keccak.update(input);
@@ -1864,6 +1962,16 @@ pub fn keccak_bytes(input: &ByteString) -> ByteString {
   result
 }
 
+/// Computes the Keccak hash of an expression (`Expr`) and returns a new expression with the hash result.
+///
+/// If the expression is a concrete buffer, it computes the Keccak-256 hash and converts the first 4 bytes to a `W256`.
+/// If the expression is not a concrete buffer, it returns a new `Expr` representing the Keccak computation.
+///
+/// # Parameters
+/// - `buf`: The input `Expr` to be hashed.
+///
+/// # Returns
+/// - A `Result<Expr, &'static str>` containing the new expression or an error message.
 pub fn keccak(buf: Expr) -> Result<Expr, &'static str> {
   match buf {
     Expr::ConcreteBuf(bs) => {
@@ -1876,15 +1984,42 @@ pub fn keccak(buf: Expr) -> Result<Expr, &'static str> {
   }
 }
 
+/// Computes the Keccak-256 hash of a byte string (`ByteString`) and converts it into a 256-bit word (`W256`).
+///
+/// This function is useful for generating a `W256` representation of the hash for cryptographic applications.
+///
+/// # Parameters
+/// - `input`: A reference to the byte string to be hashed.
+///
+/// # Returns
+/// - A `W256` representing the 256-bit hash of the input data.
 pub fn keccak_prime(input: &ByteString) -> W256 {
   let hash_result = keccak_bytes(input);
   word256(&hash_result[..32].to_vec())
 }
 
+/// Converts a byte slice (`&[u8]`) into a 32-bit word (`u32`).
+///
+/// This function interprets the byte slice in reverse order and accumulates the bits into a 32-bit word.
+///
+/// # Parameters
+/// - `xs`: A reference to a byte slice to be converted.
+///
+/// # Returns
+/// - A `u32` representing the 32-bit word derived from the byte slice.
 pub fn word32(xs: &[u8]) -> u32 {
   xs.iter().rev().enumerate().fold(0, |acc, (n, &x)| acc | (u32::from(x) << (n)))
 }
 
+/// Computes the Keccak-256 hash of an ABI-encoded function signature and returns the first 4 bytes as a `FunctionSelector`.
+///
+/// This function is commonly used to derive the function selector for Ethereum smart contracts from a function signature.
+///
+/// # Parameters
+/// - `input`: A reference to the byte slice representing the ABI-encoded function signature.
+///
+/// # Returns
+/// - A `FunctionSelector` representing the first 4 bytes of the Keccak-256 hash of the input.
 pub fn abi_keccak(input: &[u8]) -> FunctionSelector {
   let hash_result = keccak_bytes(&input.to_vec());
   let selector_bytes = &hash_result[..4];

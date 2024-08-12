@@ -19,7 +19,7 @@ use crate::modules::format::format_prop;
 use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
-  from_list, keccak, keccak_prime, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right, unbox,
+  from_list, keccak, keccak_prime, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right,
   word256_bytes, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr,
   ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory, PartialExec, Prop,
   RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
@@ -666,7 +666,7 @@ impl VM {
             let x_to = self.state.stack.pop().unwrap();
             let x_from = self.state.stack.pop().unwrap();
             let x_size = self.state.stack.pop().unwrap();
-            burn_calldatacopy(self, unbox(x_size.clone()), self.block.schedule.clone(), || {});
+            burn_calldatacopy(self, *x_size.clone(), self.block.schedule.clone(), || {});
             access_memory_range(self, *x_to.clone(), *x_size.clone(), || {});
             // self.state.stack = xs.to_vec();
             copy_bytes_to_memory(self.state.calldata.clone(), x_size.clone(), x_from.clone(), x_to.clone(), self);
@@ -699,7 +699,7 @@ impl VM {
             let n = self.state.stack.pop().unwrap();
             next(self, op);
             // self.state.stack = xs.to_vec();
-            burn_codecopy(self, unbox(n.clone()), self.block.schedule.clone(), || {});
+            burn_codecopy(self, *n.clone(), self.block.schedule.clone(), || {});
             access_memory_range(self, *mem_offset.clone(), *n.clone(), || {});
             if let Some(b) = to_buf(&self.state.code) {
               copy_bytes_to_memory(

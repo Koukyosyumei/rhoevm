@@ -1,11 +1,27 @@
-// Module: evm::traversals
-// Description: Generic traversal functions for Expr datatypes
-
 use std::ops::Add;
 
 use crate::modules::types::{Contract, ContractCode, EvmError, Expr, Prop, RuntimeCodeStruct};
 
-// Function to recursively fold over a Prop type
+/// Recursively folds a function over a `Prop` type.
+///
+/// This function traverses the structure of a `Prop` expression,
+/// applying the provided function `f` to the `Expr` components
+/// and accumulating the results using the `acc` accumulator.
+///
+/// # Type Parameters
+///
+/// * `B` - The type of the accumulator, which must implement the `Add`,
+/// `Clone`, and `Default` traits.
+///
+/// # Arguments
+///
+/// * `f` - A mutable reference to a function that takes an `&Expr` and returns a value of type `B`.
+/// * `acc` - The initial accumulator value.
+/// * `p` - The `Prop` expression to fold over.
+///
+/// # Returns
+///
+/// The result of folding the function `f` over the `Prop` expression `p`.
 pub fn fold_prop<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, p: Prop) -> B
 where
   B: Add<B, Output = B> + Clone + Default,
@@ -29,7 +45,26 @@ where
   acc + go_prop(f, p)
 }
 
-// Function to recursively fold over an Expr of EContract type
+/// Recursively folds a function over an `Expr` of `EContract` type.
+///
+/// This function traverses an `Expr` that represents an Ethereum contract,
+/// applying the provided function `f` to its components and accumulating
+/// the results using the `acc` accumulator.
+///
+/// # Type Parameters
+///
+/// * `B` - The type of the accumulator, which must implement the `Add`,
+/// `Clone`, and `Default` traits.
+///
+/// # Arguments
+///
+/// * `f` - A mutable reference to a function that takes an `&Expr` and returns a value of type `B`.
+/// * `acc` - The initial accumulator value.
+/// * `g` - The `Expr` representing an Ethereum contract to fold over.
+///
+/// # Returns
+///
+/// The result of folding the function `f` over the `Expr` of `EContract` type.
 pub fn fold_econtract<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, g: &Expr) -> B
 where
   B: Add<B, Output = B> + Clone + Default,
@@ -43,7 +78,27 @@ where
   }
 }
 
-// Function to recursively fold over a Contract type
+/// Recursively folds a function over a `Contract` type.
+///
+/// This function traverses the structure of a `Contract`,
+/// applying the provided function `f` to its `Expr` components
+/// and accumulating the results using the `acc` accumulator.
+///
+/// # Type Parameters
+///
+/// * `F` - The type of the function that takes an `&Expr` and returns a value of type `B`.
+/// * `B` - The type of the accumulator, which must implement the `Add`,
+/// `Clone`, and `Default` traits.
+///
+/// # Arguments
+///
+/// * `f` - A mutable reference to a function that takes an `&Expr` and returns a value of type `B`.
+/// * `acc` - The initial accumulator value.
+/// * `c` - The `Contract` to fold over.
+///
+/// # Returns
+///
+/// The result of folding the function `f` over the `Contract`.
 pub fn fold_contract<F, B>(f: &mut F, acc: B, c: &Contract) -> B
 where
   F: FnMut(&Expr) -> B,
@@ -56,7 +111,25 @@ where
     + fold_expr(f, B::default(), &c.balance)
 }
 
-// Function to recursively fold over a ContractCode type
+/// Recursively folds a function over a `ContractCode` type.
+///
+/// This function traverses the structure of a `ContractCode`,
+/// applying the provided function `f` to its `Expr` components
+/// and accumulating the results using the `acc` accumulator.
+///
+/// # Type Parameters
+///
+/// * `B` - The type of the accumulator, which must implement the `Add`,
+/// `Clone`, and `Default` traits.
+///
+/// # Arguments
+///
+/// * `f` - A mutable reference to a function that takes an `&Expr` and returns a value of type `B`.
+/// * `code` - The `ContractCode` to fold over.
+///
+/// # Returns
+///
+/// The result of folding the function `f` over the `ContractCode`.
 pub fn fold_code<B>(f: &mut dyn FnMut(&Expr) -> B, code: &ContractCode) -> B
 where
   B: Add<B, Output = B> + Clone + Default,
@@ -73,6 +146,26 @@ where
   }
 }
 
+/// Recursively folds a function over an `Expr`.
+///
+/// This function traverses the structure of an `Expr`,
+/// applying the provided function `f` to its components
+/// and accumulating the results using the `acc` accumulator.
+///
+/// # Type Parameters
+///
+/// * `B` - The type of the accumulator, which must implement the `Add`,
+/// `Clone`, and `Default` traits.
+///
+/// # Arguments
+///
+/// * `f` - A mutable reference to a function that takes an `&Expr` and returns a value of type `B`.
+/// * `acc` - The initial accumulator value.
+/// * `expr` - The `Expr` to fold over.
+///
+/// # Returns
+///
+/// The result of folding the function `f` over the `Expr`.
 fn go_expr<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, expr: Expr) -> B
 where
   B: Add<B, Output = B> + Clone + Default,
@@ -238,7 +331,26 @@ where
   }
 }
 
-// Recursively folds a given function over a given expression
+/// Recursively folds a function over an `Expr`.
+///
+/// This function traverses the structure of an `Expr`,
+/// applying the provided function `f` to its components
+/// and accumulating the results using the `acc` accumulator.
+///
+/// # Type Parameters
+///
+/// * `B` - The type of the accumulator, which must implement the `Add`,
+/// `Clone`, and `Default` traits.
+///
+/// # Arguments
+///
+/// * `f` - A mutable reference to a function that takes an `&Expr` and returns a value of type `B`.
+/// * `acc` - The initial accumulator value.
+/// * `expr` - A reference to the `Expr` to fold over.
+///
+/// # Returns
+///
+/// The result of folding the function `f` over the `Expr`.
 pub fn fold_expr<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, expr: &Expr) -> B
 where
   B: Add<B, Output = B> + Default + Clone,
@@ -250,11 +362,36 @@ where
   }
 }
 
+/// A trait for types that can map a function over their `Expr` components.
+///
+/// This trait defines a method `map_expr_m` that applies a function
+/// to each `Expr` within the implementing type, returning a new `Expr`.
 pub trait ExprMappable {
+  /// Applies a function to each `Expr` component and returns a new `Expr`.
+  ///
+  /// # Arguments
+  ///
+  /// * `f` - A mutable reference to a function that takes an `&Expr` and returns an `Expr`.
+  ///
+  /// # Returns
+  ///
+  /// A new `Expr` resulting from applying the function to each component.
   fn map_expr_m(&self, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr;
 }
 
 impl ExprMappable for Expr {
+  /// Implements the `map_expr_m` method for the `Expr` type.
+  ///
+  /// This method applies a function to each component of an `Expr`,
+  /// returning a new `Expr` with the function applied.
+  ///
+  /// # Arguments
+  ///
+  /// * `f` - A mutable reference to a function that takes an `&Expr` and returns an `Expr`.
+  ///
+  /// # Returns
+  ///
+  /// A new `Expr` with the function applied to each component.
   fn map_expr_m(&self, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
     match self {
       //Expr::Mempty => Expr::Mempty,
@@ -646,6 +783,17 @@ impl ExprMappable for Expr {
   }
 }
 
+/// Applies a given function `f` to an `Expr`.
+///
+/// If the `Expr` is `Mempty`, it returns the expression unchanged.
+/// Otherwise, it recursively applies `f` to the expression using `map_expr_m`.
+///
+/// # Parameters
+/// - `f`: A mutable closure that takes a reference to an `Expr` and returns an `Expr`.
+/// - `expr`: The expression to be transformed.
+///
+/// # Returns
+/// - An `Expr` that has been transformed by the closure `f`.
 pub fn map_expr<F>(mut f: F, expr: Expr) -> Expr
 where
   F: FnMut(&Expr) -> Expr,
@@ -657,6 +805,14 @@ where
   }
 }
 
+/// Recursively applies a given function `f` to each `Expr` within a `Prop`.
+///
+/// # Parameters
+/// - `f`: A mutable closure that takes a reference to an `Expr` and returns an `Expr`.
+/// - `prop`: The proposition to be transformed.
+///
+/// # Returns
+/// - A `Prop` that has been transformed by applying `f` to each contained `Expr`.
 pub fn map_prop(f: &mut dyn FnMut(&Expr) -> Expr, prop: Prop) -> Prop {
   match prop {
     Prop::PBool(b) => Prop::PBool(b),
@@ -672,6 +828,17 @@ pub fn map_prop(f: &mut dyn FnMut(&Expr) -> Expr, prop: Prop) -> Prop {
   }
 }
 
+/// Applies a given function `f` to a `Prop` and returns the transformed `Prop`.
+///
+/// This function allows the function `f` to operate at the level of propositions,
+/// which can modify or replace entire subpropositions within the `Prop`.
+///
+/// # Parameters
+/// - `f`: A mutable closure that takes a reference to a `Prop` and returns a `Prop`.
+/// - `prop`: The proposition to be transformed.
+///
+/// # Returns
+/// - A `Prop` that has been transformed by the closure `f`.
 pub fn map_prop_prime(f: &mut dyn FnMut(&Prop) -> Prop, prop: Prop) -> Prop {
   match prop {
     Prop::PBool(b) => f(&Prop::PBool(b)),
@@ -702,7 +869,17 @@ pub fn map_prop_prime(f: &mut dyn FnMut(&Prop) -> Prop, prop: Prop) -> Prop {
   }
 }
 
-// MapPropM function
+/// Recursively applies a given function `f` to each `Expr` within a `Prop`, modifying the `Prop` as needed.
+///
+/// This function allows for the transformation of all expressions within a proposition,
+/// enabling complex modifications to be made to the structure of a proposition.
+///
+/// # Parameters
+/// - `f`: A mutable closure that takes a reference to an `Expr` and returns an `Expr`.
+/// - `prop`: The proposition to be transformed.
+///
+/// # Returns
+/// - A `Prop` that has been transformed by applying `f` to each contained `Expr`.
 pub fn map_prop_m(f: &mut dyn FnMut(&Expr) -> Expr, prop: Prop) -> Prop {
   match prop {
     Prop::PBool(b) => Prop::PBool(b),
@@ -718,7 +895,16 @@ pub fn map_prop_m(f: &mut dyn FnMut(&Expr) -> Expr, prop: Prop) -> Prop {
   }
 }
 
-// MapEContractM function
+/// Applies a given function `f` to an `Expr` within an Ethereum contract expression.
+///
+/// This function recursively applies `f` to the components of an Ethereum contract `Expr`, such as its code, storage, and balance.
+///
+/// # Parameters
+/// - `f`: A mutable closure that takes a reference to an `Expr` and returns an `Expr`.
+/// - `expr`: The expression representing an Ethereum contract to be transformed.
+///
+/// # Returns
+/// - An `Expr` representing the modified Ethereum contract.
 fn map_econtract_m<F>(mut f: F, expr: Expr) -> Expr
 where
   F: FnMut(&Expr) -> Expr,
@@ -736,7 +922,16 @@ where
   }
 }
 
-// MapContractM function
+/// Recursively applies a given function `f` to an entire Ethereum contract, including its code, storage, and balance.
+///
+/// This function allows for comprehensive transformations across all aspects of a contract, ensuring that each part is modified as needed.
+///
+/// # Parameters
+/// - `f`: A mutable closure that takes a reference to an `Expr` and returns an `Expr`.
+/// - `contract`: The contract to be transformed.
+///
+/// # Returns
+/// - A `Contract` that has been transformed by applying `f` to its code, storage, and balance.
 pub fn map_contract_m<F>(mut f: F, contract: Contract) -> Contract
 where
   F: FnMut(&Expr) -> Expr,
@@ -748,7 +943,16 @@ where
   Contract { code, storage, orig_storage, balance, ..contract }
 }
 
-// MapCodeM function
+/// Applies a given function `f` to the code of an Ethereum contract.
+///
+/// This function is responsible for transforming the contract's code, including handling both known and symbolic code representations.
+///
+/// # Parameters
+/// - `f`: A mutable closure that takes a reference to an `Expr` and returns an `Expr`.
+/// - `code`: The code of the contract to be transformed.
+///
+/// # Returns
+/// - A `ContractCode` representing the transformed contract code.
 fn map_code_m<F>(mut f: F, code: ContractCode) -> ContractCode
 where
   F: FnMut(&Expr) -> Expr,
@@ -769,17 +973,42 @@ where
   }
 }
 
-// Define the TraversableTerm trait and its implementations
+/// A trait for types that can be traversed and transformed in a generic manner.
+///
+/// This trait provides methods for applying transformations to terms and folding terms into a cumulative result.
+/// Implementations of this trait enable recursive traversal and modification of expressions and propositions.
+///
+/// # Type Parameters
+/// - `F`: A closure type that takes a reference to an `Expr` and returns an `Expr`.
+/// - `C`: A type that can accumulate values during traversal, supporting addition and cloning.
 pub trait TraversableTerm {
+  /// Applies a given function `f` to each term in a self-referential manner, returning a transformed term.
+  ///
+  /// # Parameters
+  /// - `f`: A closure that takes a reference to an `Expr` and returns an `Expr`.
+  ///
+  /// # Returns
+  /// - A new term that has been transformed by applying `f`.
   fn map_term<F>(&self, f: F) -> Self
   where
     F: FnMut(&Expr) -> Expr;
 
+  /// Folds the term into a cumulative value `acc`, applying a function `f` to each subexpression.
+  ///
+  /// # Parameters
+  /// - `f`: A mutable closure that takes a reference to an `Expr` and returns a value of type `C`.
+  /// - `acc`: The initial accumulator value.
+  ///
+  /// # Returns
+  /// - A cumulative value of type `C` that results from folding the term using `f`.
   fn fold_term<C>(&self, f: &mut dyn FnMut(&Expr) -> C, acc: C) -> C
   where
     C: Add<C, Output = C> + Clone + Default;
 }
 
+/// Implementation of `TraversableTerm` for `Expr`.
+///
+/// Provides methods for mapping and folding over expressions.
 impl TraversableTerm for Expr {
   fn map_term<F>(&self, _f: F) -> Self
   where
@@ -797,6 +1026,9 @@ impl TraversableTerm for Expr {
   }
 }
 
+/// Implementation of `TraversableTerm` for `Prop`.
+///
+/// Provides methods for mapping and folding over propositions.
 impl TraversableTerm for Prop {
   fn map_term<F>(&self, _f: F) -> Self
   where
