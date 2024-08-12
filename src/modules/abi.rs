@@ -228,11 +228,11 @@ pub fn parse_abi_file(abi_json: &str) -> HashMap<String, Vec<AbiType>> {
 }
 
 // Implement parsing for each ABI type
-fn parse_abi_value(_abi_type: &AbiType, _input: &Vec<u8>) -> AbiValue {
+fn parse_abi_value(_abi_type: &AbiType, _input: &[u8]) -> AbiValue {
   todo!()
 }
 
-pub fn make_abi_value(typ: &AbiType, str: &String) -> AbiValue {
+pub fn make_abi_value(typ: &AbiType, str: &str) -> AbiValue {
   let padded_str = match typ {
     AbiType::AbiBytesType(n) => pad_right(2 * (*n as usize) + 2, str.as_bytes().to_vec()),
     _ => str.as_bytes().to_vec(),
@@ -241,7 +241,7 @@ pub fn make_abi_value(typ: &AbiType, str: &String) -> AbiValue {
   parse_abi_value(typ, &padded_str)
 }
 
-pub fn selector(s: &String) -> ByteString {
+pub fn selector(s: &str) -> ByteString {
   let mut hasher = Keccak::v256();
   hasher.update(s.as_bytes());
   let mut output = [0u8; 32];

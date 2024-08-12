@@ -201,7 +201,7 @@ pub fn build_calldata(
 ) -> Result<(Expr, Vec<Box<Prop>>), Box<dyn std::error::Error>> {
   match (&cmd.calldata, &cmd.sig) {
     // Fully abstract calldata
-    (None, None) => Ok(mk_calldata(&None, &[], offset)),
+    (None, None) => Ok(mk_calldata(None, &[], offset)),
 
     // Fully concrete calldata
     (Some(c), None) => {
@@ -210,7 +210,7 @@ pub fn build_calldata(
     }
 
     // Calldata according to given ABI with possible specializations from the `arg` list
-    (None, Some(sig)) => Ok(mk_calldata(&Some(sig.clone()), &cmd.concrete_arg, offset)),
+    (None, Some(sig)) => Ok(mk_calldata(Some(sig), &cmd.concrete_arg, offset)),
 
     // Both args provided
     (_, _) => {
