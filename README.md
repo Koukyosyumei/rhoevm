@@ -1,5 +1,15 @@
 # rhoevm
 
+░█▀▀▀░█▀▀▀░█▀▀▀░█▀▀▀░
+
+░█▀  ░░█ ░  ░█▀  ░░█ ░  ░█▀▀▀
+░█     ░█ ░  ░█     ░█ ░  ░█▀
+░█     ░▀▀▀  ░▀▀▀   ░▀▀▀  ░▀▀▀░
+
+*A symbolic EVM execution engine written in Rust.*
+
+░█▀▀▀░█▀▀▀░█▀▀▀░█▀▀▀░█▀▀▀░
+
 `rhoevm` is a symbolic EVM execution engine written in Rust. It is inspired by [`hevm`](https://github.com/ethereum/hevm), which is implemented in Haskell. This project aims to provide a robust tool for analyzing Ethereum smart contracts by symbolically executing the EVM bytecode.
 
 
@@ -44,13 +54,12 @@ cargo test
 `rhoevm` provides a command-line interface for executing smart contract bytecode symbolically. The basic usage is as follows:
 
 ```bash
-rhoevm CONTRACT_NAME FUNCTION_NAMES [options]
+rhoevm <BINARY_FILE_PATH> <FUNCTION_SIGNATURES> [options]
 ```
 
 - Options
 
 ```
-`-d, --dir DIR`: Specify the target directory where contract files are located.
 `-i, --max_num_iterations MAX_NUM_ITER`: Set the maximum number of iterations for loops.
 `-v, --verbose LEVEL`: Set the verbosity level (0: error, 1: warn, 2: info, 3: debug, 4: trace).
 `-h, --help`: Display help information.

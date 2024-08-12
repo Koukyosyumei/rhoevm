@@ -54,7 +54,7 @@ $  ./target/release/rhoevm ./example/build/Caller.bin "setUp()|callcheck(uint
 [2024-08-12T18:23:41Z INFO  rhoevm] Calldata constructed successfully for function 'setUp()'
 [2024-08-12T18:23:41Z INFO  rhoevm] Number of initial environments: 1
 [2024-08-12T18:23:41Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-12T18:23:41Z INFO  rhoevm] Execution of `setUp()` completed.
+[2024-08-12T18:23:41Z INFO  rhoevm] Execution of 'setUp()' completed.
 
 [2024-08-12T18:23:41Z INFO  rhoevm] Target function signature: callcheck(uint256)
 [2024-08-12T18:23:41Z INFO  rhoevm] fname: callcheck
@@ -64,7 +64,7 @@ $  ./target/release/rhoevm ./example/build/Caller.bin "setUp()|callcheck(uint
 [2024-08-12T18:23:41Z INFO  rhoevm] Starting EVM symbolic execution...
 [2024-08-12T18:23:42Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x153
 [2024-08-12T18:23:42Z ERROR rhoevm] model: setUp() -> callcheck(arg1=0x5a)
-[2024-08-12T18:23:42Z INFO  rhoevm] Execution of `callcheck(uint256)` completed.
+[2024-08-12T18:23:42Z INFO  rhoevm] Execution of 'callcheck(uint256)' completed.
 ```
 
 ## Store & Load
@@ -119,7 +119,7 @@ $  ./target/release/rhoevm ./example/build/StoreLoad.bin "store(uint,uint)|lo
 [2024-08-12T18:21:51Z INFO  rhoevm] Calldata constructed successfully for function 'store(uint256,uint256)'
 [2024-08-12T18:21:51Z INFO  rhoevm] Number of initial environments: 1
 [2024-08-12T18:21:51Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-12T18:21:51Z INFO  rhoevm] Execution of `store(uint256,uint256)` completed.
+[2024-08-12T18:21:51Z INFO  rhoevm] Execution of 'store(uint256,uint256)' completed.
 
 [2024-08-12T18:21:51Z INFO  rhoevm] Target function signature: load(uint256)
 [2024-08-12T18:21:51Z INFO  rhoevm] fname: load
@@ -129,7 +129,7 @@ $  ./target/release/rhoevm ./example/build/StoreLoad.bin "store(uint,uint)|lo
 [2024-08-12T18:21:51Z INFO  rhoevm] Starting EVM symbolic execution...
 [2024-08-12T18:21:57Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x250
 [2024-08-12T18:21:57Z ERROR rhoevm] model: store(arg2=0x2,arg1=0x5) -> load(arg3=0x3)
-[2024-08-12T18:21:57Z INFO  rhoevm] Execution of `load(uint256)` completed.
+[2024-08-12T18:21:57Z INFO  rhoevm] Execution of 'load(uint256)' completed.
 ```
 
 ## While
@@ -189,5 +189,5 @@ $  ./target/release/rhoevm ./example/build/WhileContract.bin "check(uint32)"
 [2024-08-12T18:20:44Z WARN  rhoevm::modules::evm] LOOP DETECTED @ PC=0x459
 [2024-08-12T18:20:44Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x2d6
 [2024-08-12T18:20:44Z ERROR rhoevm] model: check(arg1=0x3)
-[2024-08-12T18:20:44Z INFO  rhoevm] Execution of `check(uint32)` completed.
+[2024-08-12T18:20:44Z INFO  rhoevm] Execution of 'check(uint32)' completed.
 ```

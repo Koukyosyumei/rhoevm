@@ -425,7 +425,7 @@ async fn main() {
           //}
       }
 
-      info!("Execution of `{}` completed.\n", function_signature);
+      info!("Execution of '{}' completed.\n", function_signature);
     }
     reachable_envs = next_reachable_envs;
     cnt_function_signatures += 1;
