@@ -121,18 +121,15 @@ $ rhoevm ./example/build/SimpleContract.bin "check(uint32,uint32)"
      ╲🦀╲
       ╲🦀
        ╲
-[2024-08-11T13:21:39Z WARN  rhoevm] Currently, this project is a work in progress.
-[2024-08-11T13:21:39Z INFO  rhoevm] Loading binary from file: ./example/build/SimpleContract.bin
-[2024-08-11T13:21:39Z INFO  rhoevm] Loading abi from file: ./example/build/SimpleContract.abi
-
-[2024-08-11T13:21:39Z INFO  rhoevm] Using function signature: check(uint32,uint32)
-[2024-08-11T13:21:39Z INFO  rhoevm] Calculated function selector: 0xc5eb648f
-[2024-08-11T13:21:39Z INFO  rhoevm] Calldata constructed successfully for function 'check(uint32,uint32)'
-[2024-08-11T13:21:39Z INFO  rhoevm] Number of initial environments: 1
-[2024-08-11T13:21:39Z INFO  rhoevm] Starting EVM symbolic execution...
-[2024-08-11T13:21:45Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x1db
-[2024-08-11T13:21:45Z ERROR rhoevm] model: check(arg2=0x54,arg1=0x3a)
-[2024-08-11T13:21:45Z INFO  rhoevm] Execution of `check` completed.
+[2024-08-12T22:37:29Z WARN  rhoevm] Currently, this project is a work in progress.
+[2024-08-12T22:37:29Z INFO  rhoevm] Loading binary from file: ./example/build/SimpleContract.bin
+[2024-08-12T22:37:29Z INFO  rhoevm] Target function signature: check(uint32,uint32)
+[2024-08-12T22:37:29Z INFO  rhoevm] Calldata constructed successfully for function 'check(uint32,uint32)'
+[2024-08-12T22:37:29Z INFO  rhoevm] Number of initial environments: 1
+[2024-08-12T22:37:29Z INFO  rhoevm] Starting EVM symbolic execution...
+[2024-08-12T22:37:30Z ERROR rhoevm] REACHABLE REVERT DETECTED @ PC=0x1db
+[2024-08-12T22:37:30Z ERROR rhoevm] model: check(arg2=0x63,arg1=0x2b)
+[2024-08-12T22:37:30Z INFO  rhoevm] Execution of 'check(uint32,uint32)' completed.
 ```
 
 In the above example, `rhoevm` analyzes the `check` function of the SimpleAssert contract, highlighting a revert condition due to the failed assertion.
