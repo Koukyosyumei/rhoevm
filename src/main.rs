@@ -5,10 +5,8 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
 use std::time;
 use std::{env, process};
-use tiny_keccak::{Hasher, Keccak};
 use tokio::task;
 
 use rhoevm::modules::abi::{AbiType, Sig};
@@ -22,15 +20,14 @@ use rhoevm::modules::types::{ContractCode, Env, Expr, Prop, RuntimeCodeStruct, V
 
 #[derive(Debug)]
 struct Args {
-  contract_name: String,
+  bin_file_path: String,
   function_signatures: String,
-  target_dir: Option<String>,
   max_num_iterations: Option<u32>,
   verbose_level: Option<String>,
 }
 
 fn print_usage(program: &str, opts: &Options) {
-  let brief = format!("Usage: {} CONTRACT_NAME FUNCTION_NAMES [options]", program);
+  let brief = format!("Usage: {} BINARY_FILE_PATH FUNCTION_SIGNATURES [options]", program);
   print!("{}", opts.usage(&brief));
   process::exit(0);
 }
@@ -42,7 +39,6 @@ fn parse_args() -> Args {
   let program = args[0].clone();
 
   let mut opts = Options::new();
-  opts.optopt("d", "dir", "target directory", "DIR");
   opts.optopt("i", "max_num_iterations", "maximum number of iterations for loop", "MAX_NUM_ITER");
   opts.optopt("v", "verbose", "level of verbose", "LEVEL");
   opts.optflag("h", "help", "print this help menu");
@@ -60,7 +56,7 @@ fn parse_args() -> Args {
     print_usage(&program, &opts);
   }
 
-  let contract_name = if !matches.free.is_empty() {
+  let bin_file_path = if !matches.free.is_empty() {
     matches.free[0].clone()
   } else {
     print_usage(&program, &opts);
@@ -74,7 +70,6 @@ fn parse_args() -> Args {
     panic!("Error: At least one FUNCTION_NAME is required.");
   };
 
-  let target_dir = matches.opt_str("d");
   let max_num_iterations = if let Some(i) = matches.opt_str("i") {
     Some(i.parse::<u32>().unwrap_or(DEFAULT_MAX_NUM_ITERATIONS))
   } else {
@@ -82,7 +77,7 @@ fn parse_args() -> Args {
   };
   let verbose_level = matches.opt_str("v");
 
-  Args { contract_name, function_signatures, target_dir, max_num_iterations, verbose_level }
+  Args { bin_file_path, function_signatures, max_num_iterations, verbose_level }
 }
 
 fn print_ascii_art() {
@@ -138,26 +133,6 @@ async fn main() {
 
   print_ascii_art();
 
-  let base_filename = if let Some(dir_name) = args.target_dir {
-    Path::new(&dir_name)
-      .join(&args.contract_name)
-      .to_str()
-      .unwrap_or_else(|| {
-        eprintln!("Warning: Path is not valid UTF-8. Using default path.");
-        "./"
-      })
-      .to_string()
-  } else {
-    Path::new("./")
-      .join(&args.contract_name)
-      .to_str()
-      .unwrap_or_else(|| {
-        eprintln!("Warning: Path is not valid UTF-8. Using default path.");
-        "./"
-      })
-      .to_string()
-  };
-
   // Set the verbose level
   match args.verbose_level.as_deref() {
     Some("0") | Some("error") => env::set_var("RUST_LOG", "error"),
@@ -173,21 +148,20 @@ async fn main() {
   warn!("Currently, this project is a work in progress.");
 
   // ------------- Load the binary file -------------
-  let bin_filename = base_filename.to_string() + &".bin".to_string();
-  info!("Loading binary from file: {}", bin_filename);
-  let mut f = match File::open(bin_filename.clone()) {
+  info!("Loading binary from file: {}", args.bin_file_path);
+  let mut f = match File::open(args.bin_file_path.clone()) {
     Ok(file) => file,
     Err(e) => {
-      error!("Failed to open file '{}': {}", bin_filename, e);
+      error!("Failed to open file '{}': {}", args.bin_file_path, e);
       return;
     }
   };
   let mut binary = String::new();
   if let Err(e) = f.read_to_string(&mut binary) {
-    error!("Failed to read file '{}': {}", bin_filename, e);
+    error!("Failed to read file '{}': {}", args.bin_file_path, e);
     return;
   }
-  debug!("File '{}' read successfully.", bin_filename);
+  debug!("File '{}' read successfully.", args.bin_file_path);
 
   // utility variables
   let mut normalized_function_names_vec: Vec<String> = vec![];
@@ -238,16 +212,6 @@ async fn main() {
     // ------------- Build Calldata -------------
     let fname = signature_to_name[function_signature].clone();
     info!("fname: {}", fname);
-
-    /*
-    let mut hasher = Keccak::v256();
-    hasher.update(function_signature.as_bytes());
-    let mut output = [0u8; 32];
-    hasher.finalize(&mut output);
-    let function_selector = &output[..4];
-    let function_selector_hex: String = function_selector.iter().map(|byte| format!("{:02x}", byte)).collect();
-    info!("Calculated function selector: 0x{}", function_selector_hex);
-    */
 
     // ------------- Build command and calldata -------------
     let mut cmd = <SymbolicCommand as std::default::Default>::default();
