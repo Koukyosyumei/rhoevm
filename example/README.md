@@ -30,7 +30,7 @@ contract Caller {
 - output
 
 ```bash
-$  ./target/release/rhoevm Caller "setUp,callcheck" -d./example/build/
+$  ./target/release/rhoevm Caller "setUp()|callcheck(uint)" -d./example/build/
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -95,7 +95,7 @@ contract StoreLoad {
 - output
 
 ```bash
-$  ./target/release/rhoevm StoreLoad "store,load" -d ./example/build/
+$  ./target/release/rhoevm StoreLoad "store(uint,uint)|load(uint)" -d ./example/build/
    ╭───────────────╮
    │  R H O  │
    │  E V M  │
@@ -161,8 +161,7 @@ contract WhileContract {
 - output
 
 ```bash
-$  ./target/release/rhoevm WhileContract "check" -d ./
-example/build/
+$  ./target/release/rhoevm WhileContract "check(uint32)" -d ./example/build/
    ╭───────────────╮
    │  R H O  │
    │  E V M  │

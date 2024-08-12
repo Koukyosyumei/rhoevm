@@ -421,10 +421,11 @@ async fn main() {
               if k[..3] == *"arg" {
                 let variable_id = k[3..].parse::<usize>().unwrap_or(0);
                 if variable_id_to_function_signature.contains_key(&variable_id) {
+                  let v_trimmed = v.trim_start_matches('0').to_string();
                   fname_to_args
                     .get_mut(variable_id_to_function_signature.get(&variable_id).unwrap())
                     .unwrap()
-                    .push(format!("{}=0x{},", k, v.trim_start_matches('0').to_string()));
+                    .push(format!("{}=0x{},", k, if v_trimmed.is_empty() { "0" } else { &v_trimmed }));
                 }
               }
             }
