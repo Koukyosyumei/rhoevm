@@ -693,9 +693,12 @@ impl VM {
           - offset: byte offset in the code to copy.
           - size: byte size to copy.
           */
-          if let [xs @ .., n, code_offset, mem_offset] = &self.state.stack.clone()[..] {
+          if self.state.stack.len() >= 3 {
+            let mem_offset = self.state.stack.pop().unwrap();
+            let code_offset = self.state.stack.pop().unwrap();
+            let n = self.state.stack.pop().unwrap();
             next(self, op);
-            self.state.stack = xs.to_vec();
+            // self.state.stack = xs.to_vec();
             burn_codecopy(self, unbox(n.clone()), self.block.schedule.clone(), || {});
             access_memory_range(self, *mem_offset.clone(), *n.clone(), || {});
             if let Some(b) = to_buf(&self.state.code) {
