@@ -662,20 +662,15 @@ impl VM {
           true
         }
         Op::Calldatacopy => {
-          if let Some((x_to, rest)) = self.state.stack.clone().split_last() {
-            if let Some((x_from, rest)) = rest.split_last() {
-              if let Some((x_size, xs)) = rest.split_last() {
-                burn_calldatacopy(self, unbox(x_size.clone()), self.block.schedule.clone(), || {});
-                access_memory_range(self, *x_to.clone(), *x_size.clone(), || {});
-                self.state.stack = xs.to_vec();
-                copy_bytes_to_memory(self.state.calldata.clone(), x_size.clone(), x_from.clone(), x_to.clone(), self);
-                next(self, op);
-              } else {
-                underrun();
-              }
-            } else {
-              underrun();
-            }
+          if self.state.stack.len() >= 3 {
+            let x_to = self.state.stack.pop().unwrap();
+            let x_from = self.state.stack.pop().unwrap();
+            let x_size = self.state.stack.pop().unwrap();
+            burn_calldatacopy(self, unbox(x_size.clone()), self.block.schedule.clone(), || {});
+            access_memory_range(self, *x_to.clone(), *x_size.clone(), || {});
+            // self.state.stack = xs.to_vec();
+            copy_bytes_to_memory(self.state.calldata.clone(), x_size.clone(), x_from.clone(), x_to.clone(), self);
+            next(self, op);
           } else {
             underrun();
           }
