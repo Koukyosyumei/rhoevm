@@ -211,9 +211,6 @@ async fn main() {
 
     // ------------- Build Calldata -------------
     let fname = signature_to_name[function_signature].clone();
-    info!("fname: {}", fname);
-
-    // ------------- Build command and calldata -------------
     let mut cmd = <SymbolicCommand as std::default::Default>::default();
     cmd.sig = Some(Sig::new(&function_signature, &abi_map[&fname]));
     cmd.value = Some(W256(0, 0));
