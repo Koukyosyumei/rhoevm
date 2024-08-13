@@ -1,5 +1,3 @@
-use log::info;
-
 use crate::modules::abi::Sig;
 use crate::modules::abi::{make_abi_value, selector, AbiType, AbiValue};
 use crate::modules::expr::{add, buf_length, in_range, read_byte, write_byte, write_word};
@@ -125,7 +123,7 @@ fn combine_fragments(fragments: &[CalldataFragment], base: &Expr) -> (Expr, Vec<
       // Static fragments get written as a word in place
       CalldataFragment::St(p, w) => {
         let new_idx = add(Box::new(idx.clone()), Box::new(Expr::Lit(W256(32, 0)))); // Add 32 to index
-        let new_buf = write_word(Box::new(idx), Box::new(w.clone()), Box::new(buf));
+        let new_buf = write_word(&(idx), &(w), &(buf));
         go(new_idx, &rest.to_vec(), (new_buf, [p.clone(), ps].concat()))
       }
       // Compound fragments that contain only static fragments get written in place
@@ -265,7 +263,7 @@ fn cd_len(cfs: &Vec<CalldataFragment>) -> Expr {
 /// # Panics
 ///
 /// Panics if any argument type is unsupported or concrete arguments cannot be parsed.
-pub fn mk_calldata(sig: &Option<Sig>, concrete_args: &[String], offset: usize) -> (Expr, Vec<Box<Prop>>) {
+pub fn mk_calldata(sig: Option<&Sig>, concrete_args: &[String], offset: usize) -> (Expr, Vec<Box<Prop>>) {
   match sig {
     Some(Sig { method_signature: name, inputs: types }) => {
       sym_calldata(&name, &types, concrete_args, &Expr::AbstractBuf("txdata".to_string()), offset)
