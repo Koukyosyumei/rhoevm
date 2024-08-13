@@ -373,7 +373,7 @@ impl VM {
     if is_precompile(&self_contract) {
       if let Some(lit_self) = maybe_lit_addr(*self_contract) {
         // call to precompile
-        let calldatasize = buf_length(*self.state.calldata.clone());
+        let calldatasize = buf_length(&self.state.calldata);
         copy_bytes_to_memory(
           &self.state.calldata.clone(),
           &(calldatasize.clone()),
@@ -657,7 +657,7 @@ impl VM {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
             next(self, op);
-            push_sym(self, Box::new(buf_length(*self.state.calldata.clone())));
+            push_sym(self, Box::new(buf_length(&self.state.calldata)));
           });
           true
         }
@@ -753,7 +753,7 @@ impl VM {
               next(self, op);
               self.state.stack = xs.to_vec();
               if let Some(b) = &c.bytecode() {
-                push_sym(self, Box::new(buf_length(b.clone())));
+                push_sym(self, Box::new(buf_length(b)));
               } else {
                 push_sym(self, Box::new(Expr::CodeSize(Box::new(a.clone()))));
               }
@@ -1328,7 +1328,7 @@ impl VM {
           if let [.., x_size, x_offset] = &self.state.stack.clone()[..] {
             access_memory_range(self, &x_offset, &x_size, || {});
             let output = read_memory(self, &x_offset, &x_size);
-            let codesize = maybe_lit_word(buf_length(output.clone())).unwrap().0 as u32;
+            let codesize = maybe_lit_word(buf_length(&output)).unwrap().0 as u32;
             let maxsize = self.block.max_code_size.0 as u32;
             let creation = if self.frames.len() == 0 {
               self.tx.is_create
@@ -1593,7 +1593,7 @@ impl VM {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
             next(self, op);
-            push_sym(self, Box::new(buf_length(*self.state.returndata.clone())));
+            push_sym(self, Box::new(buf_length(&self.state.returndata)));
           });
           true
         }
@@ -1613,13 +1613,13 @@ impl VM {
               }
             };
 
-            match (*x_from.clone(), buf_length(*sr.clone()), *x_size.clone()) {
+            match (*x_from.clone(), buf_length(&sr), *x_size.clone()) {
               (Expr::Lit(f), Expr::Lit(l), Expr::Lit(sz)) => {
                 jump(l < f.clone() + sz.clone() || f.clone() + sz < f);
               }
               _ => {
                 let oob = Expr::LT(
-                  Box::new(buf_length(*sr)),
+                  Box::new(buf_length(&sr)),
                   Box::new(Expr::Add(Box::new(*x_from.clone()), Box::new(*x_size.clone()))),
                 );
                 let overflow = Expr::LT(
@@ -2223,7 +2223,7 @@ fn access_memory_word(vm: &mut VM, x: &Expr, continue_fn: impl Fn()) {
 }
 
 fn copy_call_bytes_to_memory(vm: &mut VM, bs: &Expr, size: &Expr, y_offset: &Expr) {
-  let size_min = emin(Box::new(size.clone()), Box::new(buf_length(bs.clone())));
+  let size_min = emin(Box::new(size.clone()), Box::new(buf_length(bs)));
   copy_bytes_to_memory(&bs, &(size_min), &(Expr::Lit(W256(0, 0))), &y_offset, vm);
 }
 
@@ -2473,7 +2473,7 @@ fn codelen(cc: &ContractCode) -> Expr {
   match cc {
     ContractCode::UnKnownCode(a) => Expr::CodeSize(a.clone()),
     ContractCode::InitCode(_, _) => match to_buf(cc) {
-      Some(b) => buf_length(b),
+      Some(b) => buf_length(&b),
       None => panic!("impossible"),
     },
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => Expr::Lit(W256(ops.len() as u128, 0)),
@@ -2772,7 +2772,7 @@ fn create(
       {
         let mut else_vm = else_vm_.unwrap();
         burn(&mut else_vm, 0, || {});
-        match parse_init_code(init_code.clone()) {
+        match parse_init_code(&init_code) {
           None => {
             next(&mut else_vm, op);
             else_vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
@@ -3292,20 +3292,20 @@ fn cheat_code() -> Expr {
 ///
 /// # Arguments
 ///
-/// * `buf` - The buffer containing the initialization code to be parsed.
+/// * `buf` - A reference to the buffer containing the initialization code to be parsed.
 ///
 /// # Returns
 ///
 /// * `Option<ContractCode>` - The parsed initialization code, or `None` if parsing fails.
-fn parse_init_code(buf: Expr) -> Option<ContractCode> {
+fn parse_init_code(buf: &Expr) -> Option<ContractCode> {
   match buf {
     Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(Box::new(b.to_vec()), Box::new(Expr::Mempty))),
     _ => {
-      let conc = concrete_prefix(Box::new(buf.clone()));
+      let conc = concrete_prefix(buf);
       if conc.is_empty() {
         None
       } else {
-        let sym = drop(W256(conc.len() as u128, 0), Box::new(buf));
+        let sym = drop(W256(conc.len() as u128, 0), buf);
         Some(ContractCode::InitCode(Box::new(conc), Box::new(sym)))
       }
     }

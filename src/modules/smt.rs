@@ -788,14 +788,14 @@ fn assert_read(read: (Expr, Expr, Expr)) -> Vec<Prop> {
   match size {
     Expr::Lit(sz) if sz == W256(32, 0) => {
       vec![Prop::PImpl(
-        Box::new(Prop::PGEq(idx.clone(), buf_length(buf.clone()))),
+        Box::new(Prop::PGEq(idx.clone(), buf_length(&buf))),
         Box::new(Prop::PEq(Expr::ReadWord(Box::new(idx), Box::new(buf)), Expr::Lit(W256(0, 0)))),
       )]
     }
     Expr::Lit(sz) => (0..(sz.0 as usize))
       .map(|i| {
         Prop::PImpl(
-          Box::new(Prop::PGEq(idx.clone(), buf_length(buf.clone()))),
+          Box::new(Prop::PGEq(idx.clone(), buf_length(&buf))),
           Box::new(Prop::PEq(Expr::ReadByte(Box::new(idx.clone()), Box::new(buf.clone())), Expr::LitByte(i as u8))),
         )
       })
@@ -835,7 +835,7 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> SMT2 {
   let simplified_ps = decompose(simplify_props(ps_pre_conc.clone()), config);
 
   let ps = conc_keccak_props(simplified_ps);
-  let (ps_elim, bufs, stores) = eliminate_props(ps.clone());
+  let (ps_elim, bufs, stores) = eliminate_props(&ps);
   let (ps_elim_abst, ref abst @ AbstState { words: ref abst_expr_to_int, count: _ }) =
     if config.abst_refine_arith || config.abst_refine_mem {
       abstract_away_props(config, ps_elim.clone())
@@ -1104,7 +1104,7 @@ fn expr_to_smt(expr: Expr) -> String {
     Expr::BufLength(b) => match *b {
       Expr::AbstractBuf(ab) => format!("{}_length", ab),
       Expr::GVar(GVar::BufVar(n)) => format!("buf{}_length", n),
-      _ => expr_to_smt(buf_length(*b)),
+      _ => expr_to_smt(buf_length(&b)),
     },
     Expr::WriteByte(idx, val, prev) => {
       let enc_idx = expr_to_smt(*idx);

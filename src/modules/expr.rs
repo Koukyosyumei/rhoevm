@@ -1084,7 +1084,7 @@ fn go_expr(expr: &Expr) -> Expr {
       (_, _) => read_byte(idx_.clone(), buf_.clone()),
     },
 
-    Expr::BufLength(buf) => buf_length(*buf.clone()),
+    Expr::BufLength(buf) => buf_length(&buf),
 
     Expr::WriteWord(a_, b_, c_) => match (*a_.clone(), *b_.clone(), *c_.clone()) {
       (Expr::Lit(idx), val, Expr::ConcreteBuf(b)) if idx < MAX_BYTES => {
@@ -1103,7 +1103,7 @@ fn go_expr(expr: &Expr) -> Expr {
       match (*src_off_.clone(), *dst_off_.clone(), *size_.clone(), *src_.clone(), *dst_.clone()) {
         (Expr::Lit(W256(0, 0)), Expr::Lit(W256(0, 0)), Expr::Lit(W256(0, 0)), _, dst) => dst.clone(),
         (Expr::Lit(W256(0, 0)), Expr::Lit(W256(0, 0)), Expr::Lit(s), src, Expr::ConcreteBuf(b))
-          if b.len() == 0 && buf_length(src.clone()) == Expr::Lit(s.clone()) =>
+          if b.len() == 0 && buf_length(&src) == Expr::Lit(s.clone()) =>
         {
           src.clone()
         }
@@ -1707,12 +1707,12 @@ fn strip_writes(off: W256, size: W256, buffer: Box<Expr>) -> Expr {
 -- partial: will hard error if we encounter an input buf with a concrete size > 500mb
 -- partial: will hard error if the prefix is > 500mb
 */
-pub fn concrete_prefix(b: Box<Expr>) -> Vec<u8> {
+pub fn concrete_prefix(b: &Expr) -> Vec<u8> {
   fn max_idx() -> i32 {
     500 * (10_i32.pow(6))
   }
-  fn input_len(b: Box<Expr>) -> Option<W256> {
-    match buf_length(*b) {
+  fn input_len(b: &Expr) -> Option<W256> {
+    match buf_length(&b) {
       Expr::Lit(s) => {
         if s > W256(max_idx as u128, 0) {
           panic!("concrete prefix: input buffer size exceeds 500mb")
@@ -1723,23 +1723,23 @@ pub fn concrete_prefix(b: Box<Expr>) -> Vec<u8> {
       _ => None,
     }
   }
-  fn has_enough_concrete_size(i: i32, b: Box<Expr>) -> bool {
+  fn has_enough_concrete_size(i: i32, b: &Expr) -> bool {
     if let Some(mr) = input_len(b) {
       return W256(i as u128, 0) >= mr;
     }
     false
   }
 
-  fn go(b: Box<Expr>, i: i32, mut v: Vec<u8>) -> (i32, Vec<u8>) {
+  fn go(b: &Expr, i: i32, mut v: Vec<u8>) -> (i32, Vec<u8>) {
     if i >= max_idx() {
       panic!("concrete prefix: prefix size exceeds 500mb");
-    } else if has_enough_concrete_size(i, b.clone()) {
+    } else if has_enough_concrete_size(i, b) {
       (i, v)
     } else if i as usize >= v.len() {
       v.resize(v.len() * 2, 0);
       go(b, i, v)
     } else {
-      match read_byte(Box::new(Expr::Lit(W256(i as u128, 0))), b.clone()) {
+      match read_byte(Box::new(Expr::Lit(W256(i as u128, 0))), Box::new(b.clone())) {
         Expr::LitByte(byte) => {
           v[i as usize] = byte;
           go(b, i + 1, v)
@@ -1749,9 +1749,9 @@ pub fn concrete_prefix(b: Box<Expr>) -> Vec<u8> {
     }
   }
 
-  let v_size = if let Some(w) = input_len(b.clone()) { w.0 } else { 1024 };
+  let v_size = if let Some(w) = input_len(b) { w.0 } else { 1024 };
   let v = vec![0; v_size as usize];
-  let result = go(b.clone(), 0, v);
+  let result = go(b, 0, v);
   result.1
 }
 
@@ -1797,7 +1797,7 @@ pub fn to_list(buf: Box<Expr>) -> Option<Vec<Box<Expr>>> {
   match *buf {
     Expr::AbstractBuf(_) => None,
     Expr::ConcreteBuf(bs) => Some(bs.iter().map(|b| Box::new(Expr::LitByte(*b))).collect()),
-    buf => match buf_length(buf.clone()) {
+    buf => match buf_length(&buf) {
       Expr::Lit(l) => {
         if l <= W256(usize::MAX as u128, 0) {
           Some((0..l.0).map(|i| Box::new(read_byte(Box::new(Expr::Lit(W256(i, 0))), Box::new(buf.clone())))).collect())
@@ -1856,15 +1856,19 @@ pub fn word_to_addr(e: Box<Expr>) -> Option<Expr> {
   go(Box::new(simplify(e)))
 }
 
-pub fn drop(n: W256, buf: Box<Expr>) -> Expr {
-  slice(Box::new(Expr::Lit(n.clone())), Box::new(sub(Box::new(buf_length(*buf.clone())), Box::new(Expr::Lit(n)))), buf)
+pub fn drop(n: W256, buf: &Expr) -> Expr {
+  slice(
+    Box::new(Expr::Lit(n.clone())),
+    Box::new(sub(Box::new(buf_length(buf)), Box::new(Expr::Lit(n)))),
+    Box::new(buf.clone()),
+  )
 }
 
 pub fn slice(offset: Box<Expr>, size: Box<Expr>, src: Box<Expr>) -> Expr {
   copy_slice(&offset, &(Expr::Lit(W256(0, 0))), &size, &src, &(Expr::Mempty))
 }
 
-pub fn buf_length(buf: Expr) -> Expr {
+pub fn buf_length(buf: &Expr) -> Expr {
   let e = buf_length_env(&HashMap::new(), false, buf.clone());
   e
 }
