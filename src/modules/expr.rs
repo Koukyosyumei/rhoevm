@@ -651,7 +651,7 @@ pub fn read_word(idx: Box<Expr>, buf: Box<Expr>) -> Box<Expr> {
         if idx_val == idx2_val {
           return val.clone();
         } else if idx2_val >= idx_val && idx2_val <= idx_val.clone() + W256(32, 0) {
-          return read_word_from_bytes(idx, buf);
+          return read_word_from_bytes(&idx, &buf);
         } else {
           return read_word(idx, buf2);
         }
@@ -666,17 +666,17 @@ pub fn read_word(idx: Box<Expr>, buf: Box<Expr>) -> Box<Expr> {
         } else if idx_val >= dst_offset_val && idx_val <= dst_offset_val + size_val - W256(32, 0) {
           return read_word(Box::new(Expr::Lit(idx_val.clone())), dst);
         } else {
-          return read_word_from_bytes(idx, buf);
+          return read_word_from_bytes(&idx, &buf);
         }
       }
     }
     _ => {}
   }
-  read_word_from_bytes(idx, buf)
+  read_word_from_bytes(&idx, &buf)
 }
 
-pub fn read_word_from_bytes(idx: Box<Expr>, buf: Box<Expr>) -> Box<Expr> {
-  if let (Expr::Lit(idx_val), Expr::ConcreteBuf(bs)) = (*idx.clone(), *buf.clone()) {
+pub fn read_word_from_bytes(idx: &Expr, buf: &Expr) -> Box<Expr> {
+  if let (Expr::Lit(idx_val), Expr::ConcreteBuf(bs)) = (idx, buf) {
     let end = idx_val.clone() + W256(32, 0);
     let slice = if (idx_val.0 as usize) < bs.len() {
       if end.0 as usize <= bs.len() {
@@ -690,13 +690,14 @@ pub fn read_word_from_bytes(idx: Box<Expr>, buf: Box<Expr>) -> Box<Expr> {
     let padded: Vec<u8> = slice.iter().cloned().chain(std::iter::repeat(0)).take(32).collect();
     return Box::new(Expr::Lit(W256::from_bytes(padded.try_into().unwrap())));
   }
-  let bytes: Vec<Expr> =
-    (0..3).map(|i| read_byte(Box::new(add(idx.clone(), Box::new(Expr::Lit(W256(i, 0))))), buf.clone())).collect();
+  let bytes: Vec<Expr> = (0..3)
+    .map(|i| read_byte(Box::new(add(Box::new(idx.clone()), Box::new(Expr::Lit(W256(i, 0))))), Box::new(buf.clone())))
+    .collect();
   if bytes.iter().all(|b| matches!(b, Expr::Lit(_))) {
     let result = bytes.into_iter().map(|b| if let Expr::Lit(byte) = b { byte.0 as u8 } else { 0 }).collect::<Vec<u8>>();
     Box::new(Expr::Lit(W256::from_bytes(result)))
   } else {
-    Box::new(Expr::ReadWord(Box::new(*idx.clone()), Box::new(*buf)))
+    Box::new(Expr::ReadWord(Box::new(idx.clone()), Box::new(buf.clone())))
   }
 }
 
