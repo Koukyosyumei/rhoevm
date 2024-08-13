@@ -1,4 +1,6 @@
 use log::{error, warn};
+use ripemd::Ripemd160;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -382,12 +384,13 @@ impl VM {
           self,
         );
         execute_precompile(
-          lit_self,
+          self,
+          &lit_self,
           self.state.gas.clone(),
-          Expr::Lit(W256(0, 0)),
-          calldatasize,
-          Expr::Lit(W256(0, 0)),
-          Expr::Lit(W256(0, 0)),
+          &Expr::Lit(W256(0, 0)),
+          &calldatasize,
+          &Expr::Lit(W256(0, 0)),
+          &Expr::Lit(W256(0, 0)),
           vec![],
         );
         match self.state.stack.last() {
@@ -1809,23 +1812,82 @@ fn copy_bytes_to_memory(bs: &Expr, size: &Expr, src_offset: &Expr, mem_offset: &
 ///
 /// # Arguments
 ///
-/// * `_pre_compile_addr` - The address of the precompiled contract to execute.
+/// * `vm` - A mutable reference to the `VM` from which to fetch the account.
+/// * `pre_compile_addr` - The address of the precompiled contract to execute.
 /// * `_gas` - The amount of gas available for execution.
-/// * `_in_offset` - The offset in memory for the input data.
-/// * `_in_size` - The size of the input data.
-/// * `_out_offset` - The offset in memory for the output data.
-/// * `_out_size` - The size of the output data.
-/// * `_xs` - A vector of additional expressions representing input parameters.
+/// * `in_offset` - The offset in memory for the input data.
+/// * `in_size` - The size of the input data.
+/// * `out_offset` - The offset in memory for the output data.
+/// * `out_size` - The size of the output data.
+/// * `xs` - A vector of additional expressions representing input parameters.
 fn execute_precompile(
-  _pre_compile_addr: Addr,
+  vm: &mut VM,
+  pre_compile_addr: &Addr,
   _gas: Gas,
-  _in_offset: Expr,
-  _in_size: Expr,
-  _out_offset: Expr,
-  _out_size: Expr,
-  _xs: Vec<Expr>,
+  in_offset: &Expr,
+  in_size: &Expr,
+  out_offset: &Expr,
+  out_size: &Expr,
+  xs: Vec<Box<Expr>>,
 ) {
-  // Implement precompile logic
+  let input = read_memory(vm, in_offset, in_size);
+  let mut input_prime: Vec<u8> = vec![];
+  match pre_compile_addr {
+    W256(0x1, 0) => {
+      force_concrete_buf(vm, &input, "ECRECOVER", |input| input_prime = input);
+      todo!()
+    }
+    W256(0x2, 0) => {
+      force_concrete_buf(vm, &input, "SHA2-256", |input| input_prime = input);
+      let mut hasher = Sha256::new();
+      hasher.update(input_prime);
+      let hash = Expr::ConcreteBuf(hasher.finalize().to_vec());
+      vm.state.stack = xs;
+      vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+      vm.state.returndata = Box::new(hash.clone());
+      copy_bytes_to_memory(&hash, out_size, &Expr::Lit(W256(0, 0)), out_offset, vm);
+      // next(vm, op)
+    }
+    W256(0x3, 0) => {
+      force_concrete_buf(vm, &input, "RIPEMD160", |input| input_prime = input);
+      let mut hasher = Ripemd160::new();
+      hasher.update(input_prime);
+      let hash = Expr::ConcreteBuf(hasher.finalize().to_vec());
+      vm.state.stack = xs;
+      vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+      vm.state.returndata = Box::new(hash.clone());
+      copy_bytes_to_memory(&hash, out_size, &Expr::Lit(W256(0, 0)), out_offset, vm);
+      // next(vm, op)
+    }
+    W256(0x4, 0) => {
+      vm.state.stack = xs;
+      vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+      vm.state.returndata = Box::new(input.clone());
+      copy_call_bytes_to_memory(vm, &input, out_size, out_offset);
+      // next(vm, op)
+    }
+    W256(0x5, 0) => {
+      force_concrete_buf(vm, &input, "MODEXP", |input| input_prime = input);
+      todo!()
+    }
+    W256(0x6, 0) => {
+      force_concrete_buf(vm, &input, "ECADD", |input| input_prime = input);
+      todo!()
+    }
+    W256(0x7, 0) => {
+      force_concrete_buf(vm, &input, "ECMUL", |input| input_prime = input);
+      todo!()
+    }
+    W256(0x8, 0) => {
+      force_concrete_buf(vm, &input, "ECPAIR", |input| input_prime = input);
+      todo!()
+    }
+    W256(0x9, 0) => {
+      force_concrete_buf(vm, &input, "BLAKE2", |input| input_prime = input);
+      todo!()
+    }
+    _ => todo!(),
+  }
 }
 
 /// Fetches an account from the virtual machine's environment and applies a function to it.
