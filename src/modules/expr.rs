@@ -1013,14 +1013,11 @@ fn conc_keccak_one_pass(expr: Box<Expr>) -> Expr {
 // Main simplify function
 pub fn simplify(expr: Box<Expr>) -> Expr {
   if *expr != Expr::Mempty {
-    let simplified = map_expr(|arg0: &Expr| go_expr(Box::new(arg0.clone())), *expr.clone());
+    let simplified = map_expr(|arg0: &Expr| go_expr(arg0), *expr.clone());
     if simplified == *expr {
       simplified
     } else {
-      simplify(Box::new(map_expr(
-        |arg0: &Expr| go_expr(Box::new(arg0.clone())),
-        structure_array_slots(Box::new(*expr.clone())),
-      )))
+      simplify(Box::new(map_expr(|arg0: &Expr| go_expr(arg0), structure_array_slots(Box::new(*expr.clone())))))
     }
   } else {
     Expr::Mempty
@@ -1068,8 +1065,8 @@ fn slot_pos(pos: Word8) -> ByteString {
   res
 }
 
-fn go_expr(expr: Box<Expr>) -> Expr {
-  match *expr.clone() {
+fn go_expr(expr: &Expr) -> Expr {
+  match expr.clone() {
     Expr::Failure(a, b, c) => Expr::Failure(simplify_props(a.clone()), b.clone(), c.clone()),
     Expr::Partial(a, b, c) => Expr::Partial(simplify_props(a.clone()), b.clone(), c.clone()),
     Expr::Success(a, b, c, d) => Expr::Success(simplify_props(a.clone()), b.clone(), c.clone(), d.clone()),
@@ -1084,7 +1081,7 @@ fn go_expr(expr: Box<Expr>) -> Expr {
 
     Expr::ReadByte(idx_, buf_) => match (*idx_.clone(), *buf_.clone()) {
       (Expr::Lit(_), _) => simplify_reads(expr),
-      (_, _) => read_byte(idx_, buf_),
+      (_, _) => read_byte(idx_.clone(), buf_.clone()),
     },
 
     Expr::BufLength(buf) => buf_length(*buf.clone()),
@@ -1180,7 +1177,7 @@ fn go_expr(expr: Box<Expr>) -> Expr {
 
     Expr::Eq(a_, b_) => match (*a_.clone(), *b_.clone()) {
       (Expr::Lit(a), Expr::Lit(b)) => Expr::Lit(if a == b { W256(1, 0) } else { W256(0, 0) }),
-      (_, Expr::Lit(W256(0, 0))) => iszero(expr.clone()),
+      (_, Expr::Lit(W256(0, 0))) => iszero(Box::new(expr.clone())),
       (_, _) => eq(a_, b_),
     },
 
@@ -1227,7 +1224,7 @@ fn go_expr(expr: Box<Expr>) -> Expr {
       (Expr::Lit(_), Expr::Lit(_)) => r#mod(a_, b_),
       (_, Expr::Lit(W256(0, 0))) => Expr::Lit(W256(0, 0)),
       (a, b) if a == b => Expr::Lit(W256(0, 0)),
-      _ => *expr.clone(),
+      _ => expr.clone(),
     },
     Expr::SMod(a, b) => smod(a, b),
 
@@ -1266,7 +1263,7 @@ fn go_expr(expr: Box<Expr>) -> Expr {
     Expr::Lit(n) => Expr::Lit(n.clone()),
     Expr::WAddr(a) => Expr::WAddr(a.clone()),
     Expr::LitAddr(a) => Expr::LitAddr(a.clone()),
-    _ => *expr.clone(),
+    _ => expr.clone(),
   }
 }
 
@@ -1631,17 +1628,17 @@ pub fn simplify_props(ps: Vec<Box<Prop>>) -> Vec<Box<Prop>> {
 }
 
 // Simplify reads by removing irrelevant writes
-fn simplify_reads(expr: Box<Expr>) -> Expr {
-  match *expr.clone() {
+fn simplify_reads(expr: &Expr) -> Expr {
+  match expr.clone() {
     Expr::ReadWord(a, b) => match *a {
       Expr::Lit(idx) => *read_word(&(Expr::Lit(idx.clone())), &(strip_writes(idx, W256(4, 0), b))),
-      _ => *expr,
+      _ => expr.clone(),
     },
     Expr::ReadByte(a, b) => match *a {
       Expr::Lit(idx) => read_byte(Box::new(Expr::Lit(idx.clone())), Box::new(strip_writes(idx, W256(1, 0), b))),
-      _ => *expr,
+      _ => expr.clone(),
     },
-    _ => *expr,
+    _ => expr.clone(),
   }
 }
 
