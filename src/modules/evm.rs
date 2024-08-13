@@ -904,11 +904,11 @@ impl VM {
                 }
                 _ => {
                   let buf = freeze_memory(&mem);
-                  self.state.memory = Memory::SymbolicMemory(write_word(x.clone(), y.clone(), Box::new(buf)));
+                  self.state.memory = Memory::SymbolicMemory(write_word(&x, &y, &(buf)));
                 }
               },
               Memory::SymbolicMemory(mem) => {
-                self.state.memory = Memory::SymbolicMemory(write_word(x.clone(), y.clone(), Box::new(mem.clone())));
+                self.state.memory = Memory::SymbolicMemory(write_word(&x, &y, &(mem)));
               }
             }
             self.state.stack = xs.to_vec();
@@ -2342,7 +2342,7 @@ fn stack_op1(vm: &mut VM, gas: u64, op: &str) -> bool {
     let res = match op {
       "iszero" => Box::new(Expr::IsZero(a.clone())),
       "not" => Box::new(Expr::Not(a.clone())),
-      "calldataload" => read_word(a.clone(), Box::new(*vm.state.calldata.clone())), // Box::new(Expr::Mempty),
+      "calldataload" => read_word(&a, &vm.state.calldata.clone()), // Box::new(Expr::Mempty),
       _ => Box::new(Expr::Mempty),
     };
     vm.state.stack = xs.to_vec();

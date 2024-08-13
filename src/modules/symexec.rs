@@ -123,7 +123,7 @@ fn combine_fragments(fragments: &[CalldataFragment], base: &Expr) -> (Expr, Vec<
       // Static fragments get written as a word in place
       CalldataFragment::St(p, w) => {
         let new_idx = add(Box::new(idx.clone()), Box::new(Expr::Lit(W256(32, 0)))); // Add 32 to index
-        let new_buf = write_word(Box::new(idx), Box::new(w.clone()), Box::new(buf));
+        let new_buf = write_word(&(idx), &(w), &(buf));
         go(new_idx, &rest.to_vec(), (new_buf, [p.clone(), ps].concat()))
       }
       // Compound fragments that contain only static fragments get written in place
