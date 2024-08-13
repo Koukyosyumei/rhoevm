@@ -320,13 +320,7 @@ fn test_copy_slice_empty_buffers() {
   let size = Expr::Lit(W256(0, 0));
   let src = Expr::ConcreteBuf(vec![]);
   let dst = Expr::ConcreteBuf(vec![]);
-  let result = copy_slice(
-    Box::new(src_offset),
-    Box::new(dst_offset),
-    Box::new(size),
-    Box::new(src.clone()),
-    Box::new(dst.clone()),
-  );
+  let result = copy_slice(&(src_offset), &(dst_offset), &(size), &(src.clone()), &(dst.clone()));
   assert_eq!(result, dst);
 }
 
@@ -337,13 +331,7 @@ fn test_copy_slice_concrete_empty_buffers() {
   let size = Expr::Lit(W256(10, 0));
   let src = Expr::ConcreteBuf(vec![]);
   let dst = Expr::ConcreteBuf(vec![]);
-  let result = copy_slice(
-    Box::new(src_offset),
-    Box::new(dst_offset),
-    Box::new(size),
-    Box::new(src.clone()),
-    Box::new(dst.clone()),
-  );
+  let result = copy_slice(&(src_offset), &(dst_offset), &(size), &(src.clone()), &(dst.clone()));
   assert_eq!(result, Expr::ConcreteBuf(vec![0; 10]));
 }
 
@@ -354,13 +342,7 @@ fn test_copy_slice_fully_concrete() {
   let size = Expr::Lit(W256(2, 0));
   let src = Expr::ConcreteBuf(vec![1, 2, 3, 4]);
   let dst = Expr::ConcreteBuf(vec![]);
-  let result = copy_slice(
-    Box::new(src_offset),
-    Box::new(dst_offset),
-    Box::new(size),
-    Box::new(src.clone()),
-    Box::new(dst.clone()),
-  );
+  let result = copy_slice(&(src_offset), &(dst_offset), &(size), &(src.clone()), &(dst.clone()));
   assert_eq!(result, Expr::ConcreteBuf(vec![3, 4]));
 }
 
@@ -371,13 +353,7 @@ fn test_copy_slice_with_padding() {
   let size = Expr::Lit(W256(2, 0));
   let src = Expr::ConcreteBuf(vec![1, 2, 3, 4]);
   let dst = Expr::ConcreteBuf(vec![5, 6]);
-  let result = copy_slice(
-    Box::new(src_offset),
-    Box::new(dst_offset),
-    Box::new(size),
-    Box::new(src.clone()),
-    Box::new(dst.clone()),
-  );
+  let result = copy_slice(&(src_offset), &(dst_offset), &(size), &(src.clone()), &(dst.clone()));
   assert_eq!(result, Expr::ConcreteBuf(vec![5, 6, 3, 4]));
 }
 
@@ -394,13 +370,7 @@ fn test_copy_slice_abstract_src() {
     Box::new(Expr::ConcreteBuf(vec![0; 32])),
   );
   let dst = Expr::ConcreteBuf(vec![0; 32]);
-  let result = copy_slice(
-    Box::new(src_offset),
-    Box::new(dst_offset),
-    Box::new(size),
-    Box::new(src.clone()),
-    Box::new(dst.clone()),
-  );
+  let result = copy_slice(&(src_offset), &(dst_offset), &(size), &(src.clone()), &(dst.clone()));
   assert_eq!(
     result,
     Expr::ConcreteBuf(vec![

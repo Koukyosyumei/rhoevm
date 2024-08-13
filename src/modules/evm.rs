@@ -375,10 +375,10 @@ impl VM {
         // call to precompile
         let calldatasize = buf_length(*self.state.calldata.clone());
         copy_bytes_to_memory(
-          self.state.calldata.clone(),
-          Box::new(calldatasize.clone()),
-          Box::new(Expr::Lit(W256(0, 0))),
-          Box::new(Expr::Lit(W256(0, 0))),
+          &self.state.calldata.clone(),
+          &(calldatasize.clone()),
+          &(Expr::Lit(W256(0, 0))),
+          &(Expr::Lit(W256(0, 0))),
           self,
         );
         execute_precompile(
@@ -669,7 +669,7 @@ impl VM {
             burn_calldatacopy(self, *x_size.clone(), self.block.schedule.clone(), || {});
             access_memory_range(self, *x_to.clone(), *x_size.clone(), || {});
             // self.state.stack = xs.to_vec();
-            copy_bytes_to_memory(self.state.calldata.clone(), x_size.clone(), x_from.clone(), x_to.clone(), self);
+            copy_bytes_to_memory(&self.state.calldata.clone(), &x_size, &x_from, &x_to, self);
             next(self, op);
           } else {
             underrun();
@@ -703,10 +703,10 @@ impl VM {
             access_memory_range(self, *mem_offset.clone(), *n.clone(), || {});
             if let Some(b) = to_buf(&self.state.code) {
               copy_bytes_to_memory(
-                Box::new(b),
-                n.clone(),
-                Box::new(add(Box::new(Expr::Lit(W256(self.state.base_pc as u128, 0))), code_offset.clone())),
-                mem_offset.clone(),
+                &b,
+                &n,
+                &add(Box::new(Expr::Lit(W256(self.state.base_pc as u128, 0))), code_offset.clone()),
+                &mem_offset,
                 self,
               );
             } else {
@@ -895,10 +895,10 @@ impl VM {
               Memory::ConcreteMemory(mem) => match simplify(y.clone()) {
                 Expr::Lit(w) => {
                   copy_bytes_to_memory(
-                    Box::new(Expr::ConcreteBuf(word256_bytes(w.into()))),
-                    Box::new(Expr::Lit(W256(32, 0))),
-                    Box::new(Expr::Lit(W256(0, 0))),
-                    x.clone(),
+                    &(Expr::ConcreteBuf(word256_bytes(w.into()))),
+                    &(Expr::Lit(W256(32, 0))),
+                    &(Expr::Lit(W256(0, 0))),
+                    &x,
                     self,
                   );
                 }
@@ -928,10 +928,10 @@ impl VM {
                 Memory::ConcreteMemory(mem) => match y_byte {
                   Expr::LitByte(byte) => {
                     copy_bytes_to_memory(
-                      Box::new(Expr::ConcreteBuf(vec![byte])),
-                      Box::new(Expr::Lit(W256(1, 0))),
-                      Box::new(Expr::Lit(W256(0, 0))),
-                      x.clone(),
+                      &(Expr::ConcreteBuf(vec![byte])),
+                      &(Expr::Lit(W256(1, 0))),
+                      &(Expr::Lit(W256(0, 0))),
+                      &x,
                       self,
                     );
                   }
@@ -1576,13 +1576,7 @@ impl VM {
             next(self, op);
             self.state.stack = xs.to_vec();
             if let Some(bytecode) = &account.bytecode() {
-              copy_bytes_to_memory(
-                Box::new(bytecode.clone()),
-                code_size.clone(),
-                code_offset.clone(),
-                mem_offset.clone(),
-                self,
-              )
+              copy_bytes_to_memory(&(bytecode.clone()), &code_size, &code_offset, &mem_offset, self)
             } else {
               self.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
                 pc: self.state.pc,
@@ -1615,7 +1609,7 @@ impl VM {
               if out_of_bounds {
                 vm_error("ReturnDataOutOfBounds");
               } else {
-                copy_bytes_to_memory(self.state.returndata.clone(), x_size.clone(), x_from.clone(), x_to.clone(), self);
+                copy_bytes_to_memory(&self.state.returndata.clone(), &x_size, &x_from, &x_to, self);
               }
             };
 
@@ -1641,13 +1635,7 @@ impl VM {
                   max_num_iterations,
                 );
                 if cond == BranchReachability::ONLYELSE {
-                  copy_bytes_to_memory(
-                    self.state.returndata.clone(),
-                    x_size.clone(),
-                    x_from.clone(),
-                    x_to.clone(),
-                    self,
-                  );
+                  copy_bytes_to_memory(&self.state.returndata.clone(), &x_size, &x_from, &x_to, self);
                 } else {
                   vm_error("ReturnDataOutOfBounds");
                 }
@@ -1775,21 +1763,21 @@ fn freeze_memory(memory: &MutableMemory) -> Expr {
 ///
 /// # Arguments
 ///
-/// * `bs` - A `Box<Expr>` representing the source of bytes to copy.
-/// * `size` - A `Box<Expr>` representing the number of bytes to copy.
-/// * `src_offset` - A `Box<Expr>` representing the offset within the source bytes.
-/// * `mem_offset` - A `Box<Expr>` representing the offset within the VM's memory where bytes will be copied.
+/// * `bs` - A `&Expr` representing the source of bytes to copy.
+/// * `size` - A `&Expr` representing the number of bytes to copy.
+/// * `src_offset` - A `&Expr` representing the offset within the source bytes.
+/// * `mem_offset` - A `&Expr` representing the offset within the VM's memory where bytes will be copied.
 /// * `vm` - A mutable reference to the `VM` where the bytes will be copied.
-fn copy_bytes_to_memory(bs: Box<Expr>, size: Box<Expr>, src_offset: Box<Expr>, mem_offset: Box<Expr>, vm: &mut VM) {
+fn copy_bytes_to_memory(bs: &Expr, size: &Expr, src_offset: &Expr, mem_offset: &Expr, vm: &mut VM) {
   if *size == Expr::Lit(W256(0, 0)) {
     return;
   }
 
   match &vm.state.memory {
     Memory::ConcreteMemory(mem) => {
-      match (*bs.clone(), *size.clone(), *src_offset.clone(), *mem_offset.clone()) {
+      match (bs, size, src_offset, mem_offset) {
         (Expr::ConcreteBuf(b), Expr::Lit(size_val), Expr::Lit(src_offset_val), Expr::Lit(mem_offset_val)) => {
-          let src = if src_offset_val >= (W256(b.len() as u128, 0)) {
+          let src = if src_offset_val >= (&W256(b.len() as u128, 0)) {
             vec![0; size_val.0 as usize]
           } else {
             let mut src_tmp = b[(src_offset_val.0 as usize)..].to_vec();
@@ -1803,12 +1791,12 @@ fn copy_bytes_to_memory(bs: Box<Expr>, size: Box<Expr>, src_offset: Box<Expr>, m
         _ => {
           // Copy out and move to symbolic memory
           let buf = freeze_memory(&mem);
-          vm.state.memory = Memory::SymbolicMemory(copy_slice(src_offset, mem_offset, size, bs, Box::new(buf)))
+          vm.state.memory = Memory::SymbolicMemory(copy_slice(src_offset, mem_offset, size, bs, &(buf)))
         }
       }
     }
     Memory::SymbolicMemory(mem) => {
-      vm.state.memory = Memory::SymbolicMemory(copy_slice(src_offset, mem_offset, size, bs, Box::new(mem.clone())))
+      vm.state.memory = Memory::SymbolicMemory(copy_slice(src_offset, mem_offset, size, bs, &(mem)))
     }
   }
 }
@@ -1983,7 +1971,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) -> bool {
             // Case 1: Returning from a call?
             FrameResult::FrameReturned(output) => {
               vm.state.returndata = Box::new(output.clone());
-              copy_call_bytes_to_memory(vm, Box::new(output), Box::new(size.clone()), Box::new(offset.clone()));
+              copy_call_bytes_to_memory(vm, &(output), &(size), &(offset));
               push(vm, W256(1, 0));
             }
             // Case 2: Reverting during a call?
@@ -1991,7 +1979,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) -> bool {
               vm.env.contracts = callreversion.clone();
               vm.tx.substate = substate.clone();
               vm.state.returndata = Box::new(output.clone());
-              copy_call_bytes_to_memory(vm, Box::new(output.clone()), Box::new(size.clone()), Box::new(offset.clone()));
+              copy_call_bytes_to_memory(vm, &(output), &(size), &(offset));
               push(vm, W256(0, 0));
             }
             // Case 3: Error during a call?
@@ -2234,9 +2222,9 @@ fn access_memory_word(vm: &mut VM, x: Expr, continue_fn: impl Fn()) {
   access_memory_range(vm, x, Expr::Lit(W256(32, 0)), continue_fn);
 }
 
-fn copy_call_bytes_to_memory(vm: &mut VM, bs: Box<Expr>, size: Box<Expr>, y_offset: Box<Expr>) {
-  let size_min = emin(size, Box::new(buf_length(*bs.clone())));
-  copy_bytes_to_memory(bs, Box::new(size_min), Box::new(Expr::Lit(W256(0, 0))), y_offset, vm);
+fn copy_call_bytes_to_memory(vm: &mut VM, bs: &Expr, size: &Expr, y_offset: &Expr) {
+  let size_min = emin(Box::new(size.clone()), Box::new(buf_length(bs.clone())));
+  copy_bytes_to_memory(&bs, &(size_min), &(Expr::Lit(W256(0, 0))), &y_offset, vm);
 }
 
 fn read_memory(vm: &mut VM, offset_: Expr, size_: Expr) -> Expr {
@@ -2269,20 +2257,20 @@ fn read_memory(vm: &mut VM, offset_: Expr, size_: Expr) -> Expr {
       _ => {
         let buf = freeze_memory(mem);
         copy_slice(
-          Box::new(simplify(Box::new(offset_.clone()))),
-          Box::new(Expr::Lit(W256(0, 0))),
-          Box::new(simplify(Box::new(size_))),
-          Box::new(buf),
-          Box::new(Expr::Mempty),
+          &(simplify(Box::new(offset_.clone()))),
+          &(Expr::Lit(W256(0, 0))),
+          &(simplify(Box::new(size_))),
+          &(buf),
+          &(Expr::Mempty),
         )
       }
     },
     Memory::SymbolicMemory(mem) => copy_slice(
-      Box::new(simplify(Box::new(offset_.clone()))),
-      Box::new(Expr::Lit(W256(0, 0))),
-      Box::new(simplify(Box::new(size_))),
-      Box::new(simplify(Box::new(mem.clone()))),
-      Box::new(Expr::Mempty),
+      &(simplify(Box::new(offset_.clone()))),
+      &(Expr::Lit(W256(0, 0))),
+      &(simplify(Box::new(size_))),
+      &(simplify(Box::new(mem.clone()))),
+      &(Expr::Mempty),
     ),
   }
 }
