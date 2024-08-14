@@ -295,7 +295,7 @@ async fn main() {
           if prev_op == "JUMPI" && is_function_sig_check_prop(vm.constraints.clone().last().unwrap()) {
             let (reachability, _) = solve_constraints(vm.state.pc, vm.constraints.clone()).await;
             if !reachability {
-              debug!("Skip non-target function");
+              debug!("Skip non-target function @ PC = 0x{:x}", vm.state.pc);
               continue_flag = false;
             }
           }

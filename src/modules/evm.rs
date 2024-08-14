@@ -1,4 +1,4 @@
-use log::{error, info, warn};
+use log::{error, warn};
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -22,9 +22,10 @@ use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
   from_list, keccak, keccak_prime, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right,
-  word256_bytes, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr,
-  ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory, PartialExec, Prop,
-  RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
+  word256_bytes, Addr, BaseState, Block, BranchDir, BranchReachability, ByteString, Cache, CodeLocation, Contract,
+  ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory,
+  PartialExec, Prop, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult,
+  W256W256Map, VM, W256, W64,
 };
 
 fn initial_gas() -> u64 {
@@ -3189,14 +3190,6 @@ pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, O
   result
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum BranchReachability {
-  ONLYTHEN,
-  ONLYELSE,
-  BOTH,
-  NONE,
-}
-
 /// Branches the execution based on a given condition, creating a new VM state for the alternative path.
 ///
 /// This function creates a branch in the execution, evaluating the provided condition. If the condition
@@ -3221,19 +3214,14 @@ where
   let binding = vm.iterations.clone();
   let itrs_ = binding.get(&loc.clone());
   let mut itr_cnt = 0;
+  let mut prev_dir = BranchDir::NONE;
   if let Some(itrs) = itrs_ {
     itr_cnt = itrs.0 + 1;
-    *vm.iterations.entry(loc.clone()).or_insert((itrs.0, vm.state.stack.clone())) =
-      (itrs.0 + 1, vm.state.stack.clone());
-  } else {
-    *vm.iterations.entry(loc.clone()).or_insert((0, vm.state.stack.clone())) = (0, vm.state.stack.clone());
+    prev_dir = itrs.2.clone();
   }
-
   if itr_cnt >= max_num_iterations as i64 {
     warn!("LOOP DETECTED @ PC=0x{:x}", vm.state.pc);
   }
-
-  let mut new_vm = vm.clone();
 
   let cond_simp = simplify(cond.clone());
   let cond_simp_conc = conc_keccak_simp_expr(Box::new(cond_simp));
@@ -3243,14 +3231,29 @@ where
   // vm.constraints_raw_expr.push(cond.clone());
   vm.constraints.push(Box::new(then_branch_cond));
 
+  let mut new_vm = vm.clone();
   // new_vm.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
   new_vm.constraints.push(Box::new(else_branch_cond));
-  if itr_cnt >= max_num_iterations as i64 {
-    //*new_vm.iterations.entry(loc).or_insert((0, new_vm.state.stack.clone())) = (0, new_vm.state.stack.clone())
-  }
 
-  let branchreachability =
-    if itr_cnt < max_num_iterations as i64 { BranchReachability::BOTH } else { BranchReachability::ONLYELSE };
+  let branchreachability = if itr_cnt < max_num_iterations as i64 {
+    BranchReachability::BOTH
+  } else {
+    if prev_dir == BranchDir::ELSE {
+      BranchReachability::ONLYTHEN
+    } else if prev_dir == BranchDir::THEN {
+      BranchReachability::ONLYELSE
+    } else {
+      panic!("Something wrong happened... Please check max_num_iterations={}", max_num_iterations)
+    }
+  };
+
+  warn!("branchrechability: {:?}", branchreachability);
+
+  *vm.iterations.entry(loc.clone()).or_insert((0, vm.state.stack.clone(), BranchDir::THEN)) =
+    (itr_cnt, vm.state.stack.clone(), BranchDir::THEN);
+  *new_vm.iterations.entry(loc.clone()).or_insert((0, new_vm.state.stack.clone(), BranchDir::ELSE)) =
+    (itr_cnt, new_vm.state.stack.clone(), BranchDir::ELSE);
+
   let _ = continue_fn(branchreachability);
 
   Some(new_vm)
