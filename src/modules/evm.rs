@@ -3234,7 +3234,7 @@ where
   let cond_simp = simplify(cond.clone());
   let cond_simp_conc = conc_keccak_simp_expr(Box::new(cond_simp));
   let then_branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)))));
-  let else_branch_cond = Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)));
+  let else_branch_cond = Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)));
 
   let mut new_vm = vm.clone();
 
@@ -3244,7 +3244,13 @@ where
   new_vm.constraints.push(Box::new(else_branch_cond));
 
   let branchreachability = if itr_cnt < max_num_iterations as i64 {
-    BranchReachability::BOTH
+    if let Expr::Lit(W256(1, 0)) = cond_simp_conc {
+      BranchReachability::ONLYTHEN
+    } else if let Expr::Lit(W256(0, 0)) = cond_simp_conc {
+      BranchReachability::ONLYELSE
+    } else {
+      BranchReachability::BOTH
+    }
   } else {
     if prev_dir == BranchDir::ELSE {
       BranchReachability::ONLYTHEN
