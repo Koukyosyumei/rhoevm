@@ -3220,7 +3220,7 @@ where
     prev_dir = itrs.2.clone();
   }
   if itr_cnt >= max_num_iterations as i64 {
-    warn!("LOOP DETECTED @ PC=0x{:x}", vm.state.pc);
+    warn!("LOOP DETECTED @ PC=0x{:x} (ITR_CNT={}, MAX_NUM_ITERATION={})", vm.state.pc, itr_cnt, max_num_iterations);
   }
 
   let cond_simp = simplify(cond.clone());
@@ -3228,10 +3228,10 @@ where
   let then_branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)))));
   let else_branch_cond = Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)));
 
+  let mut new_vm = vm.clone();
+
   // vm.constraints_raw_expr.push(cond.clone());
   vm.constraints.push(Box::new(then_branch_cond));
-
-  let mut new_vm = vm.clone();
   // new_vm.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
   new_vm.constraints.push(Box::new(else_branch_cond));
 
@@ -3246,8 +3246,6 @@ where
       panic!("Something wrong happened... Please check max_num_iterations={}", max_num_iterations)
     }
   };
-
-  warn!("branchrechability: {:?}", branchreachability);
 
   *vm.iterations.entry(loc.clone()).or_insert((0, vm.state.stack.clone(), BranchDir::THEN)) =
     (itr_cnt, vm.state.stack.clone(), BranchDir::THEN);
