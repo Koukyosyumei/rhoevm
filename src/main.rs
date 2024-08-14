@@ -203,6 +203,14 @@ async fn main() {
     }
   }
 
+  let pattern_push0_calldataload_push0_e0_shr_dup1_push4 = "5f3560e01c8063";
+  let skip_to_calldataload = true;
+  let target_binary = if let Some(index) = binary.find(pattern_push0_calldataload_push0_e0_shr_dup1_push4) {
+    binary[index..].to_string()
+  } else {
+    binary.clone()
+  };
+
   // ------------- MAIN PART: May rhoevm light your path to bug-free code -------------
   let start_time = time::Instant::now();
   for function_signature in &normalized_function_names_vec {
@@ -214,7 +222,7 @@ async fn main() {
     let mut cmd = <SymbolicCommand as std::default::Default>::default();
     cmd.sig = Some(Sig::new(&function_signature, &abi_map[&fname]));
     cmd.value = Some(W256(0, 0));
-    cmd.code = Some(binary.clone().into());
+    cmd.code = Some(target_binary.clone().into()); // Some(binary.clone().into());
     let callcode = match build_calldata(&cmd, num_known_variables) {
       Ok(calldata) => calldata,
       Err(e) => {
@@ -258,7 +266,7 @@ async fn main() {
 
       let mut vms = vec![];
       let mut end = false;
-      let mut found_calldataload = false;
+      let mut found_calldataload = false || skip_to_calldataload;
       let mut prev_valid_op = "".to_string();
 
       let mut potential_envs: Vec<(usize, Vec<Box<Prop>>, Env)> = vec![];

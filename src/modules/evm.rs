@@ -705,6 +705,14 @@ impl VM {
             // self.state.stack = xs.to_vec();
             burn_codecopy(self, *n.clone(), self.block.schedule.clone(), || {});
             access_memory_range(self, &mem_offset, &n, || {});
+
+            /*
+            warn!("code offset {}", code_offset);
+            if let Expr::Lit(co) = simplify(code_offset.clone()) {
+              self.state.pc = co.0 as usize;
+            }
+            */
+
             if let Some(b) = to_buf(&self.state.code) {
               copy_bytes_to_memory(
                 &b,
