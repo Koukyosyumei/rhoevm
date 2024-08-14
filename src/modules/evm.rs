@@ -1846,7 +1846,7 @@ fn execute_precompile(
       vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
       vm.state.returndata = Box::new(hash.clone());
       copy_bytes_to_memory(&hash, out_size, &Expr::Lit(W256(0, 0)), out_offset, vm);
-      // next(vm, op)
+      next(vm, 0x00)
     }
     W256(0x3, 0) => {
       force_concrete_buf(vm, &input, "RIPEMD160", |input| input_prime = input);
@@ -1857,14 +1857,14 @@ fn execute_precompile(
       vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
       vm.state.returndata = Box::new(hash.clone());
       copy_bytes_to_memory(&hash, out_size, &Expr::Lit(W256(0, 0)), out_offset, vm);
-      // next(vm, op)
+      next(vm, 0x00)
     }
     W256(0x4, 0) => {
       vm.state.stack = xs;
       vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
       vm.state.returndata = Box::new(input.clone());
       copy_call_bytes_to_memory(vm, &input, out_size, out_offset);
-      // next(vm, op)
+      next(vm, 0x00)
     }
     W256(0x5, 0) => {
       force_concrete_buf(vm, &input, "MODEXP", |input| input_prime = input);
