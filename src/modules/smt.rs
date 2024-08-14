@@ -1621,7 +1621,7 @@ fn smt2_line(txt: Builder) -> SMT2 {
   SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
 }
 
-fn is_abstract_store(e: Expr) -> bool {
+fn is_abstract_store(e: &Expr) -> bool {
   match e {
     Expr::AbstractStore(_, _) => true,
     _ => false,
@@ -1633,9 +1633,9 @@ fn find_storage_reads(p: &Prop) -> HashMap<(Expr, Option<W256>), HashSet<Expr>> 
   fn f(expr: &Expr) -> AddableVec<((Expr, Option<W256>), HashSet<Expr>)> {
     match expr {
       Expr::SLoad(slot, store) => {
-        if contains_node(|e: &Expr| is_abstract_store(e.clone()), store.clone()) {
-          let addr = get_addr(store.clone()).unwrap_or_else(|| panic!("could not extract address from store"));
-          let idx = get_logical_idx(store.clone());
+        if contains_node(|e: &Expr| is_abstract_store(&e), store.clone()) {
+          let addr = get_addr(&store).unwrap_or_else(|| panic!("could not extract address from store"));
+          let idx = get_logical_idx(store);
           let hs = HashSet::from([*slot.clone()]);
           AddableVec::from_vec(vec![((addr, idx), hs)])
         } else {

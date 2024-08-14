@@ -1755,20 +1755,20 @@ pub fn concrete_prefix(b: &Expr) -> Vec<u8> {
   result.1
 }
 
-pub fn get_addr(e: Box<Expr>) -> Option<Expr> {
-  match *e {
-    Expr::SStore(_, _, p) => get_addr(p),
-    Expr::AbstractStore(a, _) => Some(*a),
+pub fn get_addr(e: &Expr) -> Option<Expr> {
+  match e {
+    Expr::SStore(_, _, p) => get_addr(&p),
+    Expr::AbstractStore(a, _) => Some(*a.clone()),
     Expr::ConcreteStore(_) => None,
     Expr::GVar(_) => panic!("cannot determine addr of a GVar"),
     _ => panic!("unexpected expression: {}", e),
   }
 }
 
-pub fn get_logical_idx(e: Box<Expr>) -> Option<W256> {
-  match *e {
-    Expr::SStore(_, _, p) => get_logical_idx(p),
-    Expr::AbstractStore(_, idx) => idx,
+pub fn get_logical_idx(e: &Expr) -> Option<W256> {
+  match e {
+    Expr::SStore(_, _, p) => get_logical_idx(&p),
+    Expr::AbstractStore(_, idx) => idx.clone(),
     Expr::ConcreteStore(_) => None,
     Expr::GVar(_) => panic!("cannot determine addr of a GVar"),
     _ => panic!("unexpected expression: {}", e),
