@@ -270,7 +270,7 @@ pub fn mk_calldata(sig: Option<&Sig>, concrete_args: &[String], offset: usize) -
     }
     None => (
       Expr::AbstractBuf("txdata".to_string()),
-      vec![Box::new(Prop::PLEq(buf_length(Expr::AbstractBuf("txdata".to_string())), Expr::Lit(W256(2 ^ 64, 0))))],
+      vec![Box::new(Prop::PLEq(buf_length(&Expr::AbstractBuf("txdata".to_string())), Expr::Lit(W256(2 ^ 64, 0))))],
     ),
   }
 }

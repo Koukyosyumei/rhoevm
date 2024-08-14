@@ -788,14 +788,14 @@ fn assert_read(read: (Expr, Expr, Expr)) -> Vec<Prop> {
   match size {
     Expr::Lit(sz) if sz == W256(32, 0) => {
       vec![Prop::PImpl(
-        Box::new(Prop::PGEq(idx.clone(), buf_length(buf.clone()))),
+        Box::new(Prop::PGEq(idx.clone(), buf_length(&buf))),
         Box::new(Prop::PEq(Expr::ReadWord(Box::new(idx), Box::new(buf)), Expr::Lit(W256(0, 0)))),
       )]
     }
     Expr::Lit(sz) => (0..(sz.0 as usize))
       .map(|i| {
         Prop::PImpl(
-          Box::new(Prop::PGEq(idx.clone(), buf_length(buf.clone()))),
+          Box::new(Prop::PGEq(idx.clone(), buf_length(&buf))),
           Box::new(Prop::PEq(Expr::ReadByte(Box::new(idx.clone()), Box::new(buf.clone())), Expr::LitByte(i as u8))),
         )
       })
@@ -831,11 +831,15 @@ fn create_read_assumptions(ps_elim: &Vec<Box<Prop>>, bufs: &BufEnv, stores: &Sto
   result
 }
 
-pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> SMT2 {
+pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> Option<SMT2> {
   let simplified_ps = decompose(simplify_props(ps_pre_conc.clone()), config);
 
+  if (&simplified_ps).into_iter().any(|p| **p == Prop::PBool(false)) {
+    return None;
+  }
+
   let ps = conc_keccak_props(simplified_ps);
-  let (ps_elim, bufs, stores) = eliminate_props(ps.clone());
+  let (ps_elim, bufs, stores) = eliminate_props(&ps);
   let (ps_elim_abst, ref abst @ AbstState { words: ref abst_expr_to_int, count: _ }) =
     if config.abst_refine_arith || config.abst_refine_mem {
       abstract_away_props(config, ps_elim.clone())
@@ -941,22 +945,24 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> SMT2 {
     CexVars::new(),
     vec![],
   );
-  smt2
-    + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![]))
-    + (SMT2(
-      vec![],
-      RefinementEqs::new(),
-      CexVars {
-        store_reads: storage_reads,
-        calldata: vec![],
-        addrs: vec![],
-        buffers: HashMap::new(),
-        block_context: vec![],
-        tx_context: vec![],
-      },
-      vec![],
-    ))
-    + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), ps_pre_conc))
+  Some(
+    smt2
+      + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![]))
+      + (SMT2(
+        vec![],
+        RefinementEqs::new(),
+        CexVars {
+          store_reads: storage_reads,
+          calldata: vec![],
+          addrs: vec![],
+          buffers: HashMap::new(),
+          block_context: vec![],
+          tx_context: vec![],
+        },
+        vec![],
+      ))
+      + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), ps_pre_conc)),
+  )
 }
 
 fn expr_to_smt(expr: Expr) -> String {
@@ -1104,7 +1110,7 @@ fn expr_to_smt(expr: Expr) -> String {
     Expr::BufLength(b) => match *b {
       Expr::AbstractBuf(ab) => format!("{}_length", ab),
       Expr::GVar(GVar::BufVar(n)) => format!("buf{}_length", n),
-      _ => expr_to_smt(buf_length(*b)),
+      _ => expr_to_smt(buf_length(&b)),
     },
     Expr::WriteByte(idx, val, prev) => {
       let enc_idx = expr_to_smt(*idx);
@@ -1615,7 +1621,7 @@ fn smt2_line(txt: Builder) -> SMT2 {
   SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
 }
 
-fn is_abstract_store(e: Expr) -> bool {
+fn is_abstract_store(e: &Expr) -> bool {
   match e {
     Expr::AbstractStore(_, _) => true,
     _ => false,
@@ -1627,9 +1633,9 @@ fn find_storage_reads(p: &Prop) -> HashMap<(Expr, Option<W256>), HashSet<Expr>> 
   fn f(expr: &Expr) -> AddableVec<((Expr, Option<W256>), HashSet<Expr>)> {
     match expr {
       Expr::SLoad(slot, store) => {
-        if contains_node(|e: &Expr| is_abstract_store(e.clone()), store.clone()) {
-          let addr = get_addr(store.clone()).unwrap_or_else(|| panic!("could not extract address from store"));
-          let idx = get_logical_idx(store.clone());
+        if contains_node(|e: &Expr| is_abstract_store(&e), store.clone()) {
+          let addr = get_addr(&store).unwrap_or_else(|| panic!("could not extract address from store"));
+          let idx = get_logical_idx(store);
           let hs = HashSet::from([*slot.clone()]);
           AddableVec::from_vec(vec![((addr, idx), hs)])
         } else {

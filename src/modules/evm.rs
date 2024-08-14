@@ -1,4 +1,6 @@
 use log::{error, warn};
+use ripemd::Ripemd160;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -20,9 +22,10 @@ use crate::modules::op::{get_op, op_size, op_string, Op};
 use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
   from_list, keccak, keccak_prime, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right,
-  word256_bytes, Addr, BaseState, Block, ByteString, Cache, CodeLocation, Contract, ContractCode, Env, EvmError, Expr,
-  ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory, PartialExec, Prop,
-  RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult, W256W256Map, VM, W256, W64,
+  word256_bytes, Addr, BaseState, Block, BranchDir, BranchReachability, ByteString, Cache, CodeLocation, Contract,
+  ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory,
+  PartialExec, Prop, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult,
+  W256W256Map, VM, W256, W64,
 };
 
 fn initial_gas() -> u64 {
@@ -373,7 +376,7 @@ impl VM {
     if is_precompile(&self_contract) {
       if let Some(lit_self) = maybe_lit_addr(*self_contract) {
         // call to precompile
-        let calldatasize = buf_length(*self.state.calldata.clone());
+        let calldatasize = buf_length(&self.state.calldata);
         copy_bytes_to_memory(
           &self.state.calldata.clone(),
           &(calldatasize.clone()),
@@ -382,12 +385,13 @@ impl VM {
           self,
         );
         execute_precompile(
-          lit_self,
+          self,
+          &lit_self,
           self.state.gas.clone(),
-          Expr::Lit(W256(0, 0)),
-          calldatasize,
-          Expr::Lit(W256(0, 0)),
-          Expr::Lit(W256(0, 0)),
+          &Expr::Lit(W256(0, 0)),
+          &calldatasize,
+          &Expr::Lit(W256(0, 0)),
+          &Expr::Lit(W256(0, 0)),
           vec![],
         );
         match self.state.stack.last() {
@@ -657,7 +661,7 @@ impl VM {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
             next(self, op);
-            push_sym(self, Box::new(buf_length(*self.state.calldata.clone())));
+            push_sym(self, Box::new(buf_length(&self.state.calldata)));
           });
           true
         }
@@ -701,6 +705,14 @@ impl VM {
             // self.state.stack = xs.to_vec();
             burn_codecopy(self, *n.clone(), self.block.schedule.clone(), || {});
             access_memory_range(self, &mem_offset, &n, || {});
+
+            /*
+            warn!("code offset {}", code_offset);
+            if let Expr::Lit(co) = simplify(code_offset.clone()) {
+              self.state.pc = co.0 as usize;
+            }
+            */
+
             if let Some(b) = to_buf(&self.state.code) {
               copy_bytes_to_memory(
                 &b,
@@ -753,7 +765,7 @@ impl VM {
               next(self, op);
               self.state.stack = xs.to_vec();
               if let Some(b) = &c.bytecode() {
-                push_sym(self, Box::new(buf_length(b.clone())));
+                push_sym(self, Box::new(buf_length(b)));
               } else {
                 push_sym(self, Box::new(Expr::CodeSize(Box::new(a.clone()))));
               }
@@ -1328,7 +1340,7 @@ impl VM {
           if let [.., x_size, x_offset] = &self.state.stack.clone()[..] {
             access_memory_range(self, &x_offset, &x_size, || {});
             let output = read_memory(self, &x_offset, &x_size);
-            let codesize = maybe_lit_word(buf_length(output.clone())).unwrap().0 as u32;
+            let codesize = maybe_lit_word(buf_length(&output)).unwrap().0 as u32;
             let maxsize = self.block.max_code_size.0 as u32;
             let creation = if self.frames.len() == 0 {
               self.tx.is_create
@@ -1593,7 +1605,7 @@ impl VM {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
             next(self, op);
-            push_sym(self, Box::new(buf_length(*self.state.returndata.clone())));
+            push_sym(self, Box::new(buf_length(&self.state.returndata)));
           });
           true
         }
@@ -1613,13 +1625,13 @@ impl VM {
               }
             };
 
-            match (*x_from.clone(), buf_length(*sr.clone()), *x_size.clone()) {
+            match (*x_from.clone(), buf_length(&sr), *x_size.clone()) {
               (Expr::Lit(f), Expr::Lit(l), Expr::Lit(sz)) => {
                 jump(l < f.clone() + sz.clone() || f.clone() + sz < f);
               }
               _ => {
                 let oob = Expr::LT(
-                  Box::new(buf_length(*sr)),
+                  Box::new(buf_length(&sr)),
                   Box::new(Expr::Add(Box::new(*x_from.clone()), Box::new(*x_size.clone()))),
                 );
                 let overflow = Expr::LT(
@@ -1809,23 +1821,82 @@ fn copy_bytes_to_memory(bs: &Expr, size: &Expr, src_offset: &Expr, mem_offset: &
 ///
 /// # Arguments
 ///
-/// * `_pre_compile_addr` - The address of the precompiled contract to execute.
+/// * `vm` - A mutable reference to the `VM` from which to fetch the account.
+/// * `pre_compile_addr` - The address of the precompiled contract to execute.
 /// * `_gas` - The amount of gas available for execution.
-/// * `_in_offset` - The offset in memory for the input data.
-/// * `_in_size` - The size of the input data.
-/// * `_out_offset` - The offset in memory for the output data.
-/// * `_out_size` - The size of the output data.
-/// * `_xs` - A vector of additional expressions representing input parameters.
+/// * `in_offset` - The offset in memory for the input data.
+/// * `in_size` - The size of the input data.
+/// * `out_offset` - The offset in memory for the output data.
+/// * `out_size` - The size of the output data.
+/// * `xs` - A vector of additional expressions representing input parameters.
 fn execute_precompile(
-  _pre_compile_addr: Addr,
+  vm: &mut VM,
+  pre_compile_addr: &Addr,
   _gas: Gas,
-  _in_offset: Expr,
-  _in_size: Expr,
-  _out_offset: Expr,
-  _out_size: Expr,
-  _xs: Vec<Expr>,
+  in_offset: &Expr,
+  in_size: &Expr,
+  out_offset: &Expr,
+  out_size: &Expr,
+  xs: Vec<Box<Expr>>,
 ) {
-  // Implement precompile logic
+  let input = read_memory(vm, in_offset, in_size);
+  let mut input_prime: Vec<u8> = vec![];
+  match pre_compile_addr {
+    W256(0x1, 0) => {
+      force_concrete_buf(vm, &input, "ECRECOVER", |input| input_prime = input);
+      todo!()
+    }
+    W256(0x2, 0) => {
+      force_concrete_buf(vm, &input, "SHA2-256", |input| input_prime = input);
+      let mut hasher = Sha256::new();
+      hasher.update(input_prime);
+      let hash = Expr::ConcreteBuf(hasher.finalize().to_vec());
+      vm.state.stack = xs;
+      vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+      vm.state.returndata = Box::new(hash.clone());
+      copy_bytes_to_memory(&hash, out_size, &Expr::Lit(W256(0, 0)), out_offset, vm);
+      next(vm, 0x00)
+    }
+    W256(0x3, 0) => {
+      force_concrete_buf(vm, &input, "RIPEMD160", |input| input_prime = input);
+      let mut hasher = Ripemd160::new();
+      hasher.update(input_prime);
+      let hash = Expr::ConcreteBuf(hasher.finalize().to_vec());
+      vm.state.stack = xs;
+      vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+      vm.state.returndata = Box::new(hash.clone());
+      copy_bytes_to_memory(&hash, out_size, &Expr::Lit(W256(0, 0)), out_offset, vm);
+      next(vm, 0x00)
+    }
+    W256(0x4, 0) => {
+      vm.state.stack = xs;
+      vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+      vm.state.returndata = Box::new(input.clone());
+      copy_call_bytes_to_memory(vm, &input, out_size, out_offset);
+      next(vm, 0x00)
+    }
+    W256(0x5, 0) => {
+      force_concrete_buf(vm, &input, "MODEXP", |input| input_prime = input);
+      todo!()
+    }
+    W256(0x6, 0) => {
+      force_concrete_buf(vm, &input, "ECADD", |input| input_prime = input);
+      todo!()
+    }
+    W256(0x7, 0) => {
+      force_concrete_buf(vm, &input, "ECMUL", |input| input_prime = input);
+      todo!()
+    }
+    W256(0x8, 0) => {
+      force_concrete_buf(vm, &input, "ECPAIR", |input| input_prime = input);
+      todo!()
+    }
+    W256(0x9, 0) => {
+      force_concrete_buf(vm, &input, "BLAKE2", |input| input_prime = input);
+      todo!()
+    }
+    _ => todo!(),
+  }
 }
 
 /// Fetches an account from the virtual machine's environment and applies a function to it.
@@ -2103,6 +2174,7 @@ fn burn_sha3<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule, f: F
 }*/
 
 fn burn_codecopy<F: FnOnce()>(vm: &mut VM, n: Expr, schedule: FeeSchedule, f: F) {
+  /*
   let max_word64 = u64::MAX;
   let cost = match n {
     Expr::Lit(c) => {
@@ -2112,8 +2184,10 @@ fn burn_codecopy<F: FnOnce()>(vm: &mut VM, n: Expr, schedule: FeeSchedule, f: F)
         panic!("overflow")
       }
     }
-    _ => panic!("illegal expression"),
+    _ => panic!("illegal expression: {}", n),
   };
+  */
+  let cost = 0;
   burn(vm, cost, f)
 }
 
@@ -2124,7 +2198,7 @@ fn ceil_div(x: u64, y: u64) -> u64 {
 fn burn_calldatacopy<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule, f: F) {
   let cost = match x_size {
     Expr::Lit(c) => schedule.g_verylow + schedule.g_copy * ceil_div(c.0 as u64, 32),
-    _ => panic!("illegal expression"),
+    _ => panic!("illegal expression: {}", x_size),
   };
   burn(vm, cost, f)
 }
@@ -2132,7 +2206,7 @@ fn burn_calldatacopy<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedu
 fn burn_extcodecopy<F: FnOnce()>(vm: &mut VM, ext_account: Expr, code_size: Expr, schedule: FeeSchedule, f: F) {
   let ceiled_c = match code_size {
     Expr::Lit(c) => ceil_div(c.0 as u64, 32),
-    _ => panic!("illegal expression"),
+    _ => panic!("illegal expression {}", code_size),
   };
 
   let cost = match ext_account {
@@ -2223,7 +2297,7 @@ fn access_memory_word(vm: &mut VM, x: &Expr, continue_fn: impl Fn()) {
 }
 
 fn copy_call_bytes_to_memory(vm: &mut VM, bs: &Expr, size: &Expr, y_offset: &Expr) {
-  let size_min = emin(Box::new(size.clone()), Box::new(buf_length(bs.clone())));
+  let size_min = emin(Box::new(size.clone()), Box::new(buf_length(bs)));
   copy_bytes_to_memory(&bs, &(size_min), &(Expr::Lit(W256(0, 0))), &y_offset, vm);
 }
 
@@ -2473,7 +2547,7 @@ fn codelen(cc: &ContractCode) -> Expr {
   match cc {
     ContractCode::UnKnownCode(a) => Expr::CodeSize(a.clone()),
     ContractCode::InitCode(_, _) => match to_buf(cc) {
-      Some(b) => buf_length(b),
+      Some(b) => buf_length(&b),
       None => panic!("impossible"),
     },
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(ops)) => Expr::Lit(W256(ops.len() as u128, 0)),
@@ -2772,7 +2846,7 @@ fn create(
       {
         let mut else_vm = else_vm_.unwrap();
         burn(&mut else_vm, 0, || {});
-        match parse_init_code(init_code.clone()) {
+        match parse_init_code(&init_code) {
           None => {
             next(&mut else_vm, op);
             else_vm.result = Some(VMResult::Unfinished(PartialExec::UnexpectedSymbolicArg {
@@ -3086,7 +3160,10 @@ pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, O
   let result = task::spawn_blocking(move || {
     let config = Config::default();
     let smt2 = assert_props(&config, pathconds.to_vec());
-    let content = format_smt2(&smt2) + "\n\n(check-sat)\n(get-model)";
+    if smt2.is_none() {
+      return (false, None);
+    }
+    let content = format_smt2(&smt2.unwrap()) + "\n\n(check-sat)\n(get-model)";
 
     let mut hasher = DefaultHasher::new();
     let mut pathconds_str: Vec<String> = pathconds.into_iter().map(|p| format!("{}", format_prop(&p))).collect();
@@ -3124,14 +3201,6 @@ pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, O
   result
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum BranchReachability {
-  ONLYTHEN,
-  ONLYELSE,
-  BOTH,
-  NONE,
-}
-
 /// Branches the execution based on a given condition, creating a new VM state for the alternative path.
 ///
 /// This function creates a branch in the execution, evaluating the provided condition. If the condition
@@ -3156,36 +3225,50 @@ where
   let binding = vm.iterations.clone();
   let itrs_ = binding.get(&loc.clone());
   let mut itr_cnt = 0;
+  let mut prev_dir = BranchDir::NONE;
   if let Some(itrs) = itrs_ {
     itr_cnt = itrs.0 + 1;
-    *vm.iterations.entry(loc.clone()).or_insert((itrs.0, vm.state.stack.clone())) =
-      (itrs.0 + 1, vm.state.stack.clone());
-  } else {
-    *vm.iterations.entry(loc.clone()).or_insert((0, vm.state.stack.clone())) = (0, vm.state.stack.clone());
+    prev_dir = itrs.2.clone();
   }
-
   if itr_cnt >= max_num_iterations as i64 {
-    warn!("LOOP DETECTED @ PC=0x{}", vm.state.pc);
+    warn!("LOOP DETECTED @ PC=0x{:x} (ITR_CNT={}, MAX_NUM_ITERATION={})", vm.state.pc, itr_cnt, max_num_iterations);
   }
-
-  let mut new_vm = vm.clone();
 
   let cond_simp = simplify(cond.clone());
   let cond_simp_conc = conc_keccak_simp_expr(Box::new(cond_simp));
   let then_branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)))));
-  let else_branch_cond = Prop::PEq(cond_simp_conc, Expr::Lit(W256(0, 0)));
+  let else_branch_cond = Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)));
+
+  let mut new_vm = vm.clone();
 
   // vm.constraints_raw_expr.push(cond.clone());
   vm.constraints.push(Box::new(then_branch_cond));
-
   // new_vm.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
   new_vm.constraints.push(Box::new(else_branch_cond));
-  if itr_cnt >= max_num_iterations as i64 {
-    //*new_vm.iterations.entry(loc).or_insert((0, new_vm.state.stack.clone())) = (0, new_vm.state.stack.clone())
-  }
 
-  let branchreachability =
-    if itr_cnt < max_num_iterations as i64 { BranchReachability::BOTH } else { BranchReachability::ONLYELSE };
+  let branchreachability = if itr_cnt < max_num_iterations as i64 {
+    if let Expr::Lit(W256(1, 0)) = cond_simp_conc {
+      BranchReachability::ONLYTHEN
+    } else if let Expr::Lit(W256(0, 0)) = cond_simp_conc {
+      BranchReachability::ONLYELSE
+    } else {
+      BranchReachability::BOTH
+    }
+  } else {
+    if prev_dir == BranchDir::ELSE {
+      BranchReachability::ONLYTHEN
+    } else if prev_dir == BranchDir::THEN {
+      BranchReachability::ONLYELSE
+    } else {
+      panic!("Something wrong happened... Please check max_num_iterations={}", max_num_iterations)
+    }
+  };
+
+  *vm.iterations.entry(loc.clone()).or_insert((0, vm.state.stack.clone(), BranchDir::THEN)) =
+    (itr_cnt, vm.state.stack.clone(), BranchDir::THEN);
+  *new_vm.iterations.entry(loc.clone()).or_insert((0, new_vm.state.stack.clone(), BranchDir::ELSE)) =
+    (itr_cnt, new_vm.state.stack.clone(), BranchDir::ELSE);
+
   let _ = continue_fn(branchreachability);
 
   Some(new_vm)
@@ -3292,20 +3375,20 @@ fn cheat_code() -> Expr {
 ///
 /// # Arguments
 ///
-/// * `buf` - The buffer containing the initialization code to be parsed.
+/// * `buf` - A reference to the buffer containing the initialization code to be parsed.
 ///
 /// # Returns
 ///
 /// * `Option<ContractCode>` - The parsed initialization code, or `None` if parsing fails.
-fn parse_init_code(buf: Expr) -> Option<ContractCode> {
+fn parse_init_code(buf: &Expr) -> Option<ContractCode> {
   match buf {
     Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(Box::new(b.to_vec()), Box::new(Expr::Mempty))),
     _ => {
-      let conc = concrete_prefix(Box::new(buf.clone()));
+      let conc = concrete_prefix(buf);
       if conc.is_empty() {
         None
       } else {
-        let sym = drop(W256(conc.len() as u128, 0), Box::new(buf));
+        let sym = drop(W256(conc.len() as u128, 0), buf);
         Some(ContractCode::InitCode(Box::new(conc), Box::new(sym)))
       }
     }

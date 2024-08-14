@@ -1268,6 +1268,20 @@ pub struct TreePos<T> {
   pub current: Tree<T>,
   pub path: Vec<usize>, // Path from root to current node
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BranchReachability {
+  ONLYTHEN,
+  ONLYELSE,
+  BOTH,
+  NONE,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BranchDir {
+  NONE,
+  THEN,
+  ELSE,
+}
 
 #[derive(Clone)]
 pub struct VM {
@@ -1283,7 +1297,7 @@ pub struct VM {
   pub burned: Gas,
   pub constraints: Vec<Box<Prop>>,
   pub config: RuntimeConfig,
-  pub iterations: HashMap<CodeLocation, (i64, Vec<Box<Expr>>)>,
+  pub iterations: HashMap<CodeLocation, (i64, Vec<Box<Expr>>, BranchDir)>,
   pub forks: Vec<ForkState>,
   pub current_fork: i32,
   pub labels: HashMap<Addr, String>,
