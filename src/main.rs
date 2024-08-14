@@ -203,13 +203,15 @@ async fn main() {
     }
   }
 
-  let pattern_push0_calldataload_push0_e0_shr_dup1_push4 = "5f3560e01c8063";
-  let skip_to_calldataload = true;
-  let target_binary = if let Some(index) = binary.find(pattern_push0_calldataload_push0_e0_shr_dup1_push4) {
-    binary[index..].to_string()
-  } else {
-    binary.clone()
-  };
+  let pattern_push0_codecopy_push0_return_invalid_push1_0x80_push1_0x40 = "5f395ff3fe60806040";
+  let skip_to_runtimecode = true;
+  let target_binary =
+    if let Some(index) = binary.find(pattern_push0_codecopy_push0_return_invalid_push1_0x80_push1_0x40) {
+      info!("binary {}", binary[index..index + 10].to_string());
+      binary[index + 10..].to_string()
+    } else {
+      binary.clone()
+    };
 
   // ------------- MAIN PART: May rhoevm light your path to bug-free code -------------
   let start_time = time::Instant::now();
@@ -266,7 +268,7 @@ async fn main() {
 
       let mut vms = vec![];
       let mut end = false;
-      let mut found_calldataload = false || skip_to_calldataload;
+      let mut found_calldataload = false || skip_to_runtimecode;
       let mut prev_valid_op = "".to_string();
 
       let mut potential_envs: Vec<(usize, Vec<Box<Prop>>, Env)> = vec![];
