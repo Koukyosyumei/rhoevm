@@ -186,8 +186,8 @@ fn test_vm_jumpi_onlyelse() {
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // PUSH 0x40 (0x60 0x40)
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // EQ        (0x14)
   vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // PUSH 09   (0x60 0x09)
-  vm.exec1(&mut vms, MAX_NUM_ITERATIONS); // JUMPI     (0x57)
-  assert_eq!(vm.state.pc, 9);
+  assert!(!vm.exec1(&mut vms, MAX_NUM_ITERATIONS)); // JUMPI     (0x57)
+                                                    // assert_eq!(vm.state.pc, 9);
   assert_eq!(vms.len(), 1);
   assert_eq!(vms[0].state.pc, 8);
 }
