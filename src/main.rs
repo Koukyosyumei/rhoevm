@@ -24,6 +24,7 @@ struct Args {
   function_signatures: String,
   max_num_iterations: Option<u32>,
   verbose_level: Option<String>,
+  execute_entire_binary: bool,
 }
 
 fn print_usage(program: &str, opts: &Options) {
@@ -39,9 +40,14 @@ fn parse_args() -> Args {
   let program = args[0].clone();
 
   let mut opts = Options::new();
-  opts.optopt("i", "max_num_iterations", "maximum number of iterations for loop", "MAX_NUM_ITER");
-  opts.optopt("v", "verbose", "level of verbose", "LEVEL");
-  opts.optflag("h", "help", "print this help menu");
+  opts.optopt("i", "max_num_iterations", "Maximum number of iterations for loop", "MAX_NUM_ITER");
+  opts.optopt("v", "verbose", "Level of verbose", "LEVEL");
+  opts.optflag(
+    "e",
+    "execute_entire_binary",
+    "Execute the entire binary code. If not set, forcibly skip to the runtime code",
+  );
+  opts.optflag("h", "help", "Print this help menu");
 
   let matches = match opts.parse(&args[1..]) {
     Ok(m) => m,
@@ -77,7 +83,9 @@ fn parse_args() -> Args {
   };
   let verbose_level = matches.opt_str("v");
 
-  Args { bin_file_path, function_signatures, max_num_iterations, verbose_level }
+  let execute_entire_binary = matches.opt_present("e");
+
+  Args { bin_file_path, function_signatures, max_num_iterations, verbose_level, execute_entire_binary }
 }
 
 fn print_ascii_art() {
@@ -204,14 +212,17 @@ async fn main() {
   }
 
   let pattern_push0_codecopy_push0_return_invalid_push1_0x80_push1_0x40 = "5f395ff3fe60806040";
-  let skip_to_runtimecode = true;
-  let target_binary =
+  let skip_to_runtimecode = !args.execute_entire_binary;
+  let target_binary = if skip_to_runtimecode {
     if let Some(index) = binary.find(pattern_push0_codecopy_push0_return_invalid_push1_0x80_push1_0x40) {
       info!("binary {}", binary[index..index + 10].to_string());
       binary[index + 10..].to_string()
     } else {
       binary.clone()
-    };
+    }
+  } else {
+    binary.clone()
+  };
 
   // ------------- MAIN PART: May rhoevm light your path to bug-free code -------------
   let start_time = time::Instant::now();
