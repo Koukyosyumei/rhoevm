@@ -831,8 +831,12 @@ fn create_read_assumptions(ps_elim: &Vec<Box<Prop>>, bufs: &BufEnv, stores: &Sto
   result
 }
 
-pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> SMT2 {
+pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> Option<SMT2> {
   let simplified_ps = decompose(simplify_props(ps_pre_conc.clone()), config);
+
+  if (&simplified_ps).into_iter().any(|p| **p == Prop::PBool(false)) {
+    return None;
+  }
 
   let ps = conc_keccak_props(simplified_ps);
   let (ps_elim, bufs, stores) = eliminate_props(&ps);
@@ -941,22 +945,24 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> SMT2 {
     CexVars::new(),
     vec![],
   );
-  smt2
-    + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![]))
-    + (SMT2(
-      vec![],
-      RefinementEqs::new(),
-      CexVars {
-        store_reads: storage_reads,
-        calldata: vec![],
-        addrs: vec![],
-        buffers: HashMap::new(),
-        block_context: vec![],
-        tx_context: vec![],
-      },
-      vec![],
-    ))
-    + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), ps_pre_conc))
+  Some(
+    smt2
+      + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), vec![]))
+      + (SMT2(
+        vec![],
+        RefinementEqs::new(),
+        CexVars {
+          store_reads: storage_reads,
+          calldata: vec![],
+          addrs: vec![],
+          buffers: HashMap::new(),
+          block_context: vec![],
+          tx_context: vec![],
+        },
+        vec![],
+      ))
+      + (SMT2(vec![], RefinementEqs::new(), CexVars::new(), ps_pre_conc)),
+  )
 }
 
 fn expr_to_smt(expr: Expr) -> String {

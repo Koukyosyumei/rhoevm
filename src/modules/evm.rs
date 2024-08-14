@@ -3160,7 +3160,10 @@ pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, O
   let result = task::spawn_blocking(move || {
     let config = Config::default();
     let smt2 = assert_props(&config, pathconds.to_vec());
-    let content = format_smt2(&smt2) + "\n\n(check-sat)\n(get-model)";
+    if smt2.is_none() {
+      return (false, None);
+    }
+    let content = format_smt2(&smt2.unwrap()) + "\n\n(check-sat)\n(get-model)";
 
     let mut hasher = DefaultHasher::new();
     let mut pathconds_str: Vec<String> = pathconds.into_iter().map(|p| format!("{}", format_prop(&p))).collect();
