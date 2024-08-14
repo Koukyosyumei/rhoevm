@@ -8,14 +8,14 @@ extern "C" {
   /// # Safety
   /// This function interacts directly with the underlying C library and should be
   /// used with caution. Ensure that the context is properly freed after use.
-  fn ethjet_init() -> *mut c_void;
+  pub fn ethjet_init() -> *mut c_void;
 
   /// Frees the Ethjet context in the C library.
   ///
   /// # Safety
   /// This function must only be called with a valid, non-null pointer returned by
   /// `ethjet_init`.
-  fn ethjet_free(context: *mut c_void);
+  pub fn ethjet_free(context: *mut c_void);
 
   /// Executes an operation using the Ethjet context in the C library.
   ///
@@ -35,7 +35,7 @@ extern "C" {
   /// # Safety
   /// This function interacts directly with the underlying C library, so ensure that
   /// all pointers passed to it are valid.
-  fn ethjet(
+  pub fn ethjet(
     context: *mut c_void,
     operation: c_int,
     input: *const c_char,
@@ -49,7 +49,7 @@ extern "C" {
 ///
 /// This struct manages the lifetime of the context, ensuring that it is properly
 /// initialized and freed.
-struct EthjetContext(NonNull<c_void>);
+pub struct EthjetContext(NonNull<c_void>);
 
 impl EthjetContext {
   /// Creates a new `EthjetContext` by initializing the context via the C library.
@@ -58,7 +58,7 @@ impl EthjetContext {
   ///
   /// Returns `Some(EthjetContext)` if the context was successfully initialized,
   /// otherwise returns `None`.
-  fn new() -> Option<Self> {
+  pub fn new() -> Option<Self> {
     let context_ptr = unsafe { ethjet_init() };
     NonNull::new(context_ptr).map(EthjetContext)
   }
@@ -75,7 +75,7 @@ impl EthjetContext {
   ///
   /// Returns `Some(Vec<u8>)` containing the output data if the operation was successful,
   /// otherwise returns `None`.
-  fn execute(&self, contract: i32, input: &[u8], output_size: usize) -> Option<Vec<u8>> {
+  pub fn execute(&self, contract: i32, input: &[u8], output_size: usize) -> Option<Vec<u8>> {
     let mut output = vec![0u8; output_size];
     let status = unsafe {
       ethjet(
@@ -121,7 +121,7 @@ static mut GLOBAL_CONTEXT: Option<EthjetContext> = None;
 ///
 /// This function should only be called from a single thread during the initialization phase,
 /// as it uses unsafe code to manage the global context.
-fn get_global_context() -> &'static EthjetContext {
+pub fn get_global_context() -> &'static EthjetContext {
   unsafe {
     INIT.call_once(|| {
       GLOBAL_CONTEXT = EthjetContext::new();

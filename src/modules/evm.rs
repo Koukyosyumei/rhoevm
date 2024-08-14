@@ -1,4 +1,4 @@
-use log::{error, warn};
+use log::{error, info, warn};
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -2165,6 +2165,7 @@ fn burn_sha3<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule, f: F
 }*/
 
 fn burn_codecopy<F: FnOnce()>(vm: &mut VM, n: Expr, schedule: FeeSchedule, f: F) {
+  /*
   let max_word64 = u64::MAX;
   let cost = match n {
     Expr::Lit(c) => {
@@ -2174,8 +2175,10 @@ fn burn_codecopy<F: FnOnce()>(vm: &mut VM, n: Expr, schedule: FeeSchedule, f: F)
         panic!("overflow")
       }
     }
-    _ => panic!("illegal expression"),
+    _ => panic!("illegal expression: {}", n),
   };
+  */
+  let cost = 0;
   burn(vm, cost, f)
 }
 
@@ -2186,7 +2189,7 @@ fn ceil_div(x: u64, y: u64) -> u64 {
 fn burn_calldatacopy<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedule, f: F) {
   let cost = match x_size {
     Expr::Lit(c) => schedule.g_verylow + schedule.g_copy * ceil_div(c.0 as u64, 32),
-    _ => panic!("illegal expression"),
+    _ => panic!("illegal expression: {}", x_size),
   };
   burn(vm, cost, f)
 }
@@ -2194,7 +2197,7 @@ fn burn_calldatacopy<F: FnOnce()>(vm: &mut VM, x_size: Expr, schedule: FeeSchedu
 fn burn_extcodecopy<F: FnOnce()>(vm: &mut VM, ext_account: Expr, code_size: Expr, schedule: FeeSchedule, f: F) {
   let ceiled_c = match code_size {
     Expr::Lit(c) => ceil_div(c.0 as u64, 32),
-    _ => panic!("illegal expression"),
+    _ => panic!("illegal expression {}", code_size),
   };
 
   let cost = match ext_account {
@@ -3227,7 +3230,7 @@ where
   }
 
   if itr_cnt >= max_num_iterations as i64 {
-    warn!("LOOP DETECTED @ PC=0x{}", vm.state.pc);
+    warn!("LOOP DETECTED @ PC=0x{:x}", vm.state.pc);
   }
 
   let mut new_vm = vm.clone();

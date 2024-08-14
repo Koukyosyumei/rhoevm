@@ -832,7 +832,7 @@ pub fn copy_slice(src_offset: &Expr, dst_offset: &Expr, size: &Expr, src: &Expr,
       Expr::ConcreteBuf(dst_buf),
     ) => {
       if dst_offset < MAX_BYTES && size < MAX_BYTES {
-        let hd = pad_right(dst_offset.0 as usize, (&dst_buf[..dst_offset.0 as usize]).to_vec());
+        let hd = pad_right(dst_offset.0 as usize, (&dst_buf[..min(dst_offset.0 as usize, dst_buf.len())]).to_vec());
         let sl = if src_offset > W256(src_buf.len() as u128, 0) {
           vec![0; size.0 as usize]
         } else {
