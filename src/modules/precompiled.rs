@@ -1,7 +1,7 @@
 use secp256k1::{ecdsa::RecoverableSignature, ecdsa::RecoveryId, Message, Secp256k1};
 use sha3::{Digest, Sha3_256};
 
-pub fn precompile_ecrecover(
+pub fn precompiled_ecrecover(
   ctx: &Secp256k1<secp256k1::All>,
   in_data: &[u8],
   out: &mut [u8],

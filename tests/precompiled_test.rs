@@ -2,7 +2,7 @@ use secp256k1::rand::rngs::OsRng;
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 use sha3::{Digest, Sha3_256};
 
-use rhoevm::modules::precompiled::precompile_ecrecover;
+use rhoevm::modules::precompiled::precompiled_ecrecover;
 
 #[test]
 fn test_ecrecover_success() {
@@ -27,7 +27,7 @@ fn test_ecrecover_success() {
   let mut output = [0u8; 32];
 
   // Call the function
-  let result = precompile_ecrecover(&secp, &input, &mut output);
+  let result = precompiled_ecrecover(&secp, &input, &mut output);
 
   // Assert the function succeeded
   assert!(result.is_ok());
@@ -50,7 +50,7 @@ fn test_ecrecover_invalid_recid() {
   // Set an invalid recid value
   input[63] = 31; // recid would be 4, which is invalid
 
-  let result = precompile_ecrecover(&secp, &input, &mut output);
+  let result = precompiled_ecrecover(&secp, &input, &mut output);
   assert!(result.is_err());
   assert_eq!(result.err().unwrap(), "Invalid recid");
 }

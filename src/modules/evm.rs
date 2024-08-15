@@ -1,5 +1,6 @@
 use log::{error, warn};
 use ripemd::Ripemd160;
+use secp256k1::Secp256k1;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
@@ -19,6 +20,7 @@ use crate::modules::expr::{
 use crate::modules::feeschedule::FeeSchedule;
 use crate::modules::format::format_prop;
 use crate::modules::op::{get_op, op_size, op_string, Op};
+use crate::modules::precompiled::precompiled_ecrecover;
 use crate::modules::smt::{assert_props, format_smt2};
 use crate::modules::types::{
   from_list, keccak, keccak_prime, maybe_lit_addr, maybe_lit_byte, maybe_lit_word, pad_left_prime, pad_right,
@@ -1844,7 +1846,21 @@ fn execute_precompile(
   match pre_compile_addr {
     W256(0x1, 0) => {
       force_concrete_buf(vm, &input, "ECRECOVER", |input| input_prime = input);
-      todo!()
+      let secp = Secp256k1::new();
+      let mut output = [0u8; 32];
+      let is_success = precompiled_ecrecover(&secp, &input_prime, &mut output);
+      if is_success.is_ok() {
+        vm.state.stack = xs;
+        vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+        vm.state.returndata = Box::new(Expr::ConcreteBuf(output.to_vec()));
+        copy_bytes_to_memory(&Expr::ConcreteBuf(output.to_vec()), out_size, &Expr::Lit(W256(0, 0)), out_offset, vm);
+        next(vm, 0x00)
+      } else {
+        vm.state.stack = xs;
+        vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
+        vm.state.returndata = Box::new(Expr::Mempty);
+        next(vm, 0x00)
+      }
     }
     W256(0x2, 0) => {
       force_concrete_buf(vm, &input, "SHA2-256", |input| input_prime = input);
