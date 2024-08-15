@@ -1167,6 +1167,13 @@ fn go_expr(expr: &Expr) -> Expr {
         Expr::SymAddr(_) => Expr::Lit(W256(0, 0)),
         _ => iszero(a),
       },
+      Expr::IsZero(b) => match *b.clone() {
+        Expr::IsZero(c) => iszero(c),
+        Expr::LT(x, y) => lt(x, y),
+        Expr::Eq(x, y) => eq(x, y),
+        _ => iszero(a),
+      },
+      Expr::Xor(x, y) => eq(x, y),
       _ => iszero(a),
     },
     // Expr::IsZero(a) => iszero(a),

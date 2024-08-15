@@ -1109,10 +1109,8 @@ impl VM {
               burn(self, fees.g_high, || {});
               let mut x_int = None;
               force_concrete(self, x, "JUMPI: symbolic jumpdest", |x_| x_int = x_.to_int());
-
               let mut condition = BranchReachability::NONE;
               let else_vm_ = branch(self, y.clone(), |condition_| Ok(condition = condition_), max_num_iterations);
-
               if condition == BranchReachability::ONLYTHEN || condition == BranchReachability::BOTH {
                 match x_int {
                   None => {
@@ -3254,14 +3252,12 @@ where
   let cond_simp_conc = conc_keccak_simp_expr(Box::new(cond_simp));
   let then_branch_cond = Prop::PNeg(Box::new(Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)))));
   let else_branch_cond = Prop::PEq(cond_simp_conc.clone(), Expr::Lit(W256(0, 0)));
-
   let mut new_vm = vm.clone();
 
   // vm.constraints_raw_expr.push(cond.clone());
   vm.constraints.push(Box::new(then_branch_cond));
   // new_vm.constraints_raw_expr.push(Box::new(Expr::Not(cond)));
   new_vm.constraints.push(Box::new(else_branch_cond));
-
   let branchreachability = if itr_cnt < max_num_iterations as i64 {
     if let Expr::Lit(W256(1, 0)) = cond_simp_conc {
       BranchReachability::ONLYTHEN
@@ -3286,7 +3282,6 @@ where
     (itr_cnt, new_vm.state.stack.clone(), BranchDir::ELSE);
 
   let _ = continue_fn(branchreachability);
-
   Some(new_vm)
 }
 
