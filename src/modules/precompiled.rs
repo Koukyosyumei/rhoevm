@@ -1,148 +1,73 @@
-use std::os::raw::{c_char, c_int, c_void};
-use std::ptr::NonNull;
-use std::sync::Once;
+use secp256k1::{ecdsa::RecoverableSignature, ecdsa::RecoveryId, Message, Secp256k1};
+use sha3::{Digest, Sha3_256};
 
-extern "C" {
-  /// Initializes the Ethjet context in the C library.
-  ///
-  /// # Safety
-  /// This function interacts directly with the underlying C library and should be
-  /// used with caution. Ensure that the context is properly freed after use.
-  pub fn ethjet_init() -> *mut c_void;
+pub fn precompile_ecrecover(
+  ctx: &Secp256k1<secp256k1::All>,
+  in_data: &[u8],
+  out: &mut [u8],
+) -> Result<(), &'static str> {
+  /*
+  Inputs
+        Byte range	     | Name	 |                  Description
+    ----------------------------------------------------------------------------------
+    [0; 31] (32 bytes)	 | hash	 | Keccack-256 hash of the transaction
+    [32; 63] (32 bytes)	 |  v	   | Recovery identifier, expected to be either 27 or 28
+    [64; 95] (32 bytes)	 |  r	   | x-value, expected to be in the range ]0; secp256k1n[
+    [96; 127] (32 bytes) |	s	   | Expected to be in the range ]0; secp256k1n[
 
-  /// Frees the Ethjet context in the C library.
-  ///
-  /// # Safety
-  /// This function must only be called with a valid, non-null pointer returned by
-  /// `ethjet_init`.
-  pub fn ethjet_free(context: *mut c_void);
+  Output
+        Byte range	     |     Name	     |                    Description
+    ----------------------------------------------------------------------------------------------
+    [0; 31] (32 bytes)	 | publicAddress | The recovered 20-byte address right aligned to 32 bytes
+  */
 
-  /// Executes an operation using the Ethjet context in the C library.
-  ///
-  /// # Arguments
-  ///
-  /// * `context` - A pointer to the initialized Ethjet context.
-  /// * `operation` - The operation to be performed (contract number).
-  /// * `input` - A pointer to the input data buffer.
-  /// * `input_len` - The length of the input data buffer.
-  /// * `output` - A pointer to the output data buffer.
-  /// * `output_len` - The desired length of the output data buffer.
-  ///
-  /// # Returns
-  ///
-  /// Returns `1` if the operation was successful, otherwise returns a non-1 value.
-  ///
-  /// # Safety
-  /// This function interacts directly with the underlying C library, so ensure that
-  /// all pointers passed to it are valid.
-  pub fn ethjet(
-    context: *mut c_void,
-    operation: c_int,
-    input: *const c_char,
-    input_len: c_int,
-    output: *mut c_char,
-    output_len: c_int,
-  ) -> c_int;
-}
-
-/// A wrapper around the Ethjet context provided by the C library.
-///
-/// This struct manages the lifetime of the context, ensuring that it is properly
-/// initialized and freed.
-pub struct EthjetContext(NonNull<c_void>);
-
-impl EthjetContext {
-  /// Creates a new `EthjetContext` by initializing the context via the C library.
-  ///
-  /// # Returns
-  ///
-  /// Returns `Some(EthjetContext)` if the context was successfully initialized,
-  /// otherwise returns `None`.
-  pub fn new() -> Option<Self> {
-    let context_ptr = unsafe { ethjet_init() };
-    NonNull::new(context_ptr).map(EthjetContext)
+  // Check input size
+  if in_data.len() != 128 {
+    return Err("Invalid input size");
   }
 
-  /// Executes a precompiled contract using the Ethjet context.
-  ///
-  /// # Arguments
-  ///
-  /// * `contract` - The number of the precompiled contract to execute.
-  /// * `input` - A byte slice containing the input data.
-  /// * `output_size` - The desired size of the output buffer.
-  ///
-  /// # Returns
-  ///
-  /// Returns `Some(Vec<u8>)` containing the output data if the operation was successful,
-  /// otherwise returns `None`.
-  pub fn execute(&self, contract: i32, input: &[u8], output_size: usize) -> Option<Vec<u8>> {
-    let mut output = vec![0u8; output_size];
-    let status = unsafe {
-      ethjet(
-        self.0.as_ptr(),
-        contract,
-        input.as_ptr() as *const c_char,
-        input.len() as c_int,
-        output.as_mut_ptr() as *mut c_char,
-        output_size as c_int,
-      )
-    };
-
-    match status {
-      1 => Some(output),
-      _ => None,
-    }
+  // Check output size
+  if out.len() != 32 {
+    return Err("Invalid output size");
   }
-}
 
-impl Drop for EthjetContext {
-  /// Frees the Ethjet context when the `EthjetContext` struct is dropped.
-  ///
-  /// This ensures that the C library's resources are properly released when the Rust
-  /// wrapper goes out of scope.
-  fn drop(&mut self) {
-    unsafe {
-      ethjet_free(self.0.as_ptr());
-    }
+  // Extract recovery ID from V (last byte of in_data)
+  let recid = match RecoveryId::from_i32((in_data[63] - 27) as i32) {
+    Ok(id) => id,
+    Err(_) => return Err("Invalid recid"),
+  };
+
+  // Check higher bytes of V are zero
+  if in_data[32..63].iter().all(|&x| x != 0) {
+    return Err("Invalid higher bytes of V");
   }
-}
 
-static INIT: Once = Once::new();
-static mut GLOBAL_CONTEXT: Option<EthjetContext> = None;
+  // Prepare the signature and message
+  let sig = match RecoverableSignature::from_compact(&in_data[64..128], recid) {
+    Ok(s) => s,
+    Err(_) => return Err("Failed to parse signature"),
+  };
+  let message = match Message::from_digest_slice(&in_data[0..32]) {
+    Ok(m) => m,
+    Err(_) => return Err("Failed to parse message"),
+  };
 
-/// Retrieves the global `EthjetContext`, initializing it if necessary.
-///
-/// # Returns
-///
-/// Returns a reference to the global `EthjetContext`. If initialization fails,
-/// the program will panic.
-///
-/// # Safety
-///
-/// This function should only be called from a single thread during the initialization phase,
-/// as it uses unsafe code to manage the global context.
-pub fn get_global_context() -> &'static EthjetContext {
-  unsafe {
-    INIT.call_once(|| {
-      GLOBAL_CONTEXT = EthjetContext::new();
-    });
-    GLOBAL_CONTEXT.as_ref().expect("Failed to initialize EthjetContext")
-  }
-}
+  // Recover the public key
+  let pubkey = match ctx.recover_ecdsa(&message, &sig) {
+    Ok(pk) => pk,
+    Err(_) => return Err("Failed to recover public key"),
+  };
 
-/// Executes a precompiled contract using the global `EthjetContext`.
-///
-/// # Arguments
-///
-/// * `contract` - The number of the precompiled contract to execute.
-/// * `input` - A byte slice containing the input data.
-/// * `output_size` - The desired size of the output buffer.
-///
-/// # Returns
-///
-/// Returns `Some(Vec<u8>)` containing the output data if the operation was successful,
-/// otherwise returns `None`.
-pub fn execute(contract: i32, input: &[u8], output_size: usize) -> Option<Vec<u8>> {
-  let context = get_global_context();
-  context.execute(contract, input, output_size)
+  // Serialize the public key to uncompressed form
+  let pubkey_uncompressed = pubkey.serialize_uncompressed();
+
+  // Hash the public key with SHA3-256
+  let mut hasher = Sha3_256::new();
+  hasher.update(&pubkey_uncompressed[1..65]); // skip the first byte
+  let hash = hasher.finalize();
+
+  // Copy the first 32 bytes of the hash to the output
+  out.copy_from_slice(&hash[0..32]);
+
+  Ok(())
 }
