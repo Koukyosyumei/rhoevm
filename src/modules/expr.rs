@@ -7,7 +7,8 @@ use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
 use crate::modules::types::{
-  keccak, keccak_prime, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, GVar, Prop, W256, W64,
+  keccak, keccak_prime, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, GVar, Prop, EXPR_MEMPTY,
+  W256, W64,
 };
 
 use super::types::{ByteString, Word8};
@@ -871,7 +872,11 @@ pub fn copy_slice(src_offset: &Expr, dst_offset: &Expr, size: &Expr, src: &Expr,
         let sl: Vec<Expr> = ((src_offset.0)..(src_offset.0) + (size.0))
           .map(|i| read_byte(Box::new(Expr::Lit(W256(i as u128, 0))), Box::new(src.clone())))
           .collect();
-        let tl = &dst_buf[dst_offset.0 as usize + size.0 as usize..];
+        let tl = if (dst_offset.0 as usize + size.0 as usize) < dst_buf.len() {
+          &dst_buf[dst_offset.0 as usize + size.0 as usize..]
+        } else {
+          &vec![]
+        };
 
         if sl.iter().all(|arg0: &Expr| is_lit_byte(Box::new(arg0.clone()))) {
           let packed_sl: Vec<u8> = sl.into_iter().filter_map(maybe_lit_byte).collect();
@@ -1012,15 +1017,11 @@ fn conc_keccak_one_pass(expr: Box<Expr>) -> Expr {
 
 // Main simplify function
 pub fn simplify(expr: Box<Expr>) -> Expr {
-  if *expr != Expr::Mempty {
-    let simplified = map_expr(|arg0: &Expr| go_expr(arg0), *expr.clone());
-    if simplified == *expr {
-      simplified
-    } else {
-      simplify(Box::new(map_expr(|arg0: &Expr| go_expr(arg0), structure_array_slots(Box::new(*expr.clone())))))
-    }
+  let simplified = map_expr(|arg0: &Expr| go_expr(arg0), *expr.clone());
+  if simplified == *expr {
+    simplified
   } else {
-    Expr::Mempty
+    simplify(Box::new(map_expr(|arg0: &Expr| go_expr(arg0), structure_array_slots(Box::new(*expr.clone())))))
   }
 }
 
@@ -1872,7 +1873,7 @@ pub fn drop(n: W256, buf: &Expr) -> Expr {
 }
 
 pub fn slice(offset: Box<Expr>, size: Box<Expr>, src: Box<Expr>) -> Expr {
-  copy_slice(&offset, &(Expr::Lit(W256(0, 0))), &size, &src, &(Expr::Mempty))
+  copy_slice(&offset, &(Expr::Lit(W256(0, 0))), &size, &src, &(EXPR_MEMPTY))
 }
 
 pub fn buf_length(buf: &Expr) -> Expr {
@@ -1905,7 +1906,6 @@ pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> E
           emax(Box::new(l), Box::new(Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(a))))))
         }
       }
-      Expr::Mempty => l,
       _ => panic!("unsupported expression: {}", buf),
     }
   }

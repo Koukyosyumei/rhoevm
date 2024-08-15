@@ -27,7 +27,7 @@ use crate::modules::types::{
   word256_bytes, Addr, BaseState, Block, BranchDir, BranchReachability, ByteString, Cache, CodeLocation, Contract,
   ContractCode, Env, EvmError, Expr, ExprSet, ForkState, Frame, FrameContext, FrameState, Gas, Memory, MutableMemory,
   PartialExec, Prop, RuntimeCodeStruct, RuntimeConfig, SubState, Trace, TraceData, TxState, VMOpts, VMResult,
-  W256W256Map, VM, W256, W64,
+  W256W256Map, EXPR_MEMPTY, VM, W256, W64,
 };
 
 fn initial_gas() -> u64 {
@@ -52,11 +52,11 @@ pub fn blank_state() -> FrameState {
     stack: Vec::new(),
     memory: Memory::ConcreteMemory(Vec::new()),
     memory_size: 0,
-    calldata: Box::new(Expr::Mempty),
+    calldata: Box::new(EXPR_MEMPTY),
     callvalue: Box::new(Expr::Lit(W256(0, 0))),
     caller: Box::new(Expr::LitAddr(W256(0, 0))),
     gas: Gas::Concerete(initial_gas()),
-    returndata: Box::new(Expr::Mempty),
+    returndata: Box::new(EXPR_MEMPTY),
     static_flag: false,
     prev_model: None,
   }
@@ -65,7 +65,7 @@ pub fn blank_state() -> FrameState {
 /// Retrieves the bytecode of a contract as an expression.
 ///
 /// This function examines the contract's code and returns the corresponding expression:
-/// - If the contract code is initialization code, an empty expression (`Expr::Mempty`) is returned.
+/// - If the contract code is initialization code, an empty expression (`EXPR_MEMPTY`) is returned.
 /// - If the contract code is runtime code, a concrete buffer containing the code is returned.
 ///
 /// # Arguments
@@ -77,7 +77,7 @@ pub fn blank_state() -> FrameState {
 /// An `Option<Expr>` containing the bytecode expression, or `None` if the contract code is unsupported.
 pub fn bytecode(contract: &Contract) -> Option<Expr> {
   match &contract.code {
-    ContractCode::InitCode(_, _) => Some(Expr::Mempty),
+    ContractCode::InitCode(_, _) => Some(EXPR_MEMPTY),
     ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(buf)) => Some(Expr::ConcreteBuf(buf.to_vec())),
     _ => None,
   }
@@ -171,7 +171,7 @@ pub fn make_vm(opts: VMOpts) -> VM {
       callvalue: Box::new(opts.value),
       caller: Box::new(opts.caller),
       gas: opts.gas,
-      returndata: Box::new(Expr::Mempty),
+      returndata: Box::new(EXPR_MEMPTY),
       static_flag: false,
       prev_model: None,
     },
@@ -422,7 +422,7 @@ impl VM {
       }
       true
     } else if self.state.pc >= opslen(&self.state.code) {
-      finish_frame(self, FrameResult::FrameReturned(Expr::Mempty));
+      finish_frame(self, FrameResult::FrameReturned(EXPR_MEMPTY));
       false
     } else {
       let op = match &self.state.code {
@@ -538,7 +538,7 @@ impl VM {
           true
         }
         Op::Stop => {
-          finish_frame(self, FrameResult::FrameReturned(Expr::Mempty));
+          finish_frame(self, FrameResult::FrameReturned(EXPR_MEMPTY));
           false
         }
         Op::Add => stack_op2(self, fees.g_verylow, "add"),
@@ -603,7 +603,7 @@ impl VM {
         }
         Op::Balance => {
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
-            let mut a: Expr = Expr::Mempty;
+            let mut a: Expr = EXPR_MEMPTY;
             force_addr(self, x, "BALANCE", |a_| a = a_);
             access_and_burn(&a, || {
               let mut c = empty_contract();
@@ -759,7 +759,7 @@ impl VM {
           - size: byte size of the code.
           */
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
-            let mut a: Expr = Expr::Mempty;
+            let mut a: Expr = EXPR_MEMPTY;
             force_addr(self, x, "EXTCODESIZE", |a_| a = a_);
             access_and_burn(&a, || {
               let mut c = empty_contract();
@@ -1013,7 +1013,7 @@ impl VM {
             let x = self.state.stack.pop().unwrap();
             let new = self.state.stack.pop().unwrap();
             // Access current storage
-            let mut current: Expr = Expr::Mempty;
+            let mut current: Expr = EXPR_MEMPTY;
             access_storage(self, *self_contract.clone(), *x.clone(), |current_| current = current_);
             let original = match conc_keccak_simp_expr(Box::new(Expr::SLoad(
               x.clone(),
@@ -1251,12 +1251,12 @@ impl VM {
             if gt0 == BranchReachability::ONLYTHEN || gt0 == BranchReachability::BOTH {
               not_static(self, || {});
 
-              let mut x_to_a = Expr::Mempty;
+              let mut x_to_a = EXPR_MEMPTY;
               force_addr(self, x_to, "unable to determine a call target", |x_to_a_| x_to_a = x_to_a_);
               match Some(x_gas) {
                 None => vm_error("IllegalOverflow"),
                 _ => {
-                  let mut callee: Expr = Expr::Mempty;
+                  let mut callee: Expr = EXPR_MEMPTY;
                   general_call(
                     self,
                     op,
@@ -1275,7 +1275,7 @@ impl VM {
                   );
                   let from_ = self.config.override_caller.clone();
                   let scaller =
-                    if let Some(_) = from_ { Box::new(from_.clone().unwrap()) } else { Box::new(Expr::Mempty) };
+                    if let Some(_) = from_ { Box::new(from_.clone().unwrap()) } else { Box::new(EXPR_MEMPTY) };
                   self.state.callvalue = x_value.clone();
                   self.state.caller = scaller.clone();
                   self.state.contract = Box::new(callee.clone());
@@ -1478,7 +1478,7 @@ impl VM {
                   // gasTryFrom(x_gas)
                   None => vm_error("IllegalOverflow"),
                   _ => {
-                    let mut callee = Expr::Mempty;
+                    let mut callee = EXPR_MEMPTY;
                     general_call(
                       self,
                       op,
@@ -1520,7 +1520,7 @@ impl VM {
         Op::Selfdestruct => {
           not_static(self, || {});
           if let [.., x_to] = &self.state.stack.clone()[..] {
-            let mut x_to_a = Expr::Mempty;
+            let mut x_to_a = EXPR_MEMPTY;
             force_addr(self, x_to, "SELFDESTRUCT", |x_to_a_| x_to_a = x_to_a_);
             if let Expr::WAddr(_) = x_to_a {
               let acc = access_account_for_gas(self, x_to_a.clone());
@@ -1552,7 +1552,7 @@ impl VM {
                 // });
               } else {
                 let mut else_vm = else_vm_.unwrap();
-                finish_frame(&mut else_vm, FrameResult::FrameReturned(Expr::Mempty));
+                finish_frame(&mut else_vm, FrameResult::FrameReturned(EXPR_MEMPTY));
               }
             } else {
               let pc = 0; // use(state.pc)
@@ -1579,7 +1579,7 @@ impl VM {
         }
         Op::Extcodecopy => {
           if let [xs @ .., code_size, code_offset, mem_offset, ext_account] = &self.state.stack.clone()[..] {
-            let mut ext_account_a = Expr::Mempty;
+            let mut ext_account_a = EXPR_MEMPTY;
             force_addr(self, ext_account, "EXTCODECOPY", |ext_account_a_| ext_account_a = ext_account_a_);
             burn_extcodecopy(self, ext_account_a.clone(), *code_size.clone(), self.block.schedule.clone(), || {});
             access_memory_range(self, &mem_offset, &code_size, || {});
@@ -1660,7 +1660,7 @@ impl VM {
         }
         Op::Extcodehash => {
           if let Some((x, xs)) = self.state.stack.clone().split_last() {
-            let mut addr = Expr::Mempty;
+            let mut addr = EXPR_MEMPTY;
             force_addr(self, x, "EXTCODEHASH", |addr_| addr = addr_);
             access_and_burn(&addr, || {
               next(self, op);
@@ -1856,7 +1856,7 @@ fn execute_precompile(
       } else {
         vm.state.stack = xs;
         vm.state.stack.push(Box::new(Expr::Lit(W256(1, 0))));
-        vm.state.returndata = Box::new(Expr::Mempty);
+        vm.state.returndata = Box::new(EXPR_MEMPTY);
         next(vm, 0x00)
       }
     }
@@ -1947,7 +1947,6 @@ fn fetch_account<F: FnOnce(&Contract)>(vm: &mut VM, addr: &Expr, f: F) {
         }
       },
       Expr::GVar(_) => panic!("unexpected GVar"),
-      Expr::Mempty => {}
       _ => panic!("unexpected expr in `fetch_account`: addr={}", addr),
     },
   }
@@ -2071,7 +2070,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) -> bool {
             FrameResult::FrameErrored(_) => {
               vm.env.contracts = callreversion.clone();
               vm.tx.substate = substate.clone();
-              vm.state.returndata = Box::new(Expr::Mempty);
+              vm.state.returndata = Box::new(EXPR_MEMPTY);
               push(vm, W256(0, 0));
             }
           }
@@ -2096,7 +2095,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) -> bool {
             FrameResult::FrameReturned(output) => {
               let mut on_contract_code = |contract_code| {
                 replace_code(vm, createe.clone(), contract_code);
-                vm.state.returndata = Box::new(Expr::Mempty);
+                vm.state.returndata = Box::new(EXPR_MEMPTY);
                 // reclaimRemainingGasAllowance oldVm
                 push_addr(vm, *createe.clone());
               };
@@ -2129,7 +2128,7 @@ fn finish_frame(vm: &mut VM, result: FrameResult) -> bool {
             FrameResult::FrameErrored(_) => {
               vm.env.contracts = reversion_prime;
               vm.tx.substate = substate.clone();
-              vm.state.returndata = Box::new(Expr::Mempty);
+              vm.state.returndata = Box::new(EXPR_MEMPTY);
               push(vm, W256(0, 0));
             }
           }
@@ -2349,7 +2348,7 @@ fn read_memory(vm: &mut VM, offset_: &Expr, size_: &Expr) -> Expr {
           &(Expr::Lit(W256(0, 0))),
           &(simplify(Box::new(size_.clone()))),
           &(buf),
-          &(Expr::Mempty),
+          &(EXPR_MEMPTY),
         )
       }
     },
@@ -2358,7 +2357,7 @@ fn read_memory(vm: &mut VM, offset_: &Expr, size_: &Expr) -> Expr {
       &(Expr::Lit(W256(0, 0))),
       &(simplify(Box::new(size_.clone()))),
       &(simplify(Box::new(mem.clone()))),
-      &(Expr::Mempty),
+      &(EXPR_MEMPTY),
     ),
   }
 }
@@ -2394,7 +2393,7 @@ fn stack_op2(vm: &mut VM, gas: u64, op: &str) -> bool {
       "shl" => Box::new(Expr::SHL(a.clone(), b.clone())),
       "shr" => Box::new(Expr::SHR(a.clone(), b.clone())),
       "sar" => Box::new(Expr::SAR(a.clone(), b.clone())),
-      _ => Box::new(Expr::Mempty),
+      _ => Box::new(EXPR_MEMPTY),
     };
     vm.state.stack = xs.to_vec();
     vm.state.stack.push(res);
@@ -2412,7 +2411,7 @@ fn stack_op3(vm: &mut VM, gas: u64, op: &str) -> bool {
     let res = match op {
       "addmod" => Box::new(Expr::AddMod(a.clone(), b.clone(), c.clone())),
       "mulmod" => Box::new(Expr::MulMod(a.clone(), b.clone(), c.clone())),
-      _ => Box::new(Expr::Mempty),
+      _ => Box::new(EXPR_MEMPTY),
     };
     vm.state.stack = xs.to_vec();
     vm.state.stack.push(res);
@@ -2430,8 +2429,8 @@ fn stack_op1(vm: &mut VM, gas: u64, op: &str) -> bool {
     let res = match op {
       "iszero" => Box::new(Expr::IsZero(a.clone())),
       "not" => Box::new(Expr::Not(a.clone())),
-      "calldataload" => read_word(&a, &vm.state.calldata.clone()), // Box::new(Expr::Mempty),
-      _ => Box::new(Expr::Mempty),
+      "calldataload" => read_word(&a, &vm.state.calldata.clone()), // Box::new(EXPR_MEMPTY),
+      _ => Box::new(EXPR_MEMPTY),
     };
     vm.state.stack = xs.to_vec();
     vm.state.stack.push(res);
@@ -2721,8 +2720,8 @@ fn general_call(
       |x_gas_| x_gas = x_gas_,
       max_num_iterations,
     );
-    let mut target_code = ContractCode::UnKnownCode(Box::new(Expr::Mempty));
-    let mut taregt_codehash = Expr::Mempty;
+    let mut target_code = ContractCode::UnKnownCode(Box::new(EXPR_MEMPTY));
+    let mut taregt_codehash = EXPR_MEMPTY;
     fetch_account(vm, &x_to.clone(), |target| {
       target_code = target.code.clone();
       taregt_codehash = target.codehash.clone();
@@ -2764,7 +2763,7 @@ fn general_call(
         // update the state
         let new_memory = Memory::ConcreteMemory(vec![]);
         let cleared_init_code = match target_code {
-          ContractCode::InitCode(_, _) => ContractCode::InitCode(Box::new(vec![]), Box::new(Expr::Mempty)),
+          ContractCode::InitCode(_, _) => ContractCode::InitCode(Box::new(vec![]), Box::new(EXPR_MEMPTY)),
           a => a.clone(),
         };
         vm.state = FrameState {
@@ -2776,7 +2775,7 @@ fn general_call(
           stack: vec![],
           memory: new_memory,
           memory_size: 0,
-          returndata: Box::new(Expr::Mempty),
+          returndata: Box::new(EXPR_MEMPTY),
           calldata: Box::new(calldata.clone()),
           contract: vm.state.contract.clone(),
           callvalue: vm.state.callvalue.clone(),
@@ -2811,18 +2810,18 @@ fn create(
   if x_size_val > vm.block.max_code_size.clone() * W256(2, 0) {
     vm.state.stack = xs;
     vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
-    vm.state.returndata = Box::new(Expr::Mempty);
+    vm.state.returndata = Box::new(EXPR_MEMPTY);
     // vm_error(EvmError::MaxInitCodeSizeExceeded(vm0.block.max_code_size * 2, x_size));
   } else if this.nonce == Some(u64::max_value()) {
     vm.state.stack = xs;
     vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
-    vm.state.returndata = Box::new(Expr::Mempty);
+    vm.state.returndata = Box::new(EXPR_MEMPTY);
     vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::NonceOverflow)));
     next(vm, op);
   } else if vm.frames.len() >= 1024 {
     vm.state.stack = xs;
     vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
-    vm.state.returndata = Box::new(Expr::Mempty);
+    vm.state.returndata = Box::new(EXPR_MEMPTY);
     vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::CallDepthLimitReached)));
     next(vm, op);
   } else if collision(vm.env.contracts.get(&new_addr).cloned()) {
@@ -2830,7 +2829,7 @@ fn create(
     burn(vm, x_gas_val, || {});
     vm.state.stack = xs;
     vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
-    vm.state.returndata = Box::new(Expr::Mempty);
+    vm.state.returndata = Box::new(EXPR_MEMPTY);
     let n = vm.env.contracts.entry(self_addr.clone()).or_insert(empty_contract()).nonce;
     let new_nonce = if let Some(n_) = n { Some(n_ + 1) } else { None };
     vm.env.contracts.entry(self_addr).or_insert(empty_contract()).nonce = new_nonce;
@@ -2847,7 +2846,7 @@ fn create(
       // not enough balance
       vm.state.stack = xs.clone();
       vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
-      vm.state.returndata = Box::new(Expr::Mempty);
+      vm.state.returndata = Box::new(EXPR_MEMPTY);
       vm.traces.push(with_trace_location(
         vm,
         TraceData::ErrorTrace(EvmError::BalanceTooLow(Box::new(x_value.clone()), Box::new(this.balance.clone()))),
@@ -3172,6 +3171,13 @@ fn account_empty(c: &Contract) -> bool {
 ///   and the second element is an optional string containing the model from the SMT solver if the constraints are satisfiable.
 pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, Option<String>) {
   let result = task::spawn_blocking(move || {
+    /*
+    for p in &pathconds {
+      warn!("{} ", format_prop(p));
+    }
+    warn!("-------");
+    */
+
     let config = Config::default();
     let smt2 = assert_props(&config, pathconds.to_vec());
     if smt2.is_none() {
@@ -3393,7 +3399,7 @@ fn cheat_code() -> Expr {
 /// * `Option<ContractCode>` - The parsed initialization code, or `None` if parsing fails.
 fn parse_init_code(buf: &Expr) -> Option<ContractCode> {
   match buf {
-    Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(Box::new(b.to_vec()), Box::new(Expr::Mempty))),
+    Expr::ConcreteBuf(b) => Some(ContractCode::InitCode(Box::new(b.to_vec()), Box::new(EXPR_MEMPTY))),
     _ => {
       let conc = concrete_prefix(buf);
       if conc.is_empty() {
@@ -3452,7 +3458,7 @@ fn call_checks<F>(
       if vm.frames.len() >= 1024 {
         vm.state.stack = xs.to_vec();
         vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
-        vm.state.returndata = Box::new(Expr::Mempty);
+        vm.state.returndata = Box::new(EXPR_MEMPTY);
         vm.traces.push(with_trace_location(vm, TraceData::ErrorTrace(EvmError::CallDepthLimitReached)));
         next(vm, op);
       } else {
@@ -3471,7 +3477,7 @@ fn call_checks<F>(
       if is_greater == BranchReachability::ONLYELSE || is_greater == BranchReachability::BOTH {
         vm.state.stack = xs.to_vec();
         vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
-        vm.state.returndata = Box::new(Expr::Mempty);
+        vm.state.returndata = Box::new(EXPR_MEMPTY);
         vm.traces.push(with_trace_location(
           vm,
           TraceData::ErrorTrace(EvmError::BalanceTooLow(Box::new(x_value), Box::new(this.balance.clone()))),
@@ -3483,7 +3489,7 @@ fn call_checks<F>(
         if else_vm.frames.len() >= 1024 {
           else_vm.state.stack = xs.to_vec();
           else_vm.state.stack.push(Box::new(Expr::Lit(W256(0, 0))));
-          else_vm.state.returndata = Box::new(Expr::Mempty);
+          else_vm.state.returndata = Box::new(EXPR_MEMPTY);
           else_vm.traces.push(with_trace_location(&else_vm, TraceData::ErrorTrace(EvmError::CallDepthLimitReached)));
           next(&mut else_vm, op);
         } else {

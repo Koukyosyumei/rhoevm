@@ -1,3 +1,4 @@
+use log::info;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::{fmt, vec};
@@ -12,7 +13,7 @@ use crate::modules::expr::{
 use crate::modules::format::format_prop;
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};
 use crate::modules::traversals::{fold_prop, TraversableTerm};
-use crate::modules::types::{AddableVec, Addr, Expr, GVar, Prop, W256W256Map, W256};
+use crate::modules::types::{AddableVec, Addr, Expr, GVar, Prop, W256W256Map, EXPR_MEMPTY, W256};
 
 // Type aliases for convenience
 type Text = String;
@@ -1103,7 +1104,7 @@ fn expr_to_smt(expr: Expr) -> String {
     },
     Expr::ReadByte(idx, src) => op2("select", *src, *idx),
     Expr::ConcreteBuf(bs) if bs.len() == 0 => "((as const Buf) #b00000000)".to_string(),
-    Expr::ConcreteBuf(bs) => write_bytes(&bs, Expr::Mempty),
+    Expr::ConcreteBuf(bs) => write_bytes(&bs, EXPR_MEMPTY),
     Expr::AbstractBuf(s) => s,
     Expr::ReadWord(idx, prev) => op2("readWord", *idx, *prev),
 
@@ -1243,7 +1244,7 @@ fn expand_exp(base: Expr, expnt: W256) -> Builder {
 
 // Concatenates a list of bytes into a larger bitvector
 fn write_bytes(bytes: &[u8], buf: Expr) -> Builder {
-  let skip_zeros = buf == Expr::Mempty;
+  let skip_zeros = buf == EXPR_MEMPTY;
   let mut idx = 0;
   let mut inner = expr_to_smt(buf);
   for &byte in bytes {

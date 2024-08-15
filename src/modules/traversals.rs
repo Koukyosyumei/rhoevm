@@ -355,11 +355,7 @@ pub fn fold_expr<B>(f: &mut dyn FnMut(&Expr) -> B, acc: B, expr: &Expr) -> B
 where
   B: Add<B, Output = B> + Default + Clone,
 {
-  if *expr == Expr::Mempty {
-    acc.clone()
-  } else {
-    acc.clone() + go_expr(f, acc.clone(), expr.clone())
-  }
+  acc.clone() + go_expr(f, acc.clone(), expr.clone())
 }
 
 /// A trait for types that can map a function over their `Expr` components.
@@ -777,7 +773,6 @@ impl ExprMappable for Expr {
         let a = a.map_expr_m(f);
         f(&Expr::BufLength(Box::new(a)))
       }
-      Expr::Mempty => Expr::Mempty,
       _ => panic!("unuexpected expr {}", self),
     }
   }
@@ -798,11 +793,7 @@ pub fn map_expr<F>(mut f: F, expr: Expr) -> Expr
 where
   F: FnMut(&Expr) -> Expr,
 {
-  if expr == Expr::Mempty {
-    expr
-  } else {
-    expr.map_expr_m(&mut f)
-  }
+  expr.map_expr_m(&mut f)
 }
 
 /// Recursively applies a given function `f` to each `Expr` within a `Prop`.

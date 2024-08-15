@@ -6,7 +6,7 @@ use rhoevm::modules::format::{hex_byte_string, strip_0x};
 
 //use rhoevm::modules::solvers::{with_solvers, Solver};
 use rhoevm::modules::transactions::init_tx;
-use rhoevm::modules::types::{ContractCode, Expr, Memory, Prop, RuntimeCodeStruct, VM, W256};
+use rhoevm::modules::types::{ContractCode, Expr, Memory, Prop, RuntimeCodeStruct, EXPR_MEMPTY, VM, W256};
 
 const MAX_NUM_ITERATIONS: u32 = 1;
 
@@ -22,7 +22,7 @@ fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Box<Prop
     (_, _, Some(code)) => {
       let bs = hex_byte_string("bytes", &strip_0x(code));
       let mc = if cmd.create {
-        ContractCode::InitCode(Box::new(bs), Box::new(Expr::Mempty))
+        ContractCode::InitCode(Box::new(bs), Box::new(EXPR_MEMPTY))
       } else {
         ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(bs)))
       };
