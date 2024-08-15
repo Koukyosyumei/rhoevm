@@ -484,7 +484,7 @@ impl VM {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_verylow, || {});
             next(self, op);
-            push_sym(self, Box::new(xs.clone()));
+            push_sym(self, Box::new(xs));
           });
           true
         }
@@ -493,7 +493,7 @@ impl VM {
             limit_stack(1, self.state.stack.len(), || {
               burn(self, fees.g_verylow, || {});
               next(self, op);
-              push_sym(self, y.clone());
+              push_sym(self, y);
             });
           } else {
             underrun();
@@ -597,7 +597,7 @@ impl VM {
           limit_stack(1, self.state.stack.len(), || {
             burn(self, fees.g_base, || {});
             next(self, op);
-            push_addr(self, *self_contract.clone());
+            push_addr(self, *self_contract);
           });
           true
         }
@@ -1260,15 +1260,15 @@ impl VM {
                   general_call(
                     self,
                     op,
-                    this_contract.clone(),
+                    &this_contract,
                     Gas::Concerete(0),
-                    x_to_a.clone(),
-                    x_to_a.clone(),
-                    *x_value.clone(),
-                    *x_in_offset.clone(),
-                    *x_in_size.clone(),
-                    *x_out_offset.clone(),
-                    *x_out_size.clone(),
+                    &x_to_a,
+                    &x_to_a,
+                    &x_value,
+                    &x_in_offset,
+                    &x_in_size,
+                    &x_out_offset,
+                    &x_out_size,
                     xs.to_vec(),
                     |callee_| callee = callee_,
                     max_num_iterations,
@@ -1307,15 +1307,15 @@ impl VM {
             general_call(
               self,
               op,
-              this_contract.clone(),
+              &this_contract,
               Gas::Concerete(0),
-              *x_to.clone(),
-              *self_contract.clone(),
-              *x_value.clone(),
-              *x_in_offset.clone(),
-              *x_in_size.clone(),
-              *x_out_offset.clone(),
-              *x_out_size.clone(),
+              &x_to,
+              &self_contract,
+              &x_value,
+              &x_in_offset,
+              &x_in_size,
+              &x_out_offset,
+              &x_out_size,
               xs.to_vec(),
               |_| {},
               max_num_iterations,
@@ -1404,15 +1404,15 @@ impl VM {
                     general_call(
                       self,
                       op,
-                      this_contract.clone(),
+                      &this_contract,
                       Gas::Concerete(0),
-                      *x_to.clone(),
-                      *self_contract.clone(),
-                      Expr::Lit(W256(0, 0)),
-                      *x_in_offset.clone(),
-                      *x_in_size.clone(),
-                      *x_out_offset.clone(),
-                      *x_out_size.clone(),
+                      &x_to,
+                      &self_contract,
+                      &Expr::Lit(W256(0, 0)),
+                      &x_in_offset,
+                      &x_in_size,
+                      &x_out_offset,
+                      &x_out_size,
                       vec![],
                       |_| {},
                       max_num_iterations,
@@ -1482,15 +1482,15 @@ impl VM {
                     general_call(
                       self,
                       op,
-                      this_contract.clone(),
+                      &this_contract.clone(),
                       Gas::Concerete(0),
-                      x_to_prime.clone(),
-                      x_to_prime.clone(),
-                      Expr::Lit(W256(0, 0)),
-                      *x_in_offset.clone(),
-                      *x_in_size.clone(),
-                      *x_out_offset.clone(),
-                      *x_out_size.clone(),
+                      &x_to_prime.clone(),
+                      &x_to_prime.clone(),
+                      &Expr::Lit(W256(0, 0)),
+                      &x_in_offset.clone(),
+                      &x_in_size.clone(),
+                      &x_out_offset.clone(),
+                      &x_out_size.clone(),
                       xs.to_vec(),
                       |callee_| callee = callee_,
                       max_num_iterations,
@@ -2318,7 +2318,7 @@ fn read_memory(vm: &mut VM, offset_: &Expr, size_: &Expr) -> Expr {
   match &vm.state.memory {
     Memory::ConcreteMemory(mem) => match (simplify(Box::new(offset_.clone())), simplify(Box::new(size_.clone()))) {
       (Expr::Lit(offset_val), Expr::Lit(size_val)) => {
-        if size_val.clone() > MAX_BYTES
+        if size_val > MAX_BYTES
           || offset_val.clone() + size_val.clone() > MAX_BYTES
           || offset_val >= W256(mem.len() as u128, 0)
         {
@@ -2326,16 +2326,13 @@ fn read_memory(vm: &mut VM, offset_: &Expr, size_: &Expr) -> Expr {
         } else {
           let mem_size: usize = mem.len();
           let (from_mem_size, past_end) = if offset_val.clone() + size_val.clone() > W256(mem_size as u128, 0) {
-            (
-              W256(mem_size as u128, 0) - offset_val.clone(),
-              offset_val.clone() + size_val.clone() - W256(mem_size as u128, 0),
-            )
+            (W256(mem_size as u128, 0) - offset_val.clone(), offset_val.clone() + size_val - W256(mem_size as u128, 0))
           } else {
             (size_val, W256(0, 0))
           };
 
           let mut data_from_mem: Vec<u8> =
-            mem.clone()[(offset_val.0 as usize)..(offset_val.0 as usize) + (from_mem_size.0 as usize)].to_vec();
+            mem[(offset_val.0 as usize)..(offset_val.0 as usize) + (from_mem_size.0 as usize)].to_vec();
           let pad = vec![0; past_end.0 as usize];
           data_from_mem.extend(pad);
           Expr::ConcreteBuf(data_from_mem)
@@ -2599,10 +2596,10 @@ where
   if c.external {
     if let Some(addr_) = maybe_lit_addr(addr.clone()) {
       if force_concrete(vm, &slot_conc.clone(), "cannot read symbolic slots via RPC", |_| {}) {
-        match vm.cache.fetched.clone().get(&addr_) {
+        match vm.cache.fetched.get(&addr_) {
           Some(fetched) => match read_storage(Box::new(slot), Box::new(fetched.storage.clone())) {
             Some(val) => continue_fn(val),
-            None => mk_query(vm, addr, maybe_lit_word(slot_conc.clone()).unwrap().0 as u64, continue_fn),
+            None => mk_query(vm, addr, maybe_lit_word(slot_conc).unwrap().0 as u64, continue_fn),
           },
           None => internal_error("contract marked external not found in cache"),
         }
@@ -2662,15 +2659,15 @@ fn is_precompile_addr(_addr: &Expr) -> bool {
 fn general_call(
   vm: &mut VM,
   op: u8,
-  this: Contract,
+  this: &Contract,
   gas_given: Gas,
-  x_to: Expr,
-  x_context: Expr,
-  x_value: Expr,
-  x_in_offset: Expr,
-  x_in_size: Expr,
-  x_out_offset: Expr,
-  x_out_size: Expr,
+  x_to: &Expr,
+  x_context: &Expr,
+  x_value: &Expr,
+  x_in_offset: &Expr,
+  x_in_size: &Expr,
+  x_out_offset: &Expr,
+  x_out_size: &Expr,
   xs: Vec<Box<Expr>>,
   continue_fn: impl FnOnce(Expr),
   max_num_iterations: u32,
@@ -2678,7 +2675,7 @@ fn general_call(
   if is_precompile_addr(&x_to) {
     force_concrete_addr2(
       vm,
-      (x_to, x_context),
+      (x_to.clone(), x_context.clone()),
       "Cannot call precompile with symbolic addresses".to_string(),
       |(_x_to, _x_context)| {
         /*
@@ -2698,7 +2695,7 @@ fn general_call(
         */
       },
     );
-  } else if x_to == cheat_code() {
+  } else if *x_to == cheat_code() {
     vm.state.stack = xs;
     todo!()
     // cheat(vm, x_in_offset, x_in_size, x_out_offset, x_out_size);
@@ -2722,7 +2719,7 @@ fn general_call(
     );
     let mut target_code = ContractCode::UnKnownCode(Box::new(EXPR_MEMPTY));
     let mut taregt_codehash = EXPR_MEMPTY;
-    fetch_account(vm, &x_to.clone(), |target| {
+    fetch_account(vm, &x_to, |target| {
       target_code = target.code.clone();
       taregt_codehash = target.codehash.clone();
     });
@@ -2746,8 +2743,8 @@ fn general_call(
         let new_context = FrameContext::CallContext {
           target: x_to.clone(),
           context: x_context.clone(),
-          offset: x_out_offset,
-          size: x_out_size,
+          offset: x_out_offset.clone(),
+          size: x_out_size.clone(),
           codehash: taregt_codehash,
           callreversion: vm.env.contracts.clone(),
           substate: vm.tx.substate.clone(),
@@ -2783,7 +2780,7 @@ fn general_call(
           static_flag: vm.state.static_flag.clone(),
           prev_model: None,
         };
-        continue_fn(x_to);
+        continue_fn(x_to.clone());
       }
     }
   }
@@ -2852,8 +2849,8 @@ fn create(
         TraceData::ErrorTrace(EvmError::BalanceTooLow(Box::new(x_value.clone()), Box::new(this.balance.clone()))),
       ));
       next(vm, op);
-      touch_account(vm, &self_addr.clone());
-      touch_account(vm, &new_addr.clone());
+      touch_account(vm, &self_addr);
+      touch_account(vm, &new_addr);
     }
     if condition == BranchReachability::ONLYELSE || condition == BranchReachability::BOTH {
       {
