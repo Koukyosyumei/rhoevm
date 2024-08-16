@@ -834,7 +834,6 @@ fn create_read_assumptions(ps_elim: &Vec<Box<Prop>>, bufs: &BufEnv, stores: &Sto
 
 pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> Option<SMT2> {
   let simplified_ps = decompose(simplify_props(ps_pre_conc.clone()), config);
-
   if (&simplified_ps).into_iter().any(|p| **p == Prop::PBool(false)) {
     return None;
   }
@@ -1233,7 +1232,9 @@ fn internal(size: Expr, src_offset: Expr, dst_offset: Expr, dst: Builder) -> Bui
 
 // Unrolls an exponentiation into a series of multiplications
 fn expand_exp(base: Expr, expnt: W256) -> Builder {
-  if expnt == W256(1, 0) {
+  if expnt == W256(0, 0) {
+    expr_to_smt(Expr::Lit(W256(1, 0)))
+  } else if expnt == W256(1, 0) {
     expr_to_smt(base)
   } else {
     let b = expr_to_smt(base.clone());

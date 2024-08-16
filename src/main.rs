@@ -13,7 +13,7 @@ use rhoevm::modules::abi::{AbiType, Sig};
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
 use rhoevm::modules::evm::{abstract_contract, opslen, solve_constraints};
 use rhoevm::modules::expr::is_function_sig_check_prop;
-use rhoevm::modules::format::{format_prop, hex_byte_string, strip_0x};
+use rhoevm::modules::format::{hex_byte_string, strip_0x};
 use rhoevm::modules::smt::parse_z3_output;
 use rhoevm::modules::transactions::init_tx;
 use rhoevm::modules::types::{ContractCode, Env, Expr, Prop, RuntimeCodeStruct, EXPR_MEMPTY, VM, W256};
@@ -359,24 +359,6 @@ async fn main() {
 
       debug!("Start SMT Solving...");
 
-      for (pc, constraints, env) in potential_envs {
-        debug!("1");
-        let constraints_clone = constraints.clone();
-        solve_constraints(pc, constraints_clone).await;
-      }
-
-      for (pc, constraints) in potential_reverts {
-        debug!("2");
-        let mut ps = "".to_string();
-        for p in &constraints {
-          ps += &format_prop(p);
-        }
-        debug!("{}", ps);
-        let constraints_clone = constraints.clone();
-        solve_constraints(pc, constraints_clone).await;
-      }
-
-      /*
       let mut tasks_check_envs = vec![];
       for (pc, constraints, env) in potential_envs {
         let constraints_clone = constraints.clone(); // Clone constraints to move into the task
@@ -462,7 +444,6 @@ async fn main() {
           //debug!("UNRECHABLE REVERT @ PC=0x{:x}", pc);
           //}
       }
-      */
       info!("Execution of '{}' completed.\n", function_signature);
     }
     reachable_envs = next_reachable_envs;

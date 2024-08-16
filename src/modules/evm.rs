@@ -3168,13 +3168,6 @@ fn account_empty(c: &Contract) -> bool {
 ///   and the second element is an optional string containing the model from the SMT solver if the constraints are satisfiable.
 pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, Option<String>) {
   let result = task::spawn_blocking(move || {
-    /*
-    for p in &pathconds {
-      warn!("{} ", format_prop(p));
-    }
-    warn!("-------");
-    */
-
     let config = Config::default();
     let smt2 = assert_props(&config, pathconds.to_vec());
     if smt2.is_none() {
@@ -3209,6 +3202,10 @@ pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, O
       let stdout = String::from_utf8(output.stdout).unwrap();
       (stdout[..3] == *"sat", Some(stdout))
     } else {
+      let stdout = String::from_utf8(output.stdout).unwrap();
+      if stdout.len() >= 6 && stdout[..6] == *"(error" {
+        error!("ERROR OF SMT FILE @ {}", file_path.to_str().unwrap());
+      }
       (false, None)
     }
   })
