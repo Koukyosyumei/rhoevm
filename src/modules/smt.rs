@@ -12,7 +12,7 @@ use crate::modules::expr::{
 use crate::modules::format::format_prop;
 use crate::modules::keccak::{keccak_assumptions, keccak_compute};
 use crate::modules::traversals::{fold_prop, TraversableTerm};
-use crate::modules::types::{AddableVec, Addr, Expr, GVar, Prop, W256W256Map, W256};
+use crate::modules::types::{AddableVec, Addr, Expr, GVar, Prop, W256W256Map, EXPR_MEMPTY, W256};
 
 // Type aliases for convenience
 type Text = String;
@@ -292,15 +292,15 @@ pub fn get_var(cex: &SMTCex, name: &str) -> W256 {
 
 fn encode_store(n: usize, expr: &Expr) -> SMT2 {
   let expr_to_smt = expr_to_smt(expr.clone());
-  let txt = format!("(define-fun store{} () Storage {})", n, expr_to_smt);
+  let txt = format!("(define-fun store{:012} () Storage {})", n, expr_to_smt);
   SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
 }
 
 fn encode_buf(n: usize, expr: &Expr, bufs: &BufEnv) -> SMT2 {
   let buf_smt = expr_to_smt(expr.clone());
-  let def_buf = format!("(define-fun buf{} () Buf {})", n, buf_smt);
+  let def_buf = format!("(define-fun buf{:012} () Buf {})", n, buf_smt);
   let len_smt = expr_to_smt(buf_length_env(bufs, true, expr.clone()));
-  let def_len = format!("(define-fun buf{}_length () (_ BitVec 256) {})", n, len_smt);
+  let def_len = format!("(define-fun buf{:012}_length () (_ BitVec 256) {})", n, len_smt);
   SMT2(vec![def_buf, def_len], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
 }
 
@@ -833,7 +833,6 @@ fn create_read_assumptions(ps_elim: &Vec<Box<Prop>>, bufs: &BufEnv, stores: &Sto
 
 pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> Option<SMT2> {
   let simplified_ps = decompose(simplify_props(ps_pre_conc.clone()), config);
-
   if (&simplified_ps).into_iter().any(|p| **p == Prop::PBool(false)) {
     return None;
   }
@@ -878,7 +877,7 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> Option<SMT2
     .flat_map(|term: Prop| referenced_abstract_stores(&term))
     .collect();
   let abstract_stores: Vec<Builder> = abstract_stores_set.into_iter().collect();
-  let addresses =
+  let addresses: HashSet<String> =
     to_declare_ps.into_iter().map(|t| *t.clone()).flat_map(|term: Prop| referenced_waddrs(&term)).collect();
 
   /*allVars = fmap referencedVars toDeclarePsElim <> fmap referencedVars bufVals <> fmap referencedVars storeVals <> [abstrVars abst] */
@@ -909,7 +908,7 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> Option<SMT2
     + (smt2_line("; intermediate buffers & stores".to_owned()))
     + (declare_abstract_stores(&abstract_stores))
     + (smt2_line("".to_owned()))
-    + (declare_addrs(addresses))
+    + (declare_addrs(addresses.into_iter().collect()))
     + (smt2_line("".to_owned()))
     + (declare_bufs(&to_declare_ps_elim, bufs, stores))
     + (smt2_line("".to_owned()))
@@ -969,8 +968,8 @@ fn expr_to_smt(expr: Expr) -> String {
   match expr.clone() {
     Expr::Lit(w) => format!("(_ bv{} 256)", w.to_decimal()),
     Expr::Var(s) => s,
-    Expr::GVar(GVar::BufVar(n)) => format!("buf{}", n),
-    Expr::GVar(GVar::StoreVar(n)) => format!("store{}", n),
+    Expr::GVar(GVar::BufVar(n)) => format!("buf{:012}", n),
+    Expr::GVar(GVar::StoreVar(n)) => format!("store{:012}", n),
     Expr::JoinBytes(v) => concat_bytes(&v),
     Expr::Add(a, b) => op2("bvadd", unbox(a), unbox(b)),
     Expr::Sub(a, b) => op2("bvsub", unbox(a), unbox(b)),
@@ -1103,7 +1102,7 @@ fn expr_to_smt(expr: Expr) -> String {
     },
     Expr::ReadByte(idx, src) => op2("select", *src, *idx),
     Expr::ConcreteBuf(bs) if bs.len() == 0 => "((as const Buf) #b00000000)".to_string(),
-    Expr::ConcreteBuf(bs) => write_bytes(&bs, Expr::Mempty),
+    Expr::ConcreteBuf(bs) => write_bytes(&bs, EXPR_MEMPTY),
     Expr::AbstractBuf(s) => s,
     Expr::ReadWord(idx, prev) => op2("readWord", *idx, *prev),
 
@@ -1232,7 +1231,9 @@ fn internal(size: Expr, src_offset: Expr, dst_offset: Expr, dst: Builder) -> Bui
 
 // Unrolls an exponentiation into a series of multiplications
 fn expand_exp(base: Expr, expnt: W256) -> Builder {
-  if expnt == W256(1, 0) {
+  if expnt == W256(0, 0) {
+    expr_to_smt(Expr::Lit(W256(1, 0)))
+  } else if expnt == W256(1, 0) {
     expr_to_smt(base)
   } else {
     let b = expr_to_smt(base.clone());
@@ -1243,7 +1244,7 @@ fn expand_exp(base: Expr, expnt: W256) -> Builder {
 
 // Concatenates a list of bytes into a larger bitvector
 fn write_bytes(bytes: &[u8], buf: Expr) -> Builder {
-  let skip_zeros = buf == Expr::Mempty;
+  let skip_zeros = buf == EXPR_MEMPTY;
   let mut idx = 0;
   let mut inner = expr_to_smt(buf);
   for &byte in bytes {

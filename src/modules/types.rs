@@ -402,7 +402,6 @@ impl fmt::Display for GVar {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-  Mempty,
   // Identifiers
   Lit(W256),
   Var(String),
@@ -515,7 +514,6 @@ pub enum Expr {
 impl fmt::Display for Expr {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Expr::Mempty => write!(f, "Mempty"),
       Expr::Lit(val) => write!(f, "Lit(0x{})", val.to_hex()),
       Expr::Var(name) => write!(f, "Var({})", name),
       Expr::GVar(gvar) => write!(f, "GVar({})", gvar),
@@ -601,6 +599,8 @@ impl fmt::Display for Expr {
   }
 }
 
+pub const EXPR_MEMPTY: Expr = Expr::ConcreteBuf(vec![]);
+
 impl Eq for Expr {}
 
 impl PartialEq for Expr {
@@ -608,7 +608,6 @@ impl PartialEq for Expr {
     use Expr::*;
 
     match (self, other) {
-      (Mempty, Mempty) => true,
       (Lit(val1), Lit(val2)) => val1 == val2,
       (Var(name1), Var(name2)) => name1 == name2,
       (GVar(gvar1), GVar(gvar2)) => gvar1 == gvar2,
@@ -710,9 +709,6 @@ impl Hash for Expr {
     use Expr::*;
 
     match self {
-      Mempty => {
-        "Mempty".hash(state);
-      }
       Lit(val) => {
         "Lit".hash(state);
         val.hash(state);
@@ -1167,7 +1163,7 @@ pub fn update_balance(c: Contract, new_balance: Expr) -> Contract {
 impl Contract {
   pub fn bytecode(&self) -> Option<Expr> {
     match &self.code {
-      ContractCode::InitCode(_, _) => Some(Expr::Mempty), // Equivalent to Just mempty
+      ContractCode::InitCode(_, _) => Some(EXPR_MEMPTY), // Equivalent to Just mempty
       ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(bs)) => Some(Expr::ConcreteBuf(*bs.clone())),
       ContractCode::RuntimeCode(RuntimeCodeStruct::SymbolicRuntimeCode(ops)) => Some(from_list(ops.to_vec())),
       ContractCode::UnKnownCode(_) => None,
@@ -1587,7 +1583,7 @@ where
 // Implement the Default trait for AddableVec
 impl Default for Expr {
   fn default() -> Expr {
-    Expr::Mempty // Return an empty vector
+    EXPR_MEMPTY // Return an empty vector
   }
 }
 

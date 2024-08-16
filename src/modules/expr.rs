@@ -7,7 +7,8 @@ use crate::modules::cse::BufEnv;
 use crate::modules::rlp::{rlp_addr_full, rlp_list, rlp_word_256};
 use crate::modules::traversals::{fold_expr, map_expr, map_prop, map_prop_prime};
 use crate::modules::types::{
-  keccak, keccak_prime, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, GVar, Prop, W256, W64,
+  keccak, keccak_prime, maybe_lit_byte, pad_right, until_fixpoint, word256_bytes, Addr, Expr, GVar, Prop, EXPR_MEMPTY,
+  W256, W64,
 };
 
 use super::types::{ByteString, Word8};
@@ -701,15 +702,23 @@ pub fn read_word_from_bytes(idx: &Expr, buf: &Expr) -> Box<Expr> {
   }
 }
 
+fn is_addr_litaddr(e: &Expr) -> bool {
+  if let Expr::LitAddr(_) = e {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 pub fn write_word(offset: &Expr, value: &Expr, buf: &Expr) -> Expr {
   let buf_clone = buf.clone();
   match (offset.clone(), value.clone(), buf.clone()) {
     (Expr::Lit(offset), Expr::WAddr(addr), Expr::ConcreteBuf(_))
-      if offset.clone() < MAX_BYTES && offset.clone() + W256(32, 0) < MAX_BYTES =>
+      if offset.clone() < MAX_BYTES && offset.clone() + W256(32, 0) < MAX_BYTES && is_addr_litaddr(&addr) =>
     {
       let val = match *addr.clone() {
         Expr::LitAddr(v) => v,
-        _ => panic!("unsupported"),
+        _ => panic!("unsupported expr: {}", addr),
       };
       write_word(&(Expr::Lit(offset.clone())), &(Expr::Lit(val)), &buf_clone)
     }
@@ -871,7 +880,11 @@ pub fn copy_slice(src_offset: &Expr, dst_offset: &Expr, size: &Expr, src: &Expr,
         let sl: Vec<Expr> = ((src_offset.0)..(src_offset.0) + (size.0))
           .map(|i| read_byte(Box::new(Expr::Lit(W256(i as u128, 0))), Box::new(src.clone())))
           .collect();
-        let tl = &dst_buf[dst_offset.0 as usize + size.0 as usize..];
+        let tl = if (dst_offset.0 as usize + size.0 as usize) < dst_buf.len() {
+          &dst_buf[dst_offset.0 as usize + size.0 as usize..]
+        } else {
+          &vec![]
+        };
 
         if sl.iter().all(|arg0: &Expr| is_lit_byte(Box::new(arg0.clone()))) {
           let packed_sl: Vec<u8> = sl.into_iter().filter_map(maybe_lit_byte).collect();
@@ -1012,15 +1025,11 @@ fn conc_keccak_one_pass(expr: Box<Expr>) -> Expr {
 
 // Main simplify function
 pub fn simplify(expr: Box<Expr>) -> Expr {
-  if *expr != Expr::Mempty {
-    let simplified = map_expr(|arg0: &Expr| go_expr(arg0), *expr.clone());
-    if simplified == *expr {
-      simplified
-    } else {
-      simplify(Box::new(map_expr(|arg0: &Expr| go_expr(arg0), structure_array_slots(Box::new(*expr.clone())))))
-    }
+  let simplified = map_expr(|arg0: &Expr| go_expr(arg0), *expr.clone());
+  if simplified == *expr {
+    simplified
   } else {
-    Expr::Mempty
+    simplify(Box::new(map_expr(|arg0: &Expr| go_expr(arg0), structure_array_slots(Box::new(*expr.clone())))))
   }
 }
 
@@ -1167,6 +1176,13 @@ fn go_expr(expr: &Expr) -> Expr {
         Expr::SymAddr(_) => Expr::Lit(W256(0, 0)),
         _ => iszero(a),
       },
+      Expr::IsZero(b) => match *b.clone() {
+        Expr::IsZero(c) => iszero(c),
+        Expr::LT(x, y) => lt(x, y),
+        Expr::Eq(x, y) => eq(x, y),
+        _ => iszero(a),
+      },
+      Expr::Xor(x, y) => eq(x, y),
       _ => iszero(a),
     },
     // Expr::IsZero(a) => iszero(a),
@@ -1865,7 +1881,7 @@ pub fn drop(n: W256, buf: &Expr) -> Expr {
 }
 
 pub fn slice(offset: Box<Expr>, size: Box<Expr>, src: Box<Expr>) -> Expr {
-  copy_slice(&offset, &(Expr::Lit(W256(0, 0))), &size, &src, &(Expr::Mempty))
+  copy_slice(&offset, &(Expr::Lit(W256(0, 0))), &size, &src, &(EXPR_MEMPTY))
 }
 
 pub fn buf_length(buf: &Expr) -> Expr {
@@ -1898,7 +1914,6 @@ pub fn buf_length_env(env: &HashMap<usize, Expr>, use_env: bool, buf: Expr) -> E
           emax(Box::new(l), Box::new(Expr::BufLength(Box::new(Expr::GVar(GVar::BufVar(a))))))
         }
       }
-      Expr::Mempty => l,
       _ => panic!("unsupported expression: {}", buf),
     }
   }

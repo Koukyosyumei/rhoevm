@@ -11,7 +11,7 @@ use crate::modules::format::{hex_byte_string, strip_0x};
 use crate::modules::symexec::mk_calldata;
 use crate::modules::transactions::init_tx;
 use crate::modules::types::{
-  Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VMOpts, VM, W256,
+  Addr, BaseState, Contract, ContractCode, Expr, Gas, Prop, RuntimeCodeStruct, VMOpts, EXPR_MEMPTY, VM, W256,
 };
 
 type URL = String;
@@ -110,7 +110,7 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Box<
           Some(code) => {
             let bs = hex_byte_string("bytes", &strip_0x(code));
             let mc = if cmd.create {
-              ContractCode::InitCode(Box::new(bs), Box::new(Expr::Mempty))
+              ContractCode::InitCode(Box::new(bs), Box::new(EXPR_MEMPTY))
             } else {
               ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(bs)))
             };
@@ -127,7 +127,7 @@ pub async fn symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Box<
     (_, _, Some(code)) => {
       let bs = hex_byte_string("bytes", &strip_0x(code));
       let mc = if cmd.create {
-        ContractCode::InitCode(Box::new(bs), Box::new(Expr::Mempty))
+        ContractCode::InitCode(Box::new(bs), Box::new(EXPR_MEMPTY))
       } else {
         ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(bs)))
       };

@@ -16,7 +16,7 @@ use rhoevm::modules::expr::is_function_sig_check_prop;
 use rhoevm::modules::format::{hex_byte_string, strip_0x};
 use rhoevm::modules::smt::parse_z3_output;
 use rhoevm::modules::transactions::init_tx;
-use rhoevm::modules::types::{ContractCode, Env, Expr, Prop, RuntimeCodeStruct, VM, W256};
+use rhoevm::modules::types::{ContractCode, Env, Expr, Prop, RuntimeCodeStruct, EXPR_MEMPTY, VM, W256};
 
 #[derive(Debug)]
 struct Args {
@@ -118,7 +118,7 @@ fn dummy_symvm_from_command(cmd: &SymbolicCommand, calldata: (Expr, Vec<Box<Prop
     (_, _, Some(code)) => {
       let bs = hex_byte_string("bytes", &strip_0x(code));
       let mc = if cmd.create {
-        ContractCode::InitCode(Box::new(bs), Box::new(Expr::Mempty))
+        ContractCode::InitCode(Box::new(bs), Box::new(EXPR_MEMPTY))
       } else {
         ContractCode::RuntimeCode(RuntimeCodeStruct::ConcreteRuntimeCode(Box::new(bs)))
       };
@@ -357,6 +357,7 @@ async fn main() {
         vm.state.pc += 1;
       }
 
+      debug!("Start SMT Solving...");
       let mut tasks_check_envs = vec![];
       for (pc, constraints, env) in potential_envs {
         let constraints_clone = constraints.clone(); // Clone constraints to move into the task
@@ -442,7 +443,6 @@ async fn main() {
           //debug!("UNRECHABLE REVERT @ PC=0x{:x}", pc);
           //}
       }
-
       info!("Execution of '{}' completed.\n", function_signature);
     }
     reachable_envs = next_reachable_envs;
