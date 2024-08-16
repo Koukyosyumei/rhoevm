@@ -702,15 +702,23 @@ pub fn read_word_from_bytes(idx: &Expr, buf: &Expr) -> Box<Expr> {
   }
 }
 
+fn is_addr_litaddr(e: &Expr) -> bool {
+  if let Expr::LitAddr(_) = e {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 pub fn write_word(offset: &Expr, value: &Expr, buf: &Expr) -> Expr {
   let buf_clone = buf.clone();
   match (offset.clone(), value.clone(), buf.clone()) {
     (Expr::Lit(offset), Expr::WAddr(addr), Expr::ConcreteBuf(_))
-      if offset.clone() < MAX_BYTES && offset.clone() + W256(32, 0) < MAX_BYTES =>
+      if offset.clone() < MAX_BYTES && offset.clone() + W256(32, 0) < MAX_BYTES && is_addr_litaddr(&addr) =>
     {
       let val = match *addr.clone() {
         Expr::LitAddr(v) => v,
-        _ => panic!("unsupported"),
+        _ => panic!("unsupported expr: {}", addr),
       };
       write_word(&(Expr::Lit(offset.clone())), &(Expr::Lit(val)), &buf_clone)
     }

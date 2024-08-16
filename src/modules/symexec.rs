@@ -68,7 +68,7 @@ pub fn sym_abi_arg(name: &str, abi_type: AbiType) -> CalldataFragment {
       let v = Expr::Var(name.into());
       CalldataFragment::St(vec![Box::new(to_bool(&v))], v)
     }
-    AbiType::AbiAddressType => CalldataFragment::St(vec![], Expr::SymAddr(name.into())),
+    AbiType::AbiAddressType => CalldataFragment::St(vec![], Expr::WAddr(Box::new(Expr::SymAddr(name.into())))),
     AbiType::AbiBytesType(n) => {
       if n > 0 && n <= 32 {
         let v = Expr::Var(name.into());

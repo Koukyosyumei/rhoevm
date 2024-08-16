@@ -878,7 +878,7 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> Option<SMT2
     .flat_map(|term: Prop| referenced_abstract_stores(&term))
     .collect();
   let abstract_stores: Vec<Builder> = abstract_stores_set.into_iter().collect();
-  let addresses =
+  let addresses: HashSet<String> =
     to_declare_ps.into_iter().map(|t| *t.clone()).flat_map(|term: Prop| referenced_waddrs(&term)).collect();
 
   /*allVars = fmap referencedVars toDeclarePsElim <> fmap referencedVars bufVals <> fmap referencedVars storeVals <> [abstrVars abst] */
@@ -909,7 +909,7 @@ pub fn assert_props(config: &Config, ps_pre_conc: Vec<Box<Prop>>) -> Option<SMT2
     + (smt2_line("; intermediate buffers & stores".to_owned()))
     + (declare_abstract_stores(&abstract_stores))
     + (smt2_line("".to_owned()))
-    + (declare_addrs(addresses))
+    + (declare_addrs(addresses.into_iter().collect()))
     + (smt2_line("".to_owned()))
     + (declare_bufs(&to_declare_ps_elim, bufs, stores))
     + (smt2_line("".to_owned()))
