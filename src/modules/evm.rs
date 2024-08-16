@@ -3166,12 +3166,12 @@ fn account_empty(c: &Contract) -> bool {
 ///
 /// * `(bool, Option<String>)` - A tuple where the first element indicates whether the constraints are satisfiable,
 ///   and the second element is an optional string containing the model from the SMT solver if the constraints are satisfiable.
-pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, Option<String>) {
+pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, String, Option<String>) {
   let result = task::spawn_blocking(move || {
     let config = Config::default();
     let smt2 = assert_props(&config, pathconds.to_vec());
     if smt2.is_none() {
-      return (false, None);
+      return (false, "".to_string(), None);
     }
     let content = format_smt2(&smt2.unwrap()) + "\n\n(check-sat)\n(get-model)";
 
@@ -3200,13 +3200,13 @@ pub async fn solve_constraints(pc: usize, pathconds: Vec<Box<Prop>>) -> (bool, O
     if output.status.success() {
       // Convert the standard output to a String
       let stdout = String::from_utf8(output.stdout).unwrap();
-      (stdout[..3] == *"sat", Some(stdout))
+      (stdout[..3] == *"sat", file_path.to_str().unwrap().to_string(), Some(stdout))
     } else {
       let stdout = String::from_utf8(output.stdout).unwrap();
       if stdout.len() >= 6 && stdout[..6] == *"(error" {
         error!("ERROR OF SMT FILE @ {}", file_path.to_str().unwrap());
       }
-      (false, None)
+      (false, file_path.to_str().unwrap().to_string(), None)
     }
   })
   .await

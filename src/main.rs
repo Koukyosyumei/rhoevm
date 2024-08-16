@@ -314,7 +314,7 @@ async fn main() {
           }
 
           if prev_op == "JUMPI" && is_function_sig_check_prop(vm.constraints.clone().last().unwrap()) {
-            let (reachability, _) = solve_constraints(vm.state.pc, vm.constraints.clone()).await;
+            let (reachability, _, _) = solve_constraints(vm.state.pc, vm.constraints.clone()).await;
             if !reachability {
               debug!("Skip non-target function @ PC = 0x{:x}", vm.state.pc);
               continue_flag = false;
@@ -362,7 +362,7 @@ async fn main() {
       for (pc, constraints, env) in potential_envs {
         let constraints_clone = constraints.clone(); // Clone constraints to move into the task
         let task = task::spawn(async move {
-          let (reachability, _) = solve_constraints(pc, constraints_clone).await;
+          let (reachability, _, _) = solve_constraints(pc, constraints_clone).await;
           (pc, reachability, env)
         });
         tasks_check_envs.push(task);
@@ -382,16 +382,16 @@ async fn main() {
       for (pc, constraints) in potential_reverts {
         let constraints_clone = constraints.clone(); // Clone constraints to move into the task
         let task = task::spawn(async move {
-          let (reachability, model) = solve_constraints(pc, constraints_clone).await;
-          (pc, reachability, model)
+          let (reachability, smt_file, model) = solve_constraints(pc, constraints_clone).await;
+          (pc, reachability, smt_file, model)
         });
         tasks_check_revert.push(task);
       }
 
       for task in tasks_check_revert {
-        let (pc, reachability, model) = task.await.unwrap(); // Await each task and unwrap the result
+        let (pc, reachability, smt_file, model) = task.await.unwrap(); // Await each task and unwrap the result
         if reachability {
-          error!("\u{001b}[31mREACHABLE REVERT DETECTED @ PC=0x{:x}\u{001b}[0m", pc);
+          error!("\u{001b}[31mREACHABLE REVERT DETECTED @ PC=0x{:x} (SEE {})\u{001b}[0m", pc, smt_file);
           if let Some(ref model_str) = model {
             let model = parse_z3_output(&model_str);
 
