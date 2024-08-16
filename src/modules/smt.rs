@@ -1,4 +1,3 @@
-use log::info;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::{fmt, vec};
@@ -293,15 +292,15 @@ pub fn get_var(cex: &SMTCex, name: &str) -> W256 {
 
 fn encode_store(n: usize, expr: &Expr) -> SMT2 {
   let expr_to_smt = expr_to_smt(expr.clone());
-  let txt = format!("(define-fun store{} () Storage {})", n, expr_to_smt);
+  let txt = format!("(define-fun store{:012} () Storage {})", n, expr_to_smt);
   SMT2(vec![txt], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
 }
 
 fn encode_buf(n: usize, expr: &Expr, bufs: &BufEnv) -> SMT2 {
   let buf_smt = expr_to_smt(expr.clone());
-  let def_buf = format!("(define-fun buf{} () Buf {})", n, buf_smt);
+  let def_buf = format!("(define-fun buf{:012} () Buf {})", n, buf_smt);
   let len_smt = expr_to_smt(buf_length_env(bufs, true, expr.clone()));
-  let def_len = format!("(define-fun buf{}_length () (_ BitVec 256) {})", n, len_smt);
+  let def_len = format!("(define-fun buf{:012}_length () (_ BitVec 256) {})", n, len_smt);
   SMT2(vec![def_buf, def_len], RefinementEqs(vec![], vec![]), CexVars::new(), vec![])
 }
 
@@ -969,8 +968,8 @@ fn expr_to_smt(expr: Expr) -> String {
   match expr.clone() {
     Expr::Lit(w) => format!("(_ bv{} 256)", w.to_decimal()),
     Expr::Var(s) => s,
-    Expr::GVar(GVar::BufVar(n)) => format!("buf{}", n),
-    Expr::GVar(GVar::StoreVar(n)) => format!("store{}", n),
+    Expr::GVar(GVar::BufVar(n)) => format!("buf{:012}", n),
+    Expr::GVar(GVar::StoreVar(n)) => format!("store{:012}", n),
     Expr::JoinBytes(v) => concat_bytes(&v),
     Expr::Add(a, b) => op2("bvadd", unbox(a), unbox(b)),
     Expr::Sub(a, b) => op2("bvsub", unbox(a), unbox(b)),

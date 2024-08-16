@@ -358,7 +358,6 @@ async fn main() {
       }
 
       debug!("Start SMT Solving...");
-
       let mut tasks_check_envs = vec![];
       for (pc, constraints, env) in potential_envs {
         let constraints_clone = constraints.clone(); // Clone constraints to move into the task
