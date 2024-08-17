@@ -1711,7 +1711,7 @@ impl VM {
           next(self, op);
           true
         }
-        _ => todo!(),
+        _ => panic!("Unsupported OpCode {:x}", op),
       }
     }
   }
@@ -1909,7 +1909,7 @@ fn execute_precompile(
       force_concrete_buf(vm, &input, "BLAKE2", |input| input_prime = input);
       todo!()
     }
-    _ => todo!(),
+    _ => panic!("Unsupported Precompiled Addr={}", pre_compile_addr),
   }
 }
 
