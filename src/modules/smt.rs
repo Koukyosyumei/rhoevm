@@ -1,3 +1,4 @@
+use log::info;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::{fmt, vec};
@@ -1670,8 +1671,8 @@ fn find_buffer_access<T: TraversableTerm>(term: &Vec<T>) -> Vec<(Expr, Expr, Exp
 
 // Function to parse Z3 output and extract variable assignments
 pub fn parse_z3_output(z3_output: &str) -> HashMap<String, String> {
-  // Regular expression to match (define-fun <name> () (_ BitVec 256) #x<value>)
-  let pattern = r"\(define-fun\s+(\w+)\s+\(\)\s+\(_\s+BitVec\s+256\)\s+#x([0-9a-fA-F]+)\)";
+  // Regular expression to match (define-fun <name> () (_ BitVec 256|160) #x<value>)
+  let pattern = r"\(define-fun\s+(\w+)\s+\(\)\s+\(_\s+BitVec\s+(256|160)\)\s+#x([0-9a-fA-F]+)\)";
   let regex = Regex::new(pattern).unwrap();
 
   // Create a HashMap to store the results
@@ -1680,7 +1681,7 @@ pub fn parse_z3_output(z3_output: &str) -> HashMap<String, String> {
   // Find all matches in the Z3 output
   for cap in regex.captures_iter(z3_output) {
     let name = cap[1].to_string();
-    let hex_value = cap[2].to_string();
+    let hex_value = cap[3].to_string();
     result.insert(name, hex_value);
   }
 

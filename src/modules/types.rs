@@ -235,7 +235,7 @@ impl Not for W256 {
 impl W256 {
   // Exponentiation by squaring
   pub fn pow(self, mut exponent: u32) -> W256 {
-    let mut result = W256(0, 1); // Start with W256 equivalent of 1
+    let mut result = W256(1, 0); // Start with W256 equivalent of 1
     let mut base = self;
 
     while exponent > 0 {

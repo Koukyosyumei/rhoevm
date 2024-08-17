@@ -2678,6 +2678,7 @@ fn general_call(
       (x_to.clone(), x_context.clone()),
       "Cannot call precompile with symbolic addresses".to_string(),
       |(_x_to, _x_context)| {
+        todo!()
         /*
         precompiled_contract(
           vm,
