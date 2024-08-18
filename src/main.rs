@@ -25,6 +25,7 @@ struct Args {
   max_num_iterations: Option<u32>,
   verbose_level: Option<String>,
   execute_entire_binary: bool,
+  stop_at_the_first_reachable_revert: bool,
 }
 
 fn print_usage(program: &str, opts: &Options) {
@@ -47,6 +48,7 @@ fn parse_args() -> Args {
     "execute_entire_binary",
     "Execute the entire binary code. If not set, forcibly skip to the runtime code",
   );
+  opts.optflag("s", "stop_at_the_first_reachable_revert", "Halt the execution when a reachable revert is found");
   opts.optflag("h", "help", "Print this help menu");
 
   let matches = match opts.parse(&args[1..]) {
@@ -84,8 +86,16 @@ fn parse_args() -> Args {
   let verbose_level = matches.opt_str("v");
 
   let execute_entire_binary = matches.opt_present("e");
+  let stop_at_the_first_reachable_revert = matches.opt_present("s");
 
-  Args { bin_file_path, function_signatures, max_num_iterations, verbose_level, execute_entire_binary }
+  Args {
+    bin_file_path,
+    function_signatures,
+    max_num_iterations,
+    verbose_level,
+    execute_entire_binary,
+    stop_at_the_first_reachable_revert,
+  }
 }
 
 fn print_ascii_art() {
@@ -401,7 +411,7 @@ async fn main() {
             }
 
             for (k, v) in model.iter() {
-              if k[..3] == *"arg" {
+              if k.len() >= 4 && k[..3] == *"arg" {
                 let variable_id = k[3..].parse::<usize>().unwrap_or(0);
                 if variable_id_to_function_signature.contains_key(&variable_id) {
                   let v_trimmed = v.trim_start_matches('0').to_string();
@@ -409,6 +419,16 @@ async fn main() {
                     .get_mut(variable_id_to_function_signature.get(&variable_id).unwrap())
                     .unwrap()
                     .push(format!("{}=0x{},", k, if v_trimmed.is_empty() { "0" } else { &v_trimmed }));
+                }
+              }
+              if k.len() >= 12 && k[..11] == *"symaddr_arg" {
+                let variable_id = k[11..].parse::<usize>().unwrap_or(0);
+                if variable_id_to_function_signature.contains_key(&variable_id) {
+                  // let v_trimmed = v.trim_start_matches('0').to_string();
+                  fname_to_args
+                    .get_mut(variable_id_to_function_signature.get(&variable_id).unwrap())
+                    .unwrap()
+                    .push(format!("{}=0x{},", k, v));
                 }
               }
             }
@@ -438,7 +458,9 @@ async fn main() {
           //  msg = msg + &format!(" && {}\n", *e);
           //}
           //debug!("{}", msg);
-          break;
+          if args.stop_at_the_first_reachable_revert {
+            break;
+          }
         } //else {
           //debug!("UNRECHABLE REVERT @ PC=0x{:x}", pc);
           //}

@@ -342,7 +342,7 @@ pub fn in_range(sz: u32, e: Box<Expr>) -> Prop {
   Prop::PAnd(
     Box::new(Prop::PGEq(*e.clone(), Expr::Lit(W256(0, 0)))),
     if sz < 256 {
-      Box::new(Prop::PLEq(*e.clone(), Expr::Lit(W256(2_u128, 0).pow(sz))))
+      Box::new(Prop::PLEq(*e.clone(), Expr::Lit(W256(2_u128, 0).pow(sz) - W256(1, 0))))
     } else {
       Box::new(Prop::PLEq(*e.clone(), Expr::Lit(MAX_LIT)))
     },

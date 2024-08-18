@@ -346,7 +346,7 @@ fn is_creation(code: &ContractCode) -> bool {
 /// # Returns
 ///
 /// `true` if the expression corresponds to a precompiled contract address, `false` otherwise.
-fn is_precompile(expr: &Expr) -> bool {
+fn is_precompile_addr(expr: &Expr) -> bool {
   if let Some(lit_self) = maybe_lit_addr(expr.clone()) {
     return lit_self > W256(0x0, 0) && lit_self <= W256(0x9, 0);
   }
@@ -375,7 +375,7 @@ impl VM {
     let this_contract = binding.contracts.get(&self_contract).unwrap();
     let fees = self.block.schedule.clone();
 
-    if is_precompile(&self_contract) {
+    if is_precompile_addr(&self_contract) {
       if let Some(lit_self) = maybe_lit_addr(*self_contract) {
         // call to precompile
         let calldatasize = buf_length(&self.state.calldata);
@@ -1711,7 +1711,7 @@ impl VM {
           next(self, op);
           true
         }
-        _ => todo!(),
+        _ => panic!("Unsupported OpCode {:x}", op),
       }
     }
   }
@@ -1909,7 +1909,7 @@ fn execute_precompile(
       force_concrete_buf(vm, &input, "BLAKE2", |input| input_prime = input);
       todo!()
     }
-    _ => todo!(),
+    _ => panic!("Unsupported Precompiled Addr={}", pre_compile_addr),
   }
 }
 
@@ -2650,11 +2650,6 @@ where
   */
 }
 
-fn is_precompile_addr(_addr: &Expr) -> bool {
-  // Dummy implementation
-  false
-}
-
 // General call implementation ("delegateCall")
 fn general_call(
   vm: &mut VM,
@@ -2678,6 +2673,7 @@ fn general_call(
       (x_to.clone(), x_context.clone()),
       "Cannot call precompile with symbolic addresses".to_string(),
       |(_x_to, _x_context)| {
+        todo!()
         /*
         precompiled_contract(
           vm,
