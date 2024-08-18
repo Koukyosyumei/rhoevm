@@ -346,7 +346,7 @@ fn is_creation(code: &ContractCode) -> bool {
 /// # Returns
 ///
 /// `true` if the expression corresponds to a precompiled contract address, `false` otherwise.
-fn is_precompile(expr: &Expr) -> bool {
+fn is_precompile_addr(expr: &Expr) -> bool {
   if let Some(lit_self) = maybe_lit_addr(expr.clone()) {
     return lit_self > W256(0x0, 0) && lit_self <= W256(0x9, 0);
   }
@@ -375,7 +375,7 @@ impl VM {
     let this_contract = binding.contracts.get(&self_contract).unwrap();
     let fees = self.block.schedule.clone();
 
-    if is_precompile(&self_contract) {
+    if is_precompile_addr(&self_contract) {
       if let Some(lit_self) = maybe_lit_addr(*self_contract) {
         // call to precompile
         let calldatasize = buf_length(&self.state.calldata);
@@ -2648,11 +2648,6 @@ where
     }),
   );
   */
-}
-
-fn is_precompile_addr(_addr: &Expr) -> bool {
-  // Dummy implementation
-  false
 }
 
 // General call implementation ("delegateCall")
