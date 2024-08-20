@@ -1109,7 +1109,7 @@ fn expr_to_smt(expr: Expr) -> String {
 
     Expr::BufLength(b) => match *b {
       Expr::AbstractBuf(ab) => format!("{}_length", ab),
-      Expr::GVar(GVar::BufVar(n)) => format!("buf{}_length", n),
+      Expr::GVar(GVar::BufVar(n)) => format!("buf{:012}_length", n),
       _ => expr_to_smt(buf_length(&b)),
     },
     Expr::WriteByte(idx, val, prev) => {
