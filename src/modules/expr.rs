@@ -1080,7 +1080,14 @@ fn go_expr(expr: &Expr) -> Expr {
     Expr::Partial(a, b, c) => Expr::Partial(simplify_props(a.clone()), b.clone(), c.clone()),
     Expr::Success(a, b, c, d) => Expr::Success(simplify_props(a.clone()), b.clone(), c.clone(), d.clone()),
 
-    Expr::SLoad(slot, store) => read_storage(slot.clone(), store.clone()).unwrap(),
+    Expr::SLoad(slot, store) => {
+      let o = read_storage(slot.clone(), store.clone());
+      if o.is_some() {
+        o.unwrap()
+      } else {
+        Expr::Lit(W256(0, 0))
+      }
+    }
     Expr::SStore(slot, val, store) => write_storage(slot, val, store),
 
     Expr::ReadWord(idx_, buf_) => match (*idx_.clone(), *buf_.clone()) {

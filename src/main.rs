@@ -225,7 +225,6 @@ async fn main() {
   let skip_to_runtimecode = !args.execute_entire_binary;
   let target_binary = if skip_to_runtimecode {
     if let Some(index) = binary.find(pattern_push0_codecopy_push0_return_invalid_push1_0x80_push1_0x40) {
-      info!("binary {}", binary[index..index + 10].to_string());
       binary[index + 10..].to_string()
     } else {
       binary.clone()
