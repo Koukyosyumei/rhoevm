@@ -1,5 +1,7 @@
 # MEMO
 
+- https://chaldene.net/erc721
+
 ## ERC721
 
 - ERC721 is a specification for NFT (Non Fungible Token), where each token cannot be exchanged.
