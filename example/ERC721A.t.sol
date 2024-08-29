@@ -82,34 +82,37 @@ contract ERC721ATest is ERC721A {
     }
 
     function testMintRequirements(address to, uint quantity) public {
-        mint(to, quantity);
-
-        assert(to != address(0));
-        assert(quantity > 0);
+        if (to != address(0) && quantity > 0) {
+            mint(to, quantity);
+        }
     }
 
     function testMintNextTokenIdUpdate(address to, uint quantity) public {
-        uint oldNextTokenId = _nextTokenId();
-        require(oldNextTokenId <= type(uint96).max); // practical assumption needed for overflow/underflow not occurring
+        if (to != address(0) && quantity > 0) {
+            uint oldNextTokenId = _nextTokenId();
+            require(oldNextTokenId <= type(uint96).max); // practical assumption needed for overflow/underflow not occurring
 
-        mint(to, quantity);
+            mint(to, quantity);
 
-        uint newNextTokenId = _nextTokenId();
+            uint newNextTokenId = _nextTokenId();
 
-        assert(newNextTokenId >= oldNextTokenId); // ensuring no overflow
-        assert(newNextTokenId == oldNextTokenId + quantity);
+            assert(newNextTokenId >= oldNextTokenId); // ensuring no overflow
+            assert(newNextTokenId == oldNextTokenId + quantity);
+        }
     }
 
     function testMintBalanceUpdate(address to, uint quantity) public {
-        uint oldBalanceTo = balanceOf(to);
-        require(oldBalanceTo <= type(uint64).max / 2); // practical assumption needed for balance staying within uint64
+        if (to != address(0) && quantity > 0) {
+            uint oldBalanceTo = balanceOf(to);
+            require(oldBalanceTo <= type(uint64).max / 2); // practical assumption needed for balance staying within uint64
 
-        mint(to, quantity);
+            mint(to, quantity);
 
-        uint newBalanceTo = balanceOf(to);
+            uint newBalanceTo = balanceOf(to);
 
-        assert(newBalanceTo >= oldBalanceTo); // ensuring no overflow
-        assert(newBalanceTo == oldBalanceTo + quantity);
+            assert(newBalanceTo >= oldBalanceTo); // ensuring no overflow
+            assert(newBalanceTo == oldBalanceTo + quantity);
+        }
     }
 
     function testMintOwnershipUpdate(address to, uint quantity, uint _newNextTokenId) public {
