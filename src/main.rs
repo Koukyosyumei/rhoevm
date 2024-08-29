@@ -1,7 +1,7 @@
 use env_logger;
 use getopts::Options;
 use log::{debug, error, info, warn};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
@@ -9,14 +9,20 @@ use std::time;
 use std::{env, process};
 use tokio::task;
 
-use rhoevm::modules::abi::{AbiType, Sig};
+use rhoevm::modules::abi::{selector, AbiType, Sig};
 use rhoevm::modules::cli::{build_calldata, vm0, SymbolicCommand};
 use rhoevm::modules::evm::{abstract_contract, opslen, solve_constraints};
 use rhoevm::modules::expr::is_function_sig_check_prop;
 use rhoevm::modules::format::{hex_byte_string, strip_0x};
 use rhoevm::modules::smt::parse_z3_output;
 use rhoevm::modules::transactions::init_tx;
-use rhoevm::modules::types::{ContractCode, Env, Expr, Prop, RuntimeCodeStruct, EXPR_MEMPTY, VM, W256};
+use rhoevm::modules::types::{
+  ByteString, ContractCode, Env, EvmError, Expr, Prop, RuntimeCodeStruct, VMResult, EXPR_MEMPTY, VM, W256,
+};
+
+const DEFAULT_MAX_NUM_ITERATIONS: u32 = 10;
+const DEFAULT_IGNORED_REVERT_LISTS: [u8; 1] = [0x11];
+const DEFAULT_REVERT_STATEMENT: &str = "Panic(uint256)";
 
 #[derive(Debug)]
 struct Args {
@@ -24,6 +30,7 @@ struct Args {
   function_signatures: String,
   max_num_iterations: Option<u32>,
   verbose_level: Option<String>,
+  ignored_panic_codes: HashSet<u8>,
   execute_entire_binary: bool,
   stop_at_the_first_reachable_revert: bool,
 }
@@ -34,8 +41,6 @@ fn print_usage(program: &str, opts: &Options) {
   process::exit(0);
 }
 
-const DEFAULT_MAX_NUM_ITERATIONS: u32 = 10;
-
 fn parse_args() -> Args {
   let args: Vec<String> = env::args().collect();
   let program = args[0].clone();
@@ -43,6 +48,7 @@ fn parse_args() -> Args {
   let mut opts = Options::new();
   opts.optopt("i", "max_num_iterations", "Maximum number of iterations for loop", "MAX_NUM_ITER");
   opts.optopt("v", "verbose", "Level of verbose", "LEVEL");
+  opts.optopt("p", "ignored_panic_codes", "List of ignored panic codes", "IGNORED_PANIC_CODES");
   opts.optflag(
     "e",
     "execute_entire_binary",
@@ -83,7 +89,13 @@ fn parse_args() -> Args {
   } else {
     None
   };
+
   let verbose_level = matches.opt_str("v");
+  let ignored_panic_codes: HashSet<u8> = if let Some(s) = matches.opt_str("p") {
+    s.split('|').map(|s| s.parse::<u8>().unwrap()).collect()
+  } else {
+    HashSet::from_iter(DEFAULT_IGNORED_REVERT_LISTS.to_vec().iter().cloned())
+  };
 
   let execute_entire_binary = matches.opt_present("e");
   let stop_at_the_first_reachable_revert = matches.opt_present("s");
@@ -93,6 +105,7 @@ fn parse_args() -> Args {
     function_signatures,
     max_num_iterations,
     verbose_level,
+    ignored_panic_codes,
     execute_entire_binary,
     stop_at_the_first_reachable_revert,
   }
@@ -180,6 +193,8 @@ async fn main() {
     return;
   }
   debug!("File '{}' read successfully.", args.bin_file_path);
+
+  let panic_bytes: ByteString = selector(DEFAULT_REVERT_STATEMENT);
 
   // utility variables
   let mut normalized_function_names_vec: Vec<String> = vec![];
@@ -339,7 +354,29 @@ async fn main() {
           }
 
           if found_calldataload && prev_op == "REVERT" {
-            potential_reverts.push((vm.state.pc, vm.constraints.clone()));
+            let mut ignore: bool = false;
+            if vm.result.clone().is_some() {
+              if let VMResult::VMFailure(e) = vm.result.clone().unwrap() {
+                if let EvmError::Revert(r) = e {
+                  if let Expr::ConcreteBuf(b) = *r {
+                    if panic_bytes.len() < b.len() {
+                      for i in 1..panic_bytes.len() {
+                        if panic_bytes[i] != b[i] {
+                          ignore = true;
+                          break;
+                        }
+                      }
+                      if !ignore {
+                        ignore = args.ignored_panic_codes.contains(&b[b.len() - 1]);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            if !ignore {
+              potential_reverts.push((vm.state.pc, vm.constraints.clone()));
+            }
             end = true;
           }
 
