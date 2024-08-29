@@ -820,7 +820,7 @@ pub fn copy_slice(src_offset: &Expr, dst_offset: &Expr, size: &Expr, src: &Expr,
         let hd = vec![0; dst_offset.0 as usize];
         let sl = pad_right(
           size.0 as usize,
-          (&src_buf[src_offset.0 as usize..src_offset.0 as usize + size.0 as usize]).to_vec(),
+          (&src_buf[src_offset.0 as usize..min(src_buf.len(), src_offset.0 as usize + size.0 as usize)]).to_vec(),
         );
         return Expr::ConcreteBuf([hd, sl].concat());
       } else {
